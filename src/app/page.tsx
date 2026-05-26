@@ -38,7 +38,7 @@ export default function Home() {
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLTextAreaElement>(null);
-  const [selectedStudents, setSelectedStudents] = useState<{ name: string, grade: string, group: string }[]>([]);
+  const [selectedStudents, setSelectedStudents] = useState<{ id: string, name: string, grade: string, group: string }[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0); // 현재 보고 있는 학생 인덱스
 
   // ✅ 공통 데이터 (일괄 편집 시 사용)
@@ -126,7 +126,7 @@ export default function Home() {
   const reportData = useMemo(() => {
     if (!currentStudent) return commonData;
 
-    const studentOverride = overrides[currentStudent.name] || {};
+    const studentOverride = overrides[currentStudent.id] || {};
 
     return {
       ...commonData,
@@ -158,7 +158,7 @@ export default function Home() {
     return "신기정T"; // Default fallback
   };
 
-  const handleBatchSelect = useCallback((students: { name: string; grade: string; group: string }[]) => {
+  const handleBatchSelect = useCallback((students: { id: string; name: string; grade: string; group: string }[]) => {
     setSelectedStudents(students);
     setCurrentIndex(0);
 
@@ -188,7 +188,7 @@ export default function Home() {
     // ✅ 변경된 로직: 일괄 편집이든 개별 편집이든 "선택된 학생들"에게만 오버라이드를 적용합니다.
     // 기존에는 일괄 편집 시 commonData(전역)를 바꿨으나, 이는 선택되지 않은 학생에게도 영향을 주는 문제가 있었습니다.
 
-    let targets: { name: string, grade: string, group: string }[] = [];
+    let targets: { id: string, name: string, grade: string, group: string }[] = [];
 
     if (isIndividualMode) {
       // 개별 모드: 현재 보고 있는 학생만
@@ -204,8 +204,8 @@ export default function Home() {
       const next = { ...prev };
       targets.forEach(student => {
         // 각 학생별 오버라이드 업데이트 (commonData 건드리지 않음)
-        next[student.name] = {
-          ...(next[student.name] || {}),
+        next[student.id] = {
+          ...(next[student.id] || {}),
           [key]: value
         };
       });
@@ -226,8 +226,8 @@ export default function Home() {
     setOverrides(prev => {
       const next = { ...prev };
       targets.forEach(student => {
-        next[student.name] = {
-          ...(next[student.name] || {}),
+        next[student.id] = {
+          ...(next[student.id] || {}),
           book: data.book,
           progress: data.progress,
           notes: data.notes
@@ -242,12 +242,12 @@ export default function Home() {
 
   // 사이드바 단일 선택 시 (일단 리스트를 해당 학생 1명으로 재설정한다고 가정하거나,
   // 기획에 따라 그냥 뷰만 바꿀 수도 있음. 기존 로직 유지)
-  const handleSelectStudent = (name: string, grade: string, group: string) => {
+  const handleSelectStudent = (id: string, name: string, grade: string, group: string) => {
     // 단일 선택 시에도 selectedStudents를 해당 학생 1명으로 갱신하거나
     // 혹은 전체 리스트에서 해당 학생 인덱스로 이동하는 로직이 필요할 수 있음.
     // 여기서는 기존 로직과 호환성을 위해 commonData의 name/grade는 업데이트 하지 않고
     // selectedStudents를 1명으로 만드는게 깔끔함.
-    const newStudent = { name, grade, group };
+    const newStudent = { id, name, grade, group };
     setSelectedStudents([newStudent]);
     setCurrentIndex(0);
 
@@ -422,7 +422,7 @@ export default function Home() {
 
         <main className="p-12 flex justify-center items-start w-full min-w-max">  {currentStudent ? (
           <div
-            key={currentStudent.name}
+            key={currentStudent.id}
             ref={reportRef}
             className="bg-white p-[40px] shadow-2xl border border-slate-300 relative text-black shrink-0"
             style={{

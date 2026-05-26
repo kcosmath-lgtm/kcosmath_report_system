@@ -9,8 +9,8 @@ import { StudentGroup } from "../../types/student";
 interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelectStudent: (name: string, grade: string, group: string) => void;
-  onBatchSelect: (students: { name: string; grade: string; group: string }[]) => void;
+  onSelectStudent: (id: string, name: string, grade: string, group: string) => void;
+  onBatchSelect: (students: { id: string; name: string; grade: string; group: string }[]) => void;
 }
 
 export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBatchSelect }: SidebarProps) {
@@ -27,7 +27,13 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
   useEffect(() => {
     const savedData = localStorage.getItem("cosmath_student_data");
     if (savedData) {
-      setLocalStudentData(JSON.parse(savedData));
+      let parsed = JSON.parse(savedData);
+      // 구버전 데이터(ID가 없는 데이터) 호환성 처리
+      const hasMissingIds = parsed.some((g: any) => g.students.some((s: any) => !s.id));
+      if (hasMissingIds) {
+        parsed = STUDENT_DATA;
+      }
+      setLocalStudentData(parsed);
     } else {
       setLocalStudentData(STUDENT_DATA);
     }
@@ -54,17 +60,16 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
   useEffect(() => {
     const selectedStudentObjects = localStudentData.flatMap(group =>
       group.students
-        .filter(s => selectedIds.includes(`${group.group}-${s.name}`))
-        .map(s => ({ name: s.name, grade: s.grade, group: group.group }))
+        .filter(s => selectedIds.includes(s.id))
+        .map(s => ({ id: s.id, name: s.name, grade: s.grade, group: group.group }))
     );
     onBatchSelect(selectedStudentObjects);
   }, [selectedIds, onBatchSelect, localStudentData]);
 
-  const toggleStudentCheck = (studentName: string, groupName: string, e: React.MouseEvent) => {
+  const toggleStudentCheck = (studentId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const id = `${groupName}-${studentName}`;
     setSelectedIds(prev =>
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+      prev.includes(studentId) ? prev.filter(i => i !== studentId) : [...prev, studentId]
     );
   };
 
@@ -73,7 +78,7 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
     const group = localStudentData.find(g => g.group === groupName);
     if (!group) return;
 
-    const groupStudentIds = group.students.map(s => `${groupName}-${s.name}`);
+    const groupStudentIds = group.students.map(s => s.id);
     const isAllSelected = groupStudentIds.every(id => selectedIds.includes(id));
 
     if (!isAllSelected) {
@@ -90,7 +95,7 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
       if (group.group === groupName) {
         return {
           ...group,
-          students: [...group.students, { name: newName.trim(), grade: newGrade.trim() }]
+          students: [...group.students, { id: crypto.randomUUID(), name: newName.trim(), grade: newGrade.trim() }]
         };
       }
       return group;
@@ -101,7 +106,7 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
     setAddingToGroup(null);
   };
 
-  const handleRemoveStudent = (groupName: string, studentName: string, e: React.MouseEvent) => {
+  const handleRemoveStudent = (groupName: string, studentId: string, studentName: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm(`${studentName} 학생을 삭제하시겠습니까?`)) return;
 
@@ -109,15 +114,14 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
       if (group.group === groupName) {
         return {
           ...group,
-          students: group.students.filter(s => s.name !== studentName)
+          students: group.students.filter(s => s.id !== studentId)
         };
       }
       return group;
     }));
 
     // 선택 목록에서도 제거
-    const id = `${groupName}-${studentName}`;
-    setSelectedIds(prev => prev.filter(i => i !== id));
+    setSelectedIds(prev => prev.filter(i => i !== studentId));
   };
 
   const handleResetData = () => {
@@ -152,7 +156,7 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
       <div className="flex-1 overflow-y-auto p-3 space-y-1">
         {localStudentData.map((group) => {
           const isExpanded = expandedGroups.includes(group.group);
-          const groupStudentIds = group.students.map(s => `${group.group}-${s.name}`);
+          const groupStudentIds = group.students.map(s => s.id);
           const isAllSelected = groupStudentIds.length > 0 && groupStudentIds.every(id => selectedIds.includes(id));
           const isSomeSelected = groupStudentIds.some(id => selectedIds.includes(id)) && !isAllSelected;
 
@@ -200,16 +204,16 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
               {isExpanded && (
                 <div className="mt-1 mb-2 space-y-0.5">
                   {group.students.map((student) => {
-                    const isChecked = selectedIds.includes(`${group.group}-${student.name}`);
+                    const isChecked = selectedIds.includes(student.id);
                     return (
-                      <div key={student.name} className="group flex items-center ml-7 mr-1 px-3 py-2 rounded-lg cursor-pointer hover:bg-sky-500/10" onClick={() => onSelectStudent(student.name, student.grade, group.group)}>
-                        <div className={`w-4 h-4 rounded border flex items-center justify-center mr-3 ${isChecked ? "bg-sky-500 border-sky-500" : "border-slate-700"}`} onClick={(e) => toggleStudentCheck(student.name, group.group, e)}>
+                      <div key={student.id} className="group flex items-center ml-7 mr-1 px-3 py-2 rounded-lg cursor-pointer hover:bg-sky-500/10" onClick={() => onSelectStudent(student.id, student.name, student.grade, group.group)}>
+                        <div className={`w-4 h-4 rounded border flex items-center justify-center mr-3 ${isChecked ? "bg-sky-500 border-sky-500" : "border-slate-700"}`} onClick={(e) => toggleStudentCheck(student.id, e)}>
                           {isChecked && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
                         </div>
                         <span className={`flex-1 text-[13px] ${isChecked ? "text-sky-400 font-bold" : "text-slate-400 group-hover:text-slate-200"}`}>{student.name}</span>
                         <span className="text-[10px] text-slate-600 font-bold bg-slate-800/50 px-1.5 py-0.5 rounded uppercase mr-2">{student.grade}</span>
                         <button
-                          onClick={(e) => handleRemoveStudent(group.group, student.name, e)}
+                          onClick={(e) => handleRemoveStudent(group.group, student.id, student.name, e)}
                           className="opacity-0 group-hover:opacity-100 p-1 hover:bg-rose-500/20 text-slate-600 hover:text-rose-400 rounded transition-all"
                         >
                           <Trash2 size={12} />

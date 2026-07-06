@@ -584,37 +584,37 @@ export default function Home() {
                   </td>
                 </tr>
 
-                {/* 4행: 단원명/진도 */}
-                <tr style={{ minHeight: '50mm' }}>
-                  <td className="border border-black bg-[#e8f0fe] text-center font-normal text-[14pt]">단원명/진도</td>
-                  <td
-                    colSpan={6}
-                    className="border border-black p-0"
-                    style={{
-                      height: '50mm',           /* 높이 고정 */
-                      verticalAlign: 'middle',  /* ★ td 차원에서 세로 중앙 정렬 */
-                      textAlign: 'center'       /* ★ 가로 중앙 정렬 */
-                    }}
-                  >
-                    <textarea
-                      ref={progressRef}
-                      className="w-full outline-none border-none resize-none leading-relaxed text-[11pt] font-normal block text-black"
-                      style={{
-                        fontFamily: "var(--font-hamchorom)",
-                        backgroundColor: 'transparent',
-                        overflow: 'hidden',
-                        padding: '0 4mm',       /* 좌우 여백만 주고 상하는 0 */
-                        display: 'inline-block',
-                        verticalAlign: 'middle' /* textarea 자체도 중간에 오도록 */
-                      }}
-                      rows={1}                  /* 기본 한 줄 시작 */
-                      value={reportData.progress}
-                      onChange={(e) => {
-                        updateField('progress', e.target.value);
-                      }}
-                    />
-                  </td>
-                </tr>
+{/* 4행: 단원명/진도 (중등부일 때 높이 늘림) */}
+<tr style={{ minHeight: reportData.grade?.includes("중") ? '75mm' : '50mm' }}>
+  <td className="border border-black bg-[#e8f0fe] text-center font-normal text-[14pt]">단원명/진도</td>
+  <td
+    colSpan={6}
+    className="border border-black p-0"
+    style={{
+      height: reportData.grade?.includes("중") ? '75mm' : '50mm', /* ★ 중등부는 75mm, 초등부는 50mm */
+      verticalAlign: 'middle',  /* ★ td 차원에서 세로 중앙 정렬 */
+      textAlign: 'center'       /* ★ 가로 중앙 정렬 */
+    }}
+  >
+    <textarea
+      ref={progressRef}
+      className="w-full outline-none border-none resize-none leading-relaxed text-[11pt] font-normal block text-black"
+      style={{
+        fontFamily: "var(--font-hamchorom)",
+        backgroundColor: 'transparent',
+        overflow: 'hidden',
+        padding: '0 4mm',       /* 좌우 여백만 주고 상하는 0 */
+        display: 'inline-block',
+        verticalAlign: 'middle' /* textarea 자체도 중간에 오도록 */
+      }}
+      rows={1}                  /* 기본 한 줄 시작 */
+      value={reportData.progress}
+      onChange={(e) => {
+        updateField('progress', e.target.value);
+      }}
+    />
+  </td>
+</tr>
 
                 {/* 5행: 과제 여부 및 현황 */}
                 <tr style={{ height: '12mm' }}>
@@ -628,18 +628,21 @@ export default function Home() {
                   </td>
                 </tr>
 
-                {/* 6행: 과제 학습 */}
-                <tr style={{ height: '45.21mm' }}>
-                  <td className="border border-black bg-[#e8f0fe] text-center font-normal text-[14pt]">과제 학습</td>
-                  <td colSpan={6} className="border border-black p-0">
-                    <textarea
-                      className="w-full h-full p-[4mm] outline-none border-none resize-none leading-relaxed text-[11pt] font-normal"
-                      style={{ fontFamily: "var(--font-hamchorom)" }}
-                      value={reportData.notes}
-                      onChange={(e) => updateField('notes', e.target.value)}
-                    />
-                  </td>
-                </tr>
+{/* 6행: 과제 학습 / 중등부는 전달사항으로 변경 + 높이 줄임 */}
+<tr style={{ height: reportData.grade?.includes("중") ? '20.21mm' : '45.21mm' }}>
+  <td className="border border-black bg-[#e8f0fe] text-center font-normal text-[14pt]">
+    {reportData.grade?.includes("중") ? "전달사항" : "과제 학습"}
+  </td>
+  <td colSpan={6} className="border border-black p-0">
+    <textarea
+      className="w-full h-full p-[4mm] outline-none border-none resize-none leading-relaxed text-[11pt] font-normal"
+      style={{ fontFamily: "var(--font-hamchorom)" }}
+      placeholder={reportData.grade?.includes("중") ? "전달사항을 입력해주세요." : ""}
+      value={reportData.notes}
+      onChange={(e) => updateField('notes', e.target.value)}
+    />
+  </td>
+</tr>           
               </tbody>
             </table>
           </div>

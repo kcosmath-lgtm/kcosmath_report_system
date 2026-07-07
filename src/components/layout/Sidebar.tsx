@@ -12,9 +12,9 @@ interface SidebarProps {
   onBatchSelect: (students: { id: string; name: string; grade: string; group: string }[]) => void;
 }
 
-// 🌟 안전한 고유 ID 생성을 위한 함수 (crypto.randomUUID 에러 방지)
-const generateId = () => {
-  return "id_" + Math.random().toString(36).substr(2, 9) + "_" + Date.now();
+// 🌟 브라우저 환경에 구애받지 않는 안전하고 규격에 맞는 고유 ID 생성기
+const generateShortId = () => {
+  return "student_" + Math.random().toString(36).substring(2, 11);
 };
 
 export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBatchSelect }: SidebarProps) {
@@ -27,21 +27,18 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
   const [newName, setNewName] = useState("");
   const [newGrade, setNewGrade] = useState("");
 
-  // ✅ 데이터 로드 및 최신 파일 데이터 강제 동기화 (고등부 누락 방지)
+  // ✅ 1. 데이터 동기화 로드 (기존 저장 데이터 유지 + 고등부 누락 방지 병합)
   useEffect(() => {
     const savedData = localStorage.getItem("cosmath_student_data");
     if (savedData) {
       try {
         let parsed: StudentGroup[] = JSON.parse(savedData);
         
-        // 🌟 파일(students.ts)에는 있는데 로컬스토리지엔 없는 새로운 반이나 고등부 데이터를 찾아서 병합
         STUDENT_DATA.forEach((fileGroup) => {
           const existingGroup = parsed.find((g) => g.group === fileGroup.group);
           if (!existingGroup) {
-            // 새로 추가된 고등부 반 전체를 추가
             parsed.push(fileGroup);
           } else {
-            // 반은 존재하는데 파일에 새로 추가된 학생이 있다면 병합
             fileGroup.students.forEach((fileStudent) => {
               const hasStudent = existingGroup.students.some((s) => s.id === fileStudent.id);
               if (!hasStudent) {
@@ -62,39 +59,35 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
     }
   }, []);
 
-  // ✅ 데이터 저장
+  // ✅ 2. 데이터 상태 변화 추적 저장
   useEffect(() => {
     if (localStudentData.length > 0) {
       localStorage.setItem("cosmath_student_data", JSON.stringify(localStudentData));
     }
   }, [localStudentData]);
 
-  // ✅ 초기화 버튼 클릭 시 완벽하게 최신 고등부 포함 데이터로 덮어쓰기
+  // ✅ 3. 초기화 버튼 기능
   const handleResetData = () => {
-    if (window.confirm("모든 학생 데이터를 파일(STUDENT_DATA) 기준으로 초기화하시겠습니까?\n(직접 추가하거나 삭제한 내역이 사라집니다.)")) {
+    if (window.confirm("모든 학생 데이터를 소스코드 파일 기준으로 초기화하시겠습니까?\n(직접 수동 추가했거나 삭제한 학생 내역이 모두 사라집니다.)")) {
       localStorage.setItem("cosmath_student_data", JSON.stringify(STUDENT_DATA));
       setLocalStudentData(STUDENT_DATA);
       setSelectedIds([]);
-      alert("최신 고등부 학생 데이터로 초기화되었습니다.");
+      alert("최신 학생 데이터 목록으로 초기화되었습니다.");
     }
   };
 
-  // 그룹 확장/축소 토글
   const toggleGroup = (groupName: string) => {
     setExpandedGroups((prev) =>
       prev.includes(groupName) ? prev.filter((g) => g !== groupName) : [...prev, groupName]
     );
   };
 
-  // 개별 학생 선택/해제 토글
   const handleStudentCheck = (studentId: string, name: string, grade: string, groupName: string, e: React.MouseEvent) => {
-    e.stopPropagation(); // 로우 클릭 이벤트 전파 방지
-
+    e.stopPropagation();
     setSelectedIds((prev) => {
       const isSelected = prev.includes(studentId);
       const nextIds = isSelected ? prev.filter((id) => id !== studentId) : [...prev, studentId];
 
-      // 일괄 편집 모드 타겟 전달용 객체 배열 생성
       const selectedStudentsObjects: { id: string; name: string; grade: string; group: string }[] = [];
       localStudentData.forEach((g) => {
         g.students.forEach((s) => {
@@ -109,10 +102,8 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
     });
   };
 
-  // 특정 반 전체 선택/해제
   const handleGroupSelectAll = (groupName: string, e: React.MouseEvent) => {
     e.stopPropagation();
-
     const targetGroup = localStudentData.find((g) => g.group === groupName);
     if (!targetGroup) return;
 
@@ -142,7 +133,7 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
     onBatchSelect(selectedStudentsObjects);
   };
 
-  // 학생 직접 추가하기 실행
+  // ✅ 4. [수정 완료] 엔터 및 버튼 등록 연동 함수
   const handleAddStudentSubmit = (groupName: string) => {
     if (!newName.trim() || !newGrade.trim()) {
       alert("이름과 학년을 모두 입력해 주세요.");
@@ -150,21 +141,34 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
     }
 
     const newStudent = {
-      id: generateId(),
+      id: generateShortId(),
       name: newName.trim(),
       grade: newGrade.trim(),
     };
 
-    setLocalStudentData((prev) =>
-      prev.map((g) => (g.group === groupName ? { ...g, students: [...g.students, newStudent] } : g))
-    );
+    // 로컬 데이터 상태 갱신
+    setLocalStudentData((prev) => {
+      const updated = prev.map((g) => 
+        g.group === groupName ? { ...g, students: [...g.students, newStudent] } : g
+      );
+      localStorage.setItem("cosmath_student_data", JSON.stringify(updated));
+      return updated;
+    });
 
+    // 입력 필드 초기화 및 닫기
     setNewName("");
     setNewGrade("");
     setAddingToGroup(null);
   };
 
-  // 학생 삭제하기
+  // 🌟 인풋 박스에서 엔터 키 감지 로직 추가
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, groupName: string) => {
+    if (e.key === "Enter") {
+      e.preventDefault(); // 기본 폼 제출 액션 방지
+      handleAddStudentSubmit(groupName);
+    }
+  };
+
   const handleRemoveStudent = (groupName: string, studentId: string, studentName: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (window.confirm(`[${studentName}] 학생을 목록에서 정말 삭제하시겠습니까?`)) {
@@ -174,10 +178,6 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
       setSelectedIds((prev) => prev.filter((id) => id !== studentId));
     }
   };
-
-  const sortedStudentData = useMemo(() => {
-    return [...localStudentData];
-  }, [localStudentData]);
 
   return (
     <div
@@ -200,7 +200,7 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
           <button
             onClick={handleResetData}
             className="p-2 hover:bg-slate-800 text-slate-500 hover:text-sky-400 rounded-lg transition-colors"
-            title="데이터 새로고침/초기화"
+            title="데이터 초기화"
           >
             <RotateCcw size={16} />
           </button>
@@ -213,9 +213,9 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
         </div>
       </div>
 
-      {/* 반 및 학생 목록 영역 */}
+      {/* 목록 영역 */}
       <div className="flex-1 overflow-y-auto p-4 space-y-2 select-none">
-        {sortedStudentData.map((group) => {
+        {localStudentData.map((group) => {
           const isExpanded = expandedGroups.includes(group.group);
           const isGroupAllSelected =
             group.students.length > 0 && group.students.map((s) => s.id).every((id) => selectedIds.includes(id));
@@ -227,13 +227,12 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
                 isExpanded ? "bg-slate-900/50 shadow-inner" : ""
               }`}
             >
-              {/* 반 타이틀 로우 */}
+              {/* 반 타이틀 */}
               <div
                 onClick={() => toggleGroup(group.group)}
                 className="flex items-center justify-between px-3.5 py-3 hover:bg-slate-800/40 cursor-pointer group/row transition-colors"
               >
                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  {/* 반별 일괄 선택 체크박스 */}
                   <div
                     onClick={(e) => handleGroupSelectAll(group.group, e)}
                     className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${
@@ -244,7 +243,6 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
                   >
                     {isGroupAllSelected && <Check size={11} strokeWidth={3} />}
                   </div>
-
                   <span className="font-bold text-[12.5px] text-slate-300 group-hover/row:text-white transition-colors truncate">
                     {group.group}
                   </span>
@@ -258,6 +256,9 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
                     onClick={(e) => {
                       e.stopPropagation();
                       setAddingToGroup(addingToGroup === group.group ? null : group.group);
+                      if (addingToGroup !== group.group) {
+                        setExpandedGroups((prev) => prev.includes(group.group) ? prev : [...prev, group.group]);
+                      }
                     }}
                     className="p-1 hover:bg-slate-700 text-slate-500 hover:text-sky-400 rounded transition-colors"
                     title="학생 추가"
@@ -273,39 +274,48 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
                 </div>
               </div>
 
-              {/* 학생 직접 추가 인라인 Form */}
+              {/* 🌟 엔터 버그 패치완료된 수동 입력 Form */}
               {addingToGroup === group.group && (
-                <div className="px-3 pb-3 pt-1 border-t border-slate-800/40 bg-slate-950/20 flex gap-1.5 items-center">
+                <div className="px-3 pb-3 pt-1 border-t border-slate-800/40 bg-slate-950/40 flex gap-1.5 items-center">
                   <input
                     type="text"
                     placeholder="이름"
-                    className="flex-1 bg-slate-900 text-[11px] px-2 py-1 rounded outline-none border border-slate-700 focus:border-sky-500 text-slate-200"
+                    autoFocus
+                    className="flex-1 bg-slate-900 text-[11px] px-2 py-1.5 rounded outline-none border border-slate-700 focus:border-sky-500 text-slate-200 font-medium"
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
+                    onKeyDown={(e) => handleKeyDown(e, group.group)}
                   />
                   <input
                     type="text"
                     placeholder="학년"
-                    className="w-12 bg-slate-900 text-[11px] px-2 py-1 rounded outline-none border border-slate-700 focus:border-sky-500 text-slate-200 text-center"
+                    className="w-12 bg-slate-900 text-[11px] px-2 py-1.5 rounded outline-none border border-slate-700 focus:border-sky-500 text-slate-200 text-center font-medium"
                     value={newGrade}
                     onChange={(e) => setNewGrade(e.target.value)}
+                    onKeyDown={(e) => handleKeyDown(e, group.group)}
                   />
                   <button
+                    type="button"
                     onClick={() => handleAddStudentSubmit(group.group)}
-                    className="bg-sky-600 hover:bg-sky-500 text-white text-[10px] px-2.5 py-1 rounded font-bold transition-colors"
+                    className="bg-sky-600 hover:bg-sky-500 active:scale-95 text-white text-[11px] px-3 py-1.5 rounded font-bold transition-all shrink-0"
                   >
                     등록
                   </button>
                   <button
-                    onClick={() => setAddingToGroup(null)}
-                    className="text-slate-500 hover:text-slate-300 p-1"
+                    type="button"
+                    onClick={() => {
+                      setNewName("");
+                      setNewGrade("");
+                      setAddingToGroup(null);
+                    }}
+                    className="text-slate-500 hover:text-slate-300 p-1 shrink-0"
                   >
-                    <X size={12} />
+                    <X size={13} />
                   </button>
                 </div>
               )}
 
-              {/* 반 내부 학생 리스트 */}
+              {/* 학생 리스트 */}
               {isExpanded && (
                 <div className="border-t border-slate-800/40 divide-y divide-slate-800/30 bg-slate-950/10">
                   {group.students.length === 0 ? (
@@ -320,7 +330,6 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
                           onClick={() => onSelectStudent(student.id, student.name, student.grade, group.group)}
                           className="flex items-center px-4 py-2.5 hover:bg-slate-800/30 cursor-pointer group transition-colors"
                         >
-                          {/* 개별 체크박스 */}
                           <div
                             onClick={(e) => handleStudentCheck(student.id, student.name, student.grade, group.group, e)}
                             className={`w-4 h-4 rounded border flex items-center justify-center mr-3 transition-all ${
@@ -360,7 +369,7 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
         })}
       </div>
 
-      {/* 하단 선택 요약 바 */}
+      {/* 하단 바 */}
       <div className="p-4 bg-[#0f172a] border-t border-slate-800">
         <div className="flex items-center justify-between bg-slate-800/50 rounded-xl px-4 py-3 border border-slate-700">
           <div className="flex flex-col">

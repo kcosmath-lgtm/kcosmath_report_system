@@ -15,7 +15,7 @@ import 'dayjs/locale/ko';
 // 모든 변수 내용 편집 가능하도록 인터페이스 설정
 interface ReportData {
   date: string;
-  type: "정규" | "보충";
+  type: "정규" | "보충" | ""; // 공백 문자 허용 (기존 토글 클릭 지원)
   teacher: string;
   name: string;
   subject: string;
@@ -38,7 +38,10 @@ export default function Home() {
   const [selectedStudents, setSelectedStudents] = useState<{ id: string, name: string, grade: string, group: string }[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0); // 현재 보고 있는 학생 인덱스
 
-  // ✅ 공통 데이터
+  // 🌟 로컬 스토리지 데이터 로드 완료 여부 플래그 (초기화 버그 차단용)
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  // ✅ 공통 기본 템플릿 데이터
   const [commonData, setCommonData] = useState<ReportData>({
     date: getFormattedDate(),
     type: "정규",
@@ -57,33 +60,41 @@ export default function Home() {
     notes: ""
   });
 
-  // ✅ 개별 오버라이드 데이터 (학생 ID 기준)
+  // ✅ 학생별 개별 수정 데이터 상태 (행마다의 실제 기록 보관소)
   const [overrides, setOverrides] = useState<Record<string, Partial<ReportData>>>({});
 
-  // ✅ 데이터 로드
+  // ✅ [1] 컴포넌트 마운트 시 LocalStorage에서 기존 저장 데이터 안전하게 복원
   useEffect(() => {
     const savedCommon = localStorage.getItem("cosmath_common_data");
     const savedOverrides = localStorage.getItem("cosmath_overrides_data");
 
     if (savedCommon) {
-      const parsed = JSON.parse(savedCommon);
-      const { date, ...restData } = parsed;
-      setCommonData(prev => ({ ...prev, ...restData }));
+      try {
+        const parsed = JSON.parse(savedCommon);
+        const { date, ...restData } = parsed;
+        setCommonData(prev => ({ ...prev, ...restData }));
+      } catch (e) { console.error(e); }
     }
     if (savedOverrides) {
-      setOverrides(JSON.parse(savedOverrides));
+      try {
+        setOverrides(JSON.parse(savedOverrides));
+      } catch (e) { console.error(e); }
     }
+    // 데이터 불러오기가 완료된 시점에만 트랙을 열어줍니다.
+    setIsInitialized(true);
   }, []);
 
-  // ✅ 데이터 저장 - commonData
+  // ✅ [2] commonData 변경 시 저장 (로딩 완료 상태일 때만)
   useEffect(() => {
+    if (!isInitialized) return; 
     localStorage.setItem("cosmath_common_data", JSON.stringify(commonData));
-  }, [commonData]);
+  }, [commonData, isInitialized]);
 
-  // ✅ 데이터 저장 - overrides
+  // ✅ [3] overrides(개별 행 기록) 변경 시 실시간으로 LocalStorage에 반영 및 유지
   useEffect(() => {
+    if (!isInitialized) return; 
     localStorage.setItem("cosmath_overrides_data", JSON.stringify(overrides));
-  }, [overrides]);
+  }, [overrides, isInitialized]);
 
   // ✅ 실시간 날짜 업데이트 (1분마다 확인)
   useEffect(() => {
@@ -101,12 +112,12 @@ export default function Home() {
   // ✅ 편집 모드 상태 (false: 일괄 편집, true: 개별 편집)
   const [isIndividualMode, setIsIndividualMode] = useState(false);
 
-  // 현재 보고 있는 학생 식별자
+  // 현재 화면에 활성화된 학생 메타 정보
   const currentStudent = useMemo(() => {
     return selectedStudents[currentIndex] || null;
   }, [selectedStudents, currentIndex]);
 
-  // ✅ 최종 렌더링할 데이터 계산
+  // ✅ 현재 보고 있는 학생의 최종 데이터 조합 연산 (overrides 우선순위 적용)
   const reportData = useMemo(() => {
     if (!currentStudent) return commonData;
 
@@ -120,7 +131,7 @@ export default function Home() {
     };
   }, [commonData, overrides, currentStudent]);
 
-  // ✅ 진도 textarea 높이 자동 조절
+  // ✅ 진도 텍스트 영역 높이 자동 조절
   useEffect(() => {
     if (progressRef.current) {
       progressRef.current.style.height = 'auto';
@@ -128,24 +139,24 @@ export default function Home() {
     }
   }, [reportData.progress, currentStudent]);
 
-  // 🌟 고등부 학년 시간대 매칭 로직 보완
+  // 학년별 시간 자동 매칭
   const getDefaultTime = (grade: string) => {
-    if (grade.includes("초")) return "15:30 ~ 17:30";
-    if (grade.includes("중")) return "17:30 ~ 19:30";
-    if (grade.includes("고")) return "19:00 ~ 22:00"; // 고등부 기본 시간대 설정
+    if (grade && grade.includes("초")) return "15:30 ~ 17:30";
+    if (grade && grade.includes("중")) return "17:30 ~ 19:30";
+    if (grade && grade.includes("고")) return "19:00 ~ 22:00"; 
     return "15:30 ~ 17:30"; 
   };
 
-  // 🌟 고등부 전용 반 이름/키워드 강사 매칭 조건 보완
+  // 반별 강사 자동 매칭
   const getDefaultTeacher = (group: string) => {
-    if (group.includes("중1 정규반") || group.includes("초등 심화반")) return "신기정T";
-    if (group.includes("중2 정규반") || group.includes("초6 정규반")) return "홍정욱T";
-    if (group.includes("중3 정규반") || group.includes("공통수학")) return "김윤재T";
-    if (group.includes("초등 기본반") || group.includes("중등 개별반") || group.includes("은애쌤")) return "백금채T";
+    if (group && (group.includes("중1 정규반") || group.includes("초등 심화반"))) return "신기정T";
+    if (group && (group.includes("중2 정규반") || group.includes("초6 정규반"))) return "홍정욱T";
+    if (group && (group.includes("중3 정규반") || group.includes("공통수학"))) return "김윤재T";
+    if (group && (group.includes("초등 기본반") || group.includes("중등 개별반") || group.includes("은애쌤"))) return "백금채T";
     return "신기정T"; 
   };
 
-  // 🌟 일괄 선택 시 학년 프리셋 다이렉트 주입 로직 추가
+  // ✅ 사이드바에서 일괄 선택 시 동작
   const handleBatchSelect = useCallback((students: { id: string; name: string; grade: string; group: string }[]) => {
     setSelectedStudents(students);
     setCurrentIndex(0);
@@ -157,12 +168,12 @@ export default function Home() {
         teacher: getDefaultTeacher(students[0].group)
       }));
 
-      // 선택된 학생 전체에 대해 각 학년에 매칭되는 프리셋 자동 오버라이드
       setOverrides(prev => {
         const next = { ...prev };
         students.forEach(student => {
           const preset = GRADE_REPORT_DATA[student.grade];
-          if (preset) {
+          // 이미 직접 타이핑해 둔 개별 행 데이터가 없을 때만 초기 프리셋 주입
+          if (preset && !next[student.id]?.book && !next[student.id]?.progress) {
             next[student.id] = {
               ...(next[student.id] || {}),
               book: preset.book,
@@ -188,30 +199,39 @@ export default function Home() {
     }
   };
 
-  const updateField = (key: keyof ReportData, value: string) => {
-    let targets: { id: string, name: string, grade: string, group: string }[] = [];
-
+  // 🌟 [핵심 변경] 일괄 편집 시 선택된 모든 학생의 데이터에 행마다 적용 및 로컬스토리지 유지 로직
+  const updateField = (key: keyof ReportData, value: any) => {
     if (isIndividualMode) {
-      if (currentStudent) targets = [currentStudent];
-    } else {
-      targets = selectedStudents;
-    }
-
-    if (targets.length === 0) return;
-
-    setOverrides(prev => {
-      const next = { ...prev };
-      targets.forEach(student => {
-        next[student.id] = {
-          ...(next[student.id] || {}),
+      // ✅ 개별 편집 모드: 현재 보고 있는 학생 한 명의 행 데이터만 수정 및 유지
+      if (!currentStudent) return;
+      setOverrides(prev => ({
+        ...prev,
+        [currentStudent.id]: {
+          ...(prev[currentStudent.id] || {}),
           [key]: value
-        };
-      });
-      return next;
-    });
+        }
+      }));
+    } else {
+      // ✅ 일괄 편집 모드: 현재 선택된 '모든 학생'의 개별 행 기록(overrides)에 동일 값을 일제히 주입
+      // 이렇게 하면 다른 학생을 누르거나 새로고침해도 학생마다 기록된 고유 데이터 영역에 물리적으로 보존됩니다.
+      setCommonData(prev => ({ ...prev, [key]: value })); // 공통 기준값 업데이트
+
+      if (selectedStudents.length > 0) {
+        setOverrides(prev => {
+          const next = { ...prev };
+          selectedStudents.forEach(student => {
+            next[student.id] = {
+              ...(next[student.id] || {}),
+              [key]: value // 선택된 학생 전원의 각 행 아이템에 명시적으로 주입
+            };
+          });
+          return next;
+        });
+      }
+    }
   };
 
-  // 🌟 단일 학생 선택 시 학년 프리셋 다이렉트 자동 주입 로직 추가
+  // 단일 학생 선택 시 동작
   const handleSelectStudent = (id: string, name: string, grade: string, group: string) => {
     const newStudent = { id, name, grade, group };
     setSelectedStudents([newStudent]);
@@ -223,18 +243,20 @@ export default function Home() {
       teacher: getDefaultTeacher(group)
     }));
 
-    // 클릭한 학생의 학년에 맞는 프리셋 데이터를 찾아 오버라이드 주입
     const preset = GRADE_REPORT_DATA[grade];
     if (preset) {
-      setOverrides(prev => ({
-        ...prev,
-        [id]: {
-          ...(prev[id] || {}),
-          book: preset.book,
-          progress: preset.progress,
-          notes: preset.notes
+      setOverrides(prev => {
+        const next = { ...prev };
+        if (!next[id]?.book && !next[id]?.progress) {
+          next[id] = {
+            ...(next[id] || {}),
+            book: preset.book,
+            progress: preset.progress,
+            notes: preset.notes
+          };
         }
-      }));
+        return next;
+      });
     }
   };
 
@@ -357,7 +379,6 @@ export default function Home() {
               {isGeneratingImage ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
               <span>{isGeneratingImage ? "저장 중..." : "이미지 저장"}</span>
             </button>
-            {/* 🌟 불필요해진 RightSidebar 열기 톱니바퀴 버튼 완전 제거 */}
           </div>
         </header>
 
@@ -471,16 +492,16 @@ export default function Home() {
                 <tbody>
                   <tr style={{ height: '10mm' }}>
                     <td className="border border-black bg-[#e8f0fe] w-[30mm] text-center font-normal">이름</td>
-                    <td className="border border-black w-[65mm] text-center font-normal px-[1.8mm]">
-                      <input className="w-full text-center outline-none border-none bg-transparent font-normal" value={reportData.name} onChange={(e) => updateField('name', e.target.value)} />
+                    <td className="border border-black w-[65mm] text-center font-normal px-[1.8mm] bg-slate-50 font-bold">
+                      {reportData.name}
                     </td>
                     <td className="border border-black bg-[#e8f0fe] w-[20mm] text-center font-normal">과목</td>
                     <td className="border border-black w-[35mm] text-center font-normal px-[1.8mm]">
                       <input className="w-full text-center outline-none border-none bg-transparent font-normal" value={reportData.subject} onChange={(e) => updateField('subject', e.target.value)} />
                     </td>
                     <td className="border border-black bg-[#e8f0fe] w-[20mm] text-center font-normal">학년</td>
-                    <td className="border border-black w-[25mm] text-center font-normal px-[1.8mm]">
-                      <input className="w-full text-center outline-none border-none bg-transparent font-normal" value={reportData.grade} onChange={(e) => updateField('grade', e.target.value)} />
+                    <td className="border border-black w-[25mm] text-center font-normal px-[1.8mm] bg-slate-50 text-slate-700">
+                      {reportData.grade}
                     </td>
                     <td className="border border-black bg-[#e8f0fe] w-[79.88mm] text-center font-normal">수업 교재</td>
                   </tr>
@@ -574,11 +595,10 @@ export default function Home() {
               </table>
             </div>
           ) : (
-            <div className="text-slate-400 font-bold text-2xl animate-pulse"></div>
+            <div className="text-slate-400 font-bold text-2xl animate-pulse">왼쪽 사이드바에서 학생들을 선택해주세요.</div>
           )}
         </main>
       </div>
-      {/* 🌟 불필요해진 RightSidebar 호출 제거 */}
     </div>
   );
 }

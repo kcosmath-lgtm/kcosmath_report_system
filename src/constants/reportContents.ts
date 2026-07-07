@@ -49,5 +49,20 @@ export const GRADE_REPORT_DATA: Record<string, GradeContent> = {
         book: "중등",
         progress: "중등",
         notes: "중등"
+    },
+    "고1": {
+        book: "고등",
+        progress: "고등",
+        notes: "고등"
+    },
+    "고2": {
+        book: "고등",
+        progress: "고등",
+        notes: "고등"
+    },
+    "고3": {
+        book: "고등",
+        progress: "고등",
+        notes: "고등"
     }
 };

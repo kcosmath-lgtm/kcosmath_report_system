@@ -2,7 +2,6 @@
 
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import StudentSidebar from "../components/layout/Sidebar";
-// 🌟 GRADE_REPORT_DATA 직접 참조를 위해 import 추가
 import { GRADE_REPORT_DATA } from "../constants/reportContents";
 import { Menu, Download, ChevronLeft, ChevronRight, Users, User, Loader2 } from "lucide-react";
 import { toBlob } from "html-to-image";
@@ -13,10 +12,9 @@ import { getSetting, saveSetting } from "../lib/supabase";
 import { getFormattedDate } from "../utils/date";
 import 'dayjs/locale/ko';
 
-// 모든 변수 내용 편집 가능하도록 인터페이스 설정
 interface ReportData {
   date: string;
-  type: "정규" | "보충" | ""; // 공백 문자 허용 (기존 토글 클릭 지원)
+  type: "정규" | "보충" | "";
   teacher: string;
   name: string;
   subject: string;
@@ -37,12 +35,9 @@ export default function Home() {
   const reportRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLTextAreaElement>(null);
   const [selectedStudents, setSelectedStudents] = useState<{ id: string, name: string, grade: string, group: string }[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0); // 현재 보고 있는 학생 인덱스
-
-  // 🌟 로컬 스토리지 데이터 로드 완료 여부 플래그 (초기화 버그 차단용)
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [isInitialized, setIsInitialized] = useState(false);
 
-  // ✅ 공통 기본 템플릿 데이터
   const [commonData, setCommonData] = useState<ReportData>({
     date: getFormattedDate(),
     type: "정규",
@@ -61,10 +56,8 @@ export default function Home() {
     notes: ""
   });
 
-  // ✅ 학생별 개별 수정 데이터 상태 (행마다의 실제 기록 보관소)
   const [overrides, setOverrides] = useState<Record<string, Partial<ReportData>>>({});
 
-  // ✅ [1] 컴포넌트 마운트 시 Supabase에서 기존 저장 데이터 안전하게 복원
   useEffect(() => {
     async function loadData() {
       try {
@@ -86,33 +79,25 @@ export default function Home() {
         setIsInitialized(true);
       }
     }
-
     loadData();
   }, []);
 
-  // ✅ [2] commonData 변경 시 저장 (로딩 완료 상태일 때만)
   useEffect(() => {
     if (!isInitialized) return; 
-
     const handler = setTimeout(() => {
       saveSetting("cosmath_common_data", commonData);
     }, 1000);
-
     return () => clearTimeout(handler);
   }, [commonData, isInitialized]);
 
-  // ✅ [3] overrides(개별 행 기록) 변경 시 Supabase에 저장
   useEffect(() => {
     if (!isInitialized) return; 
-
     const handler = setTimeout(() => {
       saveSetting("cosmath_overrides_data", overrides);
     }, 1000);
-
     return () => clearTimeout(handler);
   }, [overrides, isInitialized]);
 
-  // ✅ 실시간 날짜 업데이트 (1분마다 확인)
   useEffect(() => {
     const timer = setInterval(() => {
       const nowFormatted = getFormattedDate();
@@ -121,24 +106,18 @@ export default function Home() {
         return { ...prev, date: nowFormatted };
       });
     }, 60000);
-
     return () => clearInterval(timer);
   }, []);
 
-  // ✅ 편집 모드 상태 (false: 일괄 편집, true: 개별 편집)
   const [isIndividualMode, setIsIndividualMode] = useState(false);
 
-  // 현재 화면에 활성화된 학생 메타 정보
   const currentStudent = useMemo(() => {
     return selectedStudents[currentIndex] || null;
   }, [selectedStudents, currentIndex]);
 
-  // ✅ 현재 보고 있는 학생의 최종 데이터 조합 연산 (overrides 우선순위 적용)
   const reportData = useMemo(() => {
     if (!currentStudent) return commonData;
-
     const studentOverride = overrides[currentStudent.id] || {};
-
     return {
       ...commonData,
       ...studentOverride,
@@ -147,7 +126,6 @@ export default function Home() {
     };
   }, [commonData, overrides, currentStudent]);
 
-  // ✅ 진도 텍스트 영역 높이 자동 조절
   useEffect(() => {
     if (progressRef.current) {
       progressRef.current.style.height = 'auto';
@@ -155,7 +133,6 @@ export default function Home() {
     }
   }, [reportData.progress, currentStudent]);
 
-  // 학년별 시간 자동 매칭
   const getDefaultTime = (grade: string) => {
     if (grade && grade.includes("초")) return "15:30 ~ 17:30";
     if (grade && grade.includes("중")) return "17:30 ~ 19:30";
@@ -163,7 +140,6 @@ export default function Home() {
     return "15:30 ~ 17:30"; 
   };
 
-  // 반별 강사 자동 매칭
   const getDefaultTeacher = (group: string) => {
     if (group && (group.includes("중1 정규반") || group.includes("초등 심화반"))) return "신기정T";
     if (group && (group.includes("중2 정규반") || group.includes("초6 정규반"))) return "홍정욱T";
@@ -172,7 +148,6 @@ export default function Home() {
     return "신기정T"; 
   };
 
-  // ✅ 사이드바에서 일괄 선택 시 동작
   const handleBatchSelect = useCallback((students: { id: string; name: string; grade: string; group: string }[]) => {
     setSelectedStudents(students);
     setCurrentIndex(0);
@@ -188,7 +163,6 @@ export default function Home() {
         const next = { ...prev };
         students.forEach(student => {
           const preset = GRADE_REPORT_DATA[student.grade];
-          // 이미 직접 타이핑해 둔 개별 행 데이터가 없을 때만 초기 프리셋 주입
           if (preset && !next[student.id]?.book && !next[student.id]?.progress) {
             next[student.id] = {
               ...(next[student.id] || {}),
@@ -215,10 +189,8 @@ export default function Home() {
     }
   };
 
-  // 🌟 [핵심 변경] 일괄 편집 시 선택된 모든 학생의 데이터에 행마다 적용 및 로컬스토리지 유지 로직
   const updateField = (key: keyof ReportData, value: any) => {
     if (isIndividualMode) {
-      // ✅ 개별 편집 모드: 현재 보고 있는 학생 한 명의 행 데이터만 수정 및 유지
       if (!currentStudent) return;
       setOverrides(prev => ({
         ...prev,
@@ -228,17 +200,14 @@ export default function Home() {
         }
       }));
     } else {
-      // ✅ 일괄 편집 모드: 현재 선택된 '모든 학생'의 개별 행 기록(overrides)에 동일 값을 일제히 주입
-      // 이렇게 하면 다른 학생을 누르거나 새로고침해도 학생마다 기록된 고유 데이터 영역에 물리적으로 보존됩니다.
-      setCommonData(prev => ({ ...prev, [key]: value })); // 공통 기준값 업데이트
-
+      setCommonData(prev => ({ ...prev, [key]: value }));
       if (selectedStudents.length > 0) {
         setOverrides(prev => {
           const next = { ...prev };
           selectedStudents.forEach(student => {
             next[student.id] = {
               ...(next[student.id] || {}),
-              [key]: value // 선택된 학생 전원의 각 행 아이템에 명시적으로 주입
+              [key]: value
             };
           });
           return next;
@@ -247,7 +216,6 @@ export default function Home() {
     }
   };
 
-  // 단일 학생 선택 시 동작
   const handleSelectStudent = (id: string, name: string, grade: string, group: string) => {
     const newStudent = { id, name, grade, group };
     setSelectedStudents([newStudent]);
@@ -276,9 +244,9 @@ export default function Home() {
     }
   };
 
-  // 이미지 저장 상태
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
 
+  // 🌟 [수정] 이미지 일괄 저장 안정화 로직
   const saveAsImage = async () => {
     if (!reportRef.current || selectedStudents.length === 0) return;
     setIsGeneratingImage(true);
@@ -287,9 +255,7 @@ export default function Home() {
       if (selectedStudents.length === 1) {
         const blob = await toBlob(reportRef.current, { backgroundColor: "#ffffff", pixelRatio: 3 });
         const fileName = `${reportData.grade} ${reportData.name}`;
-        if (blob) {
-          saveAs(blob, `${fileName}.jpg`);
-        }
+        if (blob) saveAs(blob, `${fileName}.jpg`);
       } else {
         const zip = new JSZip();
         const firstGrade = selectedStudents[0].grade;
@@ -301,11 +267,21 @@ export default function Home() {
 
         for (let i = 0; i < selectedStudents.length; i++) {
           const student = selectedStudents[i];
+          
+          // 1. 상태값 변경 트리거
           setCurrentIndex(i);
-          await new Promise(resolve => setTimeout(resolve, 300));
+          
+          // 2. React가 DOM을 완전히 리렌더링하고 브라우저 Paint를 마칠 때까지 충분한 시간을 대기
+          await new Promise(resolve => setTimeout(resolve, 150));
+          await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 150)));
 
           if (reportRef.current) {
-            const blob = await toBlob(reportRef.current, { backgroundColor: "#ffffff", pixelRatio: 3 });
+            // 3. 간혹 폰트나 이미지 로드가 느려질 때를 방지하기 위해 캡처 시도 전 강제 갱신 유도용 옵션 지정 가능
+            const blob = await toBlob(reportRef.current, { 
+              backgroundColor: "#ffffff", 
+              pixelRatio: 3,
+              cacheBust: true // 캐시 버그 방지
+            });
             const fileName = `${student.grade} ${student.name}.jpg`;
             if (blob) {
               targetFolder.file(fileName, blob);
@@ -313,7 +289,9 @@ export default function Home() {
           }
         }
 
+        // 작업 종료 후 보던 화면으로 백업
         setCurrentIndex(originalIndex);
+        
         const zipBlob = await zip.generateAsync({ type: "blob" });
         const zipName = isAllSameGrade ? `${firstGrade}_학습보고서.zip` : `학습보고서_모음_${getFormattedDate()}.zip`;
         saveAs(zipBlob, zipName);
@@ -344,7 +322,6 @@ export default function Home() {
         onBatchSelect={handleBatchSelect}
       />
       <div className="flex-1 flex flex-col overflow-auto relative">
-
         <header className="h-24 bg-[#1e293b] text-white flex items-center px-6 sticky top-0 z-10 shadow-md justify-between">
           <div className="flex items-center gap-4">
             {!isSidebarOpen && (

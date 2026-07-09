@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.110.1",
     "clsx": "^2.1.1",
     "dayjs": "^1.11.19",
     "downloadjs": "^1.4.7",

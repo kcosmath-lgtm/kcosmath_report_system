@@ -1,236 +1,236 @@
 import { StudentGroup } from "../types/student";
 
 export const STUDENT_DATA: StudentGroup[] = [
-  { group: "은애쌤🩷채린친구", students: [{ id: "b2d754c8-46b2-40bc-aa1f-3f61fd542a9c", name: "채린", grade: "고2"  }] },
-  { group: "주말 공통수학", students: [{ id: "54b30f66-31f9-4a23-b9db-61e976cb2b42", name: "안건우", grade: "중3"  }, { id: "880f9c55-a70f-4921-88bc-37e0b5a09bae", name: "이병재", grade: "중3"  }] },
+  { group: "은애쌤🩷채린친구", students: [{ id: "86e086af-b2b1-4adf-922a-9548bd594b34", name: "채린", grade: "고2"  }] },
+  { group: "주말 공통수학", students: [{ id: "7dca9220-9080-485a-a298-545963609b6b", name: "안건우", grade: "중3"  }, { id: "e3b1b91c-6fdc-4323-a479-1ebc95a283f9", name: "이병재", grade: "중3"  }] },
   {
     group: "중1 정규반(월수반)",
     students: [
-      { id: "059f0034-4adf-4798-8842-9aa093297975", name: "김강우", grade: "중1"  }, { id: "47f6ecfb-7cad-42f1-9815-e38d585e8543", name: "김시원", grade: "중1"  },
-      { id: "3b1b4729-a984-471b-ac7b-fe26fa50a756", name: "서정우", grade: "중1"  }, { id: "3823f7e0-9372-4b18-a10a-6d58b58a7187", name: "양지민", grade: "중1"  },
-      { id: "c47972ac-4923-4349-a3c2-726f2002ec24", name: "이윤아", grade: "중1"  }, { id: "3758ceac-0bd1-4fc1-b6b9-57638a619b06", name: "이현석", grade: "중1"  },
-      { id: "a7abef38-a44c-47cc-bcd3-5835ab585415", name: "이효은", grade: "중1"  }, { id: "7f674e72-7ec7-44f7-8891-696a465776cd", name: "전호영", grade: "중1"  },
-      { id: "449daeb7-ff3e-4aa7-94bc-f3086a94f4ff", name: "정예찬", grade: "중1"  }, { id: "d29f1668-aa4a-487a-ba2d-732ce8481775", name: "정희락", grade: "중1"  },
-      { id: "fd71fd75-f180-4a08-a65c-8c7fca81abbc", name: "조이수", grade: "중1"  }, { id: "65e6f476-be37-4956-8f5d-ab6535bd746c", name: "주시윤", grade: "중1"  },
-      { id: "d712007e-a450-409c-84cc-ec0ccf0d3c96", name: "채성호", grade: "중1"  }, { id: "37b8c3f9-df4b-4bc8-8f60-4b097718c50c", name: "홍주원", grade: "중1"  },
+      { id: "81b8befd-2aa2-4e79-b74e-27f7f8870e41", name: "김강우", grade: "중1"  }, { id: "59d64f00-e3d2-443d-b655-57ba21ecd669", name: "김시원", grade: "중1"  },
+      { id: "b9cf0ff4-be6a-4610-9b1b-fc2ee2489736", name: "서정우", grade: "중1"  }, { id: "f5b7886f-65cf-4778-bf77-65519daf90f4", name: "양지민", grade: "중1"  },
+      { id: "1292face-9134-4958-bb84-d19e01af70e9", name: "이윤아", grade: "중1"  }, { id: "a43701e4-9b13-4172-b45b-393e04cae96a", name: "이현석", grade: "중1"  },
+      { id: "f0d221dc-f728-47fa-84f8-24e206cb73ae", name: "이효은", grade: "중1"  }, { id: "9f39ce3a-af80-43d0-8e02-c60b9969bf6c", name: "전호영", grade: "중1"  },
+      { id: "33688828-ad0b-42da-83db-5e26569ed697", name: "정예찬", grade: "중1"  }, { id: "332729b9-0727-4175-b390-c5586e406a1a", name: "정희락", grade: "중1"  },
+      { id: "baa853be-65d2-42e2-a138-7f530aeb4c8d", name: "조이수", grade: "중1"  }, { id: "e11fb6d4-67cc-4dfb-9f18-452648980c69", name: "주시윤", grade: "중1"  },
+      { id: "30bd03e0-9b1e-4559-aba3-990ba425ff8f", name: "채성호", grade: "중1"  }, { id: "df4bfad9-0d4a-4345-87b3-96ddee8a3f10", name: "홍주원", grade: "중1"  },
     ],
   },
   {
     group: "중1 정규반(화목반)",
     students: [
-      { id: "878c9941-31b9-443d-8a89-eec804145d43", name: "권윤진", grade: "중1"  }, { id: "46567a15-bf22-4a32-b1ed-fb5dc1377a9d", name: "김도윤", grade: "중1"  },
-      { id: "c82aad83-78bb-40a5-8936-b49ececa60e6", name: "김민수", grade: "중1"  }, { id: "40b3c8e1-3b7d-4c64-b0cc-3c6a03430e28", name: "김정우", grade: "중1"  },
-      { id: "966a247d-6906-4182-ac1a-4d118340f52d", name: "김채하", grade: "중1"  }, { id: "4ad9d445-e457-4196-a950-afe86872edb9", name: "민지효", grade: "중1"  },
-      { id: "2437b83f-821b-48d8-9819-76641ba46a40", name: "박서윤", grade: "중1"  }, { id: "02168843-b158-4c24-a11b-518cb2d9fefb", name: "박소영", grade: "중1"  },
-      { id: "a38e5c79-771e-4e89-aecd-86fed8d44dcd", name: "송민서", grade: "중1"  }, { id: "b2f6af40-b522-4577-8a76-29f9b18f9f55", name: "이태경", grade: "중1"  },
-      { id: "1c8afeea-9c09-4770-8155-e2295e45af53", name: "임재하", grade: "중1"  }, { id: "97209ee4-52ec-484e-b213-63eca3439264", name: "장도윤", grade: "중1"  },
+      { id: "068ffa5b-395e-45e3-b3f2-1cc58b3e1d94", name: "권윤진", grade: "중1"  }, { id: "afb049b7-e5db-4329-bd8f-1eef0889566e", name: "김도윤", grade: "중1"  },
+      { id: "14c16223-8963-447f-a93b-8b2ce7b13c60", name: "김민수", grade: "중1"  }, { id: "0c2591f5-711f-4b9d-a128-f3d3f06fb7d6", name: "김정우", grade: "중1"  },
+      { id: "94631b4f-4dda-4e3c-acd8-9f4f9863c6d4", name: "김채하", grade: "중1"  }, { id: "14c0601b-6a66-4906-b133-706dc418e77e", name: "민지효", grade: "중1"  },
+      { id: "d92adae2-96c0-4566-96b3-87e003a41cb4", name: "박서윤", grade: "중1"  }, { id: "2722e87f-1bd5-4830-ba57-2e01586672a3", name: "박소영", grade: "중1"  },
+      { id: "ed5f9cd1-2a77-491a-9b1f-7db56d81a2b2", name: "송민서", grade: "중1"  }, { id: "7cbebce1-eab5-48f1-81fc-1fc82a51bb70", name: "이태경", grade: "중1"  },
+      { id: "e76ff860-40ce-4b5c-b047-ac592a0e5251", name: "임재하", grade: "중1"  }, { id: "a388bcbb-51d5-4b1b-a988-e793e25d3768", name: "장도윤", grade: "중1"  },
     ],
   },
   {
     group: "중2 정규반(월수반)",
     students: [
-      { id: "7ab586e7-d59b-401e-82ae-0b9f5474cb97", name: "김아용", grade: "중2"  }, { id: "257896f2-ace0-4921-a712-dead518b4fcd", name: "김예서", grade: "중2"  },
-      { id: "832723d3-1b28-4b82-8495-ac6e71cd5680", name: "박초아", grade: "중2"  }, { id: "aa2b63f7-6db2-4c3c-b1f9-f0e65e3d98d0", name: "오서현", grade: "중2"  },
-      { id: "000d841a-df89-4a26-835e-cf012fdf3d0e", name: "이동욱", grade: "중2"  }, { id: "a18f7c12-0b70-4429-99cd-8aee6338fbd2", name: "이소윤", grade: "중2"  },
-      { id: "076ccfa9-85b4-4e61-b728-15eeffcb6624", name: "이유석", grade: "중2"  }, { id: "99fa4733-4628-4e3f-a663-a8d237031fa5", name: "정지아", grade: "중2"  },
-      { id: "4d562575-db84-4998-bfd2-b301b8f09ee9", name: "조아라", grade: "중2"  },
+      { id: "262a94af-6963-4b68-bf69-66be0204ef95", name: "김아용", grade: "중2"  }, { id: "6c7c65b3-3ec8-47ac-b979-eca2a46f2d30", name: "김예서", grade: "중2"  },
+      { id: "d96bee75-77d9-4a94-90ce-8cfbe98e2287", name: "박초아", grade: "중2"  }, { id: "11b70107-1e8f-417c-9e90-f36d23234e94", name: "오서현", grade: "중2"  },
+      { id: "82ed7716-30e2-4cab-b30f-584b4da404e3", name: "이동욱", grade: "중2"  }, { id: "0764c75a-d30f-483c-af48-922ce3fce273", name: "이소윤", grade: "중2"  },
+      { id: "bfc3a2ac-6260-4779-97d9-e00b724082a1", name: "이유석", grade: "중2"  }, { id: "bb51555e-3214-411e-9f9e-74835256f8ed", name: "정지아", grade: "중2"  },
+      { id: "d35749ed-70b8-4f8a-beaf-59d59349fb8a", name: "조아라", grade: "중2"  },
     ],
   },
   {
     group: "중2 정규반(화목반)",
     students: [
-      { id: "535ad83b-d873-44f3-81c1-a173b0eb3636", name: "김동건", grade: "중2"  }, { id: "edb95e7d-f710-41fa-bcf7-cd0c829172ea", name: "임하윤", grade: "중2"  },
-      { id: "3f68a9b3-ae89-4f85-8ab0-00053d08271c", name: "장민제", grade: "중2"  }, { id: "1ef278c7-5990-49f1-ba48-605f10b9178c", name: "조우현", grade: "중2"  },
-      { id: "145c1078-2fd6-453f-8de9-53b39581742c", name: "조현지", grade: "중2"  }, { id: "fe1805a5-6630-4e86-b45d-27cf93c09cc5", name: "허정안", grade: "중2"  },
+      { id: "49d5f13c-7b8b-46d4-a228-3163f3f17c79", name: "김동건", grade: "중2"  }, { id: "5691ef5d-dab8-43d4-882a-abb071776b2e", name: "임하윤", grade: "중2"  },
+      { id: "8807b3fa-fe92-42b9-8b32-e536c83425d4", name: "장민제", grade: "중2"  }, { id: "d660316a-2f17-48ca-b461-87501e7db486", name: "조우현", grade: "중2"  },
+      { id: "b9c055df-23b7-4095-83ab-98f9adeb95e2", name: "조현지", grade: "중2"  }, { id: "3e78bbd5-f2cd-4779-844e-33284d316a4c", name: "허정안", grade: "중2"  },
     ],
   },
   {
     group: "중3 정규반(월수반)",
     students: [
-      { id: "83412b1b-8b43-487d-a236-388e46602ce7", name: "곽유진", grade: "중3"  }, { id: "970b4a1b-4f95-4ade-9625-326212f50722", name: "민준", grade: "중3"  },
-      { id: "f8c60a26-ba9c-4038-a6da-8c1b5cda7be7", name: "송유라", grade: "중3"  }, { id: "1e3798e2-86ac-4427-bb98-751d4a4848c9", name: "우민아", grade: "중3"  },
-      { id: "2658b594-e3f1-466d-980d-d33bb1dae153", name: "유준영", grade: "중3"  }, { id: "d913cce3-0035-4eb5-9e4e-28790b46f7e7", name: "이명빈", grade: "중3"  },
-      { id: "acddebee-334c-4b47-9b7a-8890007fc98c", name: "이민지", grade: "중3"  }, { id: "19010ca7-aa9b-4da5-9830-ab982a8f8360", name: "이수빈", grade: "중3"  },
+      { id: "fb9d7478-354b-4cea-947a-af15d3ad268b", name: "곽유진", grade: "중3"  }, { id: "58a27acf-a0b2-49ef-98df-cc492a77ae00", name: "민준", grade: "중3"  },
+      { id: "4e418236-db0a-4823-92ea-27e9a1e3d320", name: "송유라", grade: "중3"  }, { id: "7d2a2db5-4afc-481a-8ee6-ced46848d51e", name: "우민아", grade: "중3"  },
+      { id: "cd023236-f30a-4a57-958d-7375633335cd", name: "유준영", grade: "중3"  }, { id: "0edf8194-3695-41d2-b59d-e1442fff3554", name: "이명빈", grade: "중3"  },
+      { id: "677a55bf-6ecc-4afd-9e2e-4947d8777d8a", name: "이민지", grade: "중3"  }, { id: "71bf8f3c-bb7e-4e33-b033-64d88ccb3df4", name: "이수빈", grade: "중3"  },
     ],
   },
   {
     group: "중3 정규반(화목반)",
     students: [
-      { id: "b79b9b8b-7189-46df-9c2c-b63979e480f4", name: "김나윤", grade: "중3"  }, { id: "beb585a3-bdce-48ce-8834-ae6562377d38", name: "김민서", grade: "중3"  },
-      { id: "b4fb2434-eade-4271-be88-3324486aed91", name: "문예은", grade: "중3"  }, { id: "1170f9d9-088a-4e5c-b788-4ea7e5dfb7a3", name: "박수인", grade: "중3"  },
-      { id: "66f3ef9b-6fd1-470f-80c8-14347a8d5e2c", name: "박혜주", grade: "중3"  }, { id: "243ef55e-fc65-46e4-a1fa-0329695d0214", name: "신동훈", grade: "중3"  },
-      { id: "6dd0ba7c-c988-44f3-aee3-0f8b9622a1e5", name: "이준호", grade: "중3"  },
+      { id: "ef1e07ff-9fa7-4e94-b52f-55da9e8aea16", name: "김나윤", grade: "중3"  }, { id: "86f22933-5a49-4e1e-a523-3cb7195d7d4f", name: "김민서", grade: "중3"  },
+      { id: "d301acf4-f3ca-40a5-95bd-5dbff339b70b", name: "문예은", grade: "중3"  }, { id: "a9c62837-342e-47d5-bd27-151d3264471a", name: "박수인", grade: "중3"  },
+      { id: "958c5830-44b3-4529-a95d-1fc0bd9cc52f", name: "박혜주", grade: "중3"  }, { id: "a3667861-9f36-46e3-bd67-e1d4ed9992f7", name: "신동훈", grade: "중3"  },
+      { id: "6417bd2e-fa76-47a1-9acd-9f3590ce4ab7", name: "이준호", grade: "중3"  },
     ],
   },
   {
     group: "중등 개별반(월수)",
     students: [
-      { id: "01365e5d-2297-46b9-8088-f3e6edbab4b5", name: "강우현", grade: "고1"  }, { id: "ccea1b16-1d7d-4bf9-8239-7c95103ad340", name: "김태양", grade: "중2"  }, { id: "6ceaed13-a6b0-43a6-9d6a-d6216624a896", name: "송현호", grade: "고1"  },
+      { id: "a95b1a7c-6b57-45b1-88df-6e84bbcdae3d", name: "강우현", grade: "고1"  }, { id: "35259bf2-27a9-42ca-90e3-ec68735a9037", name: "김태양", grade: "중2"  }, { id: "f9106fa9-5fe5-485c-b68d-1e4e97c8ed9b", name: "송현호", grade: "고1"  },
     ],
   },
   {
     group: "중등 개별반(화목)",
     students: [
-      { id: "437ec32b-072a-402c-b162-af5dacfcaac4", name: "곽도윤", grade: "중3"  }, { id: "0801c244-bde4-4dd3-95aa-e5dc3b3dede5", name: "노정음", grade: "중3"  },
-      { id: "3c35fac0-a22e-452b-8efb-65c88e7fa95f", name: "양서원", grade: "중2"  }, { id: "1221923d-21ce-4e31-b2cc-17881f7f3027", name: "양효서", grade: "중3"  },
-      { id: "6cb9a237-1ea9-427d-b0b9-5fb5881842be", name: "임현석", grade: "중1"  }, { id: "db4a1d35-3181-465f-aae7-ab3303181d3c", name: "조예린", grade: "중1"  },
-      { id: "4fdae127-7797-47df-86d7-e583dbb7bf96", name: "함준서", grade: "중1"  },
+      { id: "b00cf86c-cd90-4a0e-be0b-d90bca25702e", name: "곽도윤", grade: "중3"  }, { id: "51b4991a-7839-4640-8e4d-afa4b0ea42e9", name: "노정음", grade: "중3"  },
+      { id: "768e8fc6-d94c-4298-aa21-6fadfc2af7e7", name: "양서원", grade: "중2"  }, { id: "f761b0e2-7919-4768-966a-172b1ae409d5", name: "양효서", grade: "중3"  },
+      { id: "a4fa6d05-6cc2-481a-b9ab-6893d9aeee8b", name: "임현석", grade: "중1"  }, { id: "6a50f671-f841-4389-b3f3-4ad7ee246b98", name: "조예린", grade: "중1"  },
+      { id: "f6e3fc0f-ad31-4630-a3d3-cc91e6cdd7c3", name: "함준서", grade: "중1"  },
     ],
   },
   {
     group: "초6 정규반(월수반)",
-    students: [{ id: "554a0000-4232-4e98-9f65-41ac722499ca", name: "김도연", grade: "초6"  }, { id: "fc416e3b-4e20-4b5c-a6cf-f4a944a227e7", name: "김채후", grade: "초6"  }],
+    students: [{ id: "c2162fa8-e564-4111-ba24-2e14155e14b1", name: "김도연", grade: "초6"  }, { id: "d6738c9d-1772-46b0-802a-039d55549fef", name: "김채후", grade: "초6"  }],
   },
   {
     group: "초6 정규반(화목반)",
     students: [
-      { id: "1bd7a4e9-7f3a-446a-8c22-b70b89980ac2", name: "강유현", grade: "초6"  }, { id: "6cb8ac40-3122-4473-8c44-cc033432cca5", name: "이민호", grade: "초6"  },
-      { id: "1cef5095-f5ce-432f-b357-b644fb374ce1", name: "정재현", grade: "초6"  }, { id: "869db7b9-760d-4f2f-86bc-904b1f0d815f", name: "차연우", grade: "초6"  },
+      { id: "96813427-9377-4f3d-bea8-6060fe702773", name: "강유현", grade: "초6"  }, { id: "349fee0a-76f4-412b-96a9-93f4d0163c35", name: "이민호", grade: "초6"  },
+      { id: "96683462-005f-4ad3-93d3-eea49b5d96e8", name: "정재현", grade: "초6"  }, { id: "1e341329-cb88-4188-a113-f9437533ca7f", name: "차연우", grade: "초6"  },
     ],
   },
   {
     group: "초등 기본반(월수)",
     students: [
-      { id: "8830b75a-0d92-4fad-9fa6-8adfe201e11d", name: "김도진", grade: "초3"  }, { id: "ad838231-a37b-416e-a5df-9bca9d722e87", name: "김지윤", grade: "초4"  }, { id: "8e7c2585-e81f-4553-ba53-2421200ff6dc", name: "이지윤", grade: "초4"  },
+      { id: "dcb5e680-037c-4991-bbd0-04ff8d18d06c", name: "김도진", grade: "초3"  }, { id: "7e2b9542-3a47-45ce-91fa-7585a18687a9", name: "김지윤", grade: "초4"  }, { id: "d5187d94-a451-4fac-8eec-9e939d9cb38a", name: "이지윤", grade: "초4"  },
     ],
   },
   {
     group: "초등 기본반(화목)",
     students: [
-      { id: "1b5d3936-4718-4199-bfeb-5fb0513a832b", name: "김도진", grade: "초3"  }, { id: "7c2f4808-1a8d-429f-b486-d0fcbea044c3", name: "김찬율", grade: "초4"  },
-      { id: "e75c427f-7d62-4490-949b-afdaace140e3", name: "손태영", grade: "초4"  }, { id: "a33ca5ec-c613-4a8c-bc52-3f25e2689a73", name: "정효민", grade: "초5"  },
+      { id: "c7105d98-0e77-409f-b9fa-bfad19eb5390", name: "김도진", grade: "초3"  }, { id: "b6b99689-ce97-4458-95d3-da6e22a9edb3", name: "김찬율", grade: "초4"  },
+      { id: "fea7eeb8-c486-4a39-890a-091c4a5df9ae", name: "손태영", grade: "초4"  }, { id: "f5cd6f48-30ea-4a81-9b4c-c3e6158a90f8", name: "정효민", grade: "초5"  },
     ],
   },
-  { group: "초등 심화반(월수)", students: [{ id: "4ce5d3f0-3547-409d-be0c-9301e7fcfb24", name: "정재웅", grade: "초4"  }] },
+  { group: "초등 심화반(월수)", students: [{ id: "eef0c6ec-af86-432a-9645-d4add3f60b47", name: "정재웅", grade: "초4"  }] },
   {
     group: "초등 심화반(화목)",
     students: [
-      { id: "77b10e1e-8eb3-4870-a297-8524c400fa03", name: "김우솔", grade: "초5"  }, { id: "de7320a0-a601-4681-b62e-6607a5a6e8c8", name: "박성하", grade: "초5"  }, { id: "3aeab007-f63f-415d-94d1-cd8b4e46f3db", name: "채서윤", grade: "초6"  },
+      { id: "871c4578-9275-47cb-a443-395b6fb2552e", name: "김우솔", grade: "초5"  }, { id: "5b274a40-8c66-4eae-8557-932854e9a2ef", name: "박성하", grade: "초5"  }, { id: "3192788b-bad6-414d-98a6-20c9da5a5aa8", name: "채서윤", grade: "초6"  },
     ],
   },
   {
     group: "초등 정규반(월수)",
     students: [
-      { id: "20a30c23-826d-45c2-8148-bdc4fa3f4f9e", name: "김도헌", grade: "초5"  }, { id: "58b34b50-bdcc-476e-9dc8-e029a57efb94", name: "이다은", grade: "초4"  }, { id: "5792c48d-ff47-4eed-a26d-1927de765ec0", name: "임수민", grade: "초4"  },
+      { id: "4469ca3c-8293-4ea5-82ef-619c0243ed58", name: "김도헌", grade: "초5"  }, { id: "6c611bcd-d9ef-4a1b-8ffb-c515f810f3ed", name: "이다은", grade: "초4"  }, { id: "74b4ee86-2521-4335-99b1-8c0a846aa800", name: "임수민", grade: "초4"  },
     ],
   },
   {
     group: "초등 정규반(화목)",
     students: [
-      { id: "9fbdc458-2193-4f88-a753-c58ac69f0957", name: "김민정", grade: "초6"  }, { id: "6f9621a9-aea4-46a1-b064-f0720c0302b6", name: "송예지", grade: "초5"  },
-      { id: "f481005d-27df-4f59-9987-60a08b5aecac", name: "이재현", grade: "초5"  }, { id: "9f4c0e41-e384-4bf0-b998-bb3273a0eaee", name: "임수민", grade: "초4"  },
-      { id: "c7698c8a-07c8-44cb-ac5b-3c50dcb63218", name: "정지운", grade: "초4"  },
+      { id: "f1fa07cf-87f5-44ce-8911-669fe3d370bf", name: "김민정", grade: "초6"  }, { id: "e9db3af0-f145-4d03-abab-41b7433db677", name: "송예지", grade: "초5"  },
+      { id: "b41533c2-f49e-472a-b317-9e593364acff", name: "이재현", grade: "초5"  }, { id: "40a890ea-69be-40ac-826e-87b1462d439a", name: "임수민", grade: "초4"  },
+      { id: "ee2743de-c2a2-4eb0-a37a-1c978abe093d", name: "정지운", grade: "초4"  },
     ],
   },
   // 여기서부터 고등부 추가 데이터입니다.
   {
     group: "고1 월수반(기정T)",
     students: [
-      { id: "e1a2b3c4-d5e6-4f7a-8b9c-0d1e2f3a4b5c", name: "강지후", grade: "고1" },
-      { id: "f2b3c4d5-e6f7-4a8b-9c0d-1e2f3a4b5c6d", name: "박지은", grade: "고1" },
-      { id: "a3c4d5e6-f7a8-4b9c-0d1e-2f3a4b5c6d7e", name: "주시완", grade: "고1" },
-      { id: "b4d5e6f7-a8b9-4c0d-1e2f-3a4b5c6d7e8f", name: "최다은", grade: "고1" }
+      { id: "862eed97-66f4-4922-92e6-62a8b8c1b48a", name: "강지후", grade: "고1" },
+      { id: "ad2c0209-9dd4-4e2a-bd88-24beb57689b2", name: "박지은", grade: "고1" },
+      { id: "e7f6b654-044e-4e70-9eb0-df8e7df1d8e0", name: "주시완", grade: "고1" },
+      { id: "3fab8979-1c1e-4392-966b-ad65e2480a69", name: "최다은", grade: "고1" }
     ],
   },
   {
     group: "고1 월수반(정욱T)",
     students: [
-      { id: "c5e6f7a8-b9c0-4d1e-2f3a-4b5c6d7e8f9a", name: "정인영", grade: "고1" },
-      { id: "d6f7a8b9-c0d1-4e2f-3a4b-5c6d7e8f9a0b", name: "최은유", grade: "고1" }
+      { id: "787b6b04-2741-4291-9250-e9963d1acbb3", name: "정인영", grade: "고1" },
+      { id: "838d0b6c-fae2-489b-98e7-d9accd5fd5a9", name: "최은유", grade: "고1" }
     ],
   },
   {
     group: "고1 주말반(윤재T)",
     students: [
-      { id: "e7a8b9c0-d1e2-4f3a-4b5c-6d7e8f9a0b1c", name: "강민혁", grade: "고1" },
-      { id: "f8b9c0d1-e2f3-4a4b-5c6d-7e8f9a0b1c2d", name: "노현우", grade: "고1" },
-      { id: "a9c0d1e2-f3a4-4b5c-6d7e-8f9a0b1c2d3e", name: "박소이", grade: "고1" },
-      { id: "b0d1e2f3-a4b5-4c6d-7e8f-9a0b1c2d3e4f", name: "양서윤", grade: "고1" },
-      { id: "c1e2f3a4-b5c6-4d7e-8f9a-0b1c2d3e4f5a", name: "오지연", grade: "고1" },
-      { id: "d2f3a4b5-c6d7-4e8f-9a0b-1c2d3e4f5a6b", name: "이민준", grade: "고1" },
-      { id: "e3a4b5c6-d7e8-4f9a-0b1c-2d3e4f5a6b7c", name: "이시율", grade: "고1" }
+      { id: "1d9f3e95-a57f-4504-b699-ab2ab9ee4144", name: "강민혁", grade: "고1" },
+      { id: "1546d45b-d7c2-4145-a0dd-3af9988bd90e", name: "노현우", grade: "고1" },
+      { id: "c7cc5d00-1407-4825-af27-c0ca09a6c97d", name: "박소이", grade: "고1" },
+      { id: "f4eaa9e1-1d25-4e40-a185-f2c9dc09c492", name: "양서윤", grade: "고1" },
+      { id: "b5e24af3-5107-4bd7-a539-0243e86e6252", name: "오지연", grade: "고1" },
+      { id: "faa44921-afe6-4e99-ab34-f026b07b5f28", name: "이민준", grade: "고1" },
+      { id: "d3e1039c-5f7e-4233-9380-c4e773f8456c", name: "이시율", grade: "고1" }
     ],
   },
   {
     group: "고1 화목반(기정T)",
     students: [
-      { id: "f4b5c6d7-e8f9-4a0b-1c2d-3e4f5a6b7c8d", name: "김다원", grade: "고1" },
-      { id: "a5c6d7e8-f9a0-4b1c-2d3e-4f5a6b7c8d9e", name: "김명희", grade: "고1" },
-      { id: "b6d7e8f9-a0b1-4c2d-3e4f-5a6b7c8d9e0f", name: "김보미", grade: "고1" },
-      { id: "c7e8f9a0-b1c2-4d3e-4f5a-6b7c8d9e0f1a", name: "김아현", grade: "고1" },
-      { id: "d8f9a0b1-c2d3-4e4f-5a6b-7c8d9e0f1a2b", name: "김지훈", grade: "고1" },
-      { id: "e9a0b1c2-d3e4-4f5a-6b7c-8d9e0f1a2b3c", name: "박지은", grade: "고1" },
-      { id: "f0b1c2d3-e4f5-4a6b-7c8d-9e0f1a2b3c4d", name: "유예지", grade: "고1" },
-      { id: "a1c2d3e4-f5a6-4b7c-8d9e-0f1a2b3c4d5e", name: "이도훈", grade: "고1" },
-      { id: "b2d3e4f5-a6b7-4c8d-9e0f-1a2b3c4d5e6f", name: "장태규", grade: "고1" }
+      { id: "9c5f1e29-7293-4377-ae03-1781c8160b3e", name: "김다원", grade: "고1" },
+      { id: "651213e0-83fb-4a6f-a4d5-1b3f7eff39bd", name: "김명희", grade: "고1" },
+      { id: "ed5ce0bc-77d4-49cf-9894-2d2011f6037a", name: "김보미", grade: "고1" },
+      { id: "e8283f71-d792-409c-a9fb-3b8ededd3124", name: "김아현", grade: "고1" },
+      { id: "78e57911-d1d0-4612-bd40-139f4d874692", name: "김지훈", grade: "고1" },
+      { id: "1f1e8cea-b34e-4bbd-9efc-1f4647005b78", name: "박지은", grade: "고1" },
+      { id: "e5293d83-bbd3-4d2c-889e-2eb3b3104240", name: "유예지", grade: "고1" },
+      { id: "627042e8-8d9b-4bf0-9501-7c5ebf9c090a", name: "이도훈", grade: "고1" },
+      { id: "b7bf2bd9-e705-42e1-b75a-851780d03cef", name: "장태규", grade: "고1" }
     ],
   },
   {
     group: "고2 월수반(윤재T)",
     students: [
-      { id: "c3e4f5a6-b7c8-4d9e-0f1a-2b3c4d5e6f7a", name: "강예은", grade: "고2" },
-      { id: "d4f5a6b7-c8d9-4e0f-1a2b-3c4d5e6f7a8b", name: "김나은", grade: "고2" },
-      { id: "e5a6b7c8-d9e0-4f1a-2b3c-4d5e6f7a8b9c", name: "김영아", grade: "고2" },
-      { id: "f6b7c8d9-e0f1-4a2b-3c4d-5e6f7a8b9c0d", name: "노해원", grade: "고2" },
-      { id: "a7c8d9e0-f1a2-4b3c-4d5e-6f7a8b9c0d1e", name: "신유안", grade: "고2" },
-      { id: "b8d9e0f1-a2b3-4c4d-5e6f-7a8b9c0d1e2f", name: "이수민", grade: "고2" }
+      { id: "196255b2-178a-4391-9953-7c238207d1b9", name: "강예은", grade: "고2" },
+      { id: "6288fb49-1e21-471b-831c-5b7b1b656d8c", name: "김나은", grade: "고2" },
+      { id: "ce5378d0-559b-41be-b49c-2c4a47435a8a", name: "김영아", grade: "고2" },
+      { id: "a65b17d2-4407-4de9-a9b0-52413f0821e7", name: "노해원", grade: "고2" },
+      { id: "ba2c089f-6091-4120-9927-f4b855f9dc99", name: "신유안", grade: "고2" },
+      { id: "22065bfc-bd0b-405f-a372-08b1803582f8", name: "이수민", grade: "고2" }
     ],
   },
   {
     group: "고2 주말반(정욱T)",
     students: [
-      { id: "c9e0f1a2-b3c4-4d5e-6f7a-8b9c0d1e2f3a", name: "이지효", grade: "고2" },
-      { id: "d0f1a2b3-c4d5-4e6f-7a8b-9c0d1e2f3a4b", name: "정재영", grade: "고2" },
-      { id: "e1a2b3c4-d5e6-4f7a-8b9c-0d1e2f3a4b5c", name: "최민지", grade: "고2" }
+      { id: "87df1bb6-91a7-4b85-8ae8-6b75cd183154", name: "이지효", grade: "고2" },
+      { id: "d6e2edac-f48a-47ed-b073-2bac00060acc", name: "정재영", grade: "고2" },
+      { id: "f49e4e47-89aa-444b-979c-e7ca75b0ae41", name: "최민지", grade: "고2" }
     ],
   },
   {
     group: "고2 화목반(윤재T)",
     students: [
-      { id: "f2b3c4d5-e6f7-4a8b-9c0d-1e2f3a4b5c6d", name: "김나현", grade: "고2" },
-      { id: "a3c4d5e6-f7a8-4b9c-0d1e-2f3a4b5c6d7e", name: "김민서", grade: "고2" },
-      { id: "b4d5e6f7-a8b9-4c0d-1e2f-3a4b5c6d7e8f", name: "윤효찬", grade: "고2" },
-      { id: "c5e6f7a8-b9c0-4d1e-2f3a-4b5c6d7e8f9a", name: "은지효", grade: "고2" },
-      { id: "d6f7a8b9-c0d1-4e2f-3a4b-5c6d7e8f9a0b", name: "조예서", grade: "고2" }
+      { id: "a9bc2d31-047f-4f19-90d2-74a7a4773869", name: "김나현", grade: "고2" },
+      { id: "e0e9ea75-8cb4-4654-9ad6-2595f4fa853d", name: "김민서", grade: "고2" },
+      { id: "313a432c-f467-4db3-a533-ac0f1f09c990", name: "윤효찬", grade: "고2" },
+      { id: "5c6b64c7-9be8-4b67-9a15-c98ef9f8ea00", name: "은지효", grade: "고2" },
+      { id: "88a84597-49a0-4307-af98-90ffb6281694", name: "조예서", grade: "고2" }
     ],
   },
   {
     group: "고2 화목반(정욱T)",
     students: [
-      { id: "e7a8b9c0-d1e2-4f3a-4b5c-6d7e8f9a0b1c", name: "김세연", grade: "고2" },
-      { id: "f8b9c0d1-e2f3-4a4b-5c6d-7e8f9a0b1c2d", name: "문영찬", grade: "고2" },
-      { id: "a9c0d1e2-f3a4-4b5c-6d7e-8f9a0b1c2d3e", name: "최민경", grade: "고2" },
-      { id: "b0d1e2f3-a4b5-4c6d-7e8f-9a0b1c2d3e4f", name: "한윤서", grade: "고2" }
+      { id: "98154c78-1c0c-4cd9-95d0-1bdf3598f872", name: "김세연", grade: "고2" },
+      { id: "24089782-ff47-4600-bff3-45c8f6752921", name: "문영찬", grade: "고2" },
+      { id: "389702c6-a820-42e0-9c19-7d9ff34fae42", name: "최민경", grade: "고2" },
+      { id: "8abb9b76-7ead-4c36-9811-48fe0ea6f737", name: "한윤서", grade: "고2" }
     ],
   },
   {
     group: "고3 미적반",
     students: [
-      { id: "c1e2f3a4-b5c6-4d7e-8f9a-0b1c2d3e4f5a", name: "김민준", grade: "고3" },
-      { id: "d2f3a4b5-c6d7-4e8f-9a0b-1c2d3e4f5a6b", name: "최인우", grade: "고3" }
+      { id: "6e5d0485-84c0-47ad-8779-4e04a21bb303", name: "김민준", grade: "고3" },
+      { id: "502fcbbb-83e9-46b0-9dfa-547a8ee36613", name: "최인우", grade: "고3" }
     ],
   },
   {
     group: "고3 수1반",
     students: [
-      { id: "e3a4b5c6-d7e8-4f9a-0b1c-2d3e4f5a6b7c", name: "차민채", grade: "고3" },
-      { id: "d2f3a4b5-c6d7-4e8f-9a0b-1c2d3e4f5a6b", name: "최인우", grade: "고3" }
+      { id: "a5199063-c75c-4d14-b5c7-243f79a28fe8", name: "차민채", grade: "고3" },
+      { id: "7b5b6f40-6b3b-47ec-b68e-579bb5a0135b", name: "최인우", grade: "고3" }
     ],
   },
   {
     group: "고3 수2반",
     students: [
-      { id: "d2f3a4b5-c6d7-4e8f-9a0b-1c2d3e4f5a6b", name: "최인우", grade: "고3" }
+      { id: "687bf1a6-9ccb-4937-84fc-0f5e003df6c1", name: "최인우", grade: "고3" }
     ],
   },
   {
     group: "고3 확통반",
     students: [
-      { id: "f4b5c6d7-e8f9-4a0b-1c2d-3e4f5a6b7c8d", name: "김가연", grade: "고3" },
-      { id: "a5c6d7e8-f9a0-4b1c-2d3e-4f5a6b7c8d9e", name: "박솔지", grade: "고3" },
-      { id: "b6d7e8f9-a0b1-4c2d-3e4f-5a6b7c8d9e0f", name: "이지수", grade: "고3" },
-      { id: "c7e8f9a0-b1c2-4d3e-4f5a-6b7c8d9e0f1a", name: "최윤하", grade: "고3" },
-      { id: "d2f3a4b5-c6d7-4e8f-9a0b-1c2d3e4f5a6b", name: "최인우", grade: "고3" }
+      { id: "080856c4-89b4-4960-a378-87ee8137bac2", name: "김가연", grade: "고3" },
+      { id: "e53d7f25-1cfa-43a6-abf8-233db26eb5c9", name: "박솔지", grade: "고3" },
+      { id: "5f1b0797-bfae-44e7-aa1a-4bf6de2b1f80", name: "이지수", grade: "고3" },
+      { id: "ab7e787a-ddf4-472b-843c-fd84b6729fa0", name: "최윤하", grade: "고3" },
+      { id: "111af761-1f45-493d-b27e-fc6f64663372", name: "최인우", grade: "고3" }
     ],
   }
 ];

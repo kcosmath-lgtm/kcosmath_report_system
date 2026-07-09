@@ -9,6 +9,7 @@ import { toBlob } from "html-to-image";
 import Image from "next/image";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
+import { getSetting, saveSetting } from "../lib/supabase";
 import { getFormattedDate } from "../utils/date";
 import 'dayjs/locale/ko';
 
@@ -63,37 +64,52 @@ export default function Home() {
   // ✅ 학생별 개별 수정 데이터 상태 (행마다의 실제 기록 보관소)
   const [overrides, setOverrides] = useState<Record<string, Partial<ReportData>>>({});
 
-  // ✅ [1] 컴포넌트 마운트 시 LocalStorage에서 기존 저장 데이터 안전하게 복원
+  // ✅ [1] 컴포넌트 마운트 시 Supabase에서 기존 저장 데이터 안전하게 복원
   useEffect(() => {
-    const savedCommon = localStorage.getItem("cosmath_common_data");
-    const savedOverrides = localStorage.getItem("cosmath_overrides_data");
+    async function loadData() {
+      try {
+        const [dbCommon, dbOverrides] = await Promise.all([
+          getSetting<ReportData | null>("cosmath_common_data", null),
+          getSetting<Record<string, Partial<ReportData>> | null>("cosmath_overrides_data", null)
+        ]);
 
-    if (savedCommon) {
-      try {
-        const parsed = JSON.parse(savedCommon);
-        const { date, ...restData } = parsed;
-        setCommonData(prev => ({ ...prev, ...restData }));
-      } catch (e) { console.error(e); }
+        if (dbCommon) {
+          const { date, ...restData } = dbCommon;
+          setCommonData(prev => ({ ...prev, ...restData }));
+        }
+        if (dbOverrides) {
+          setOverrides(dbOverrides);
+        }
+      } catch (e) {
+        console.error("Supabase 데이터 로드 실패:", e);
+      } finally {
+        setIsInitialized(true);
+      }
     }
-    if (savedOverrides) {
-      try {
-        setOverrides(JSON.parse(savedOverrides));
-      } catch (e) { console.error(e); }
-    }
-    // 데이터 불러오기가 완료된 시점에만 트랙을 열어줍니다.
-    setIsInitialized(true);
+
+    loadData();
   }, []);
 
   // ✅ [2] commonData 변경 시 저장 (로딩 완료 상태일 때만)
   useEffect(() => {
     if (!isInitialized) return; 
-    localStorage.setItem("cosmath_common_data", JSON.stringify(commonData));
+
+    const handler = setTimeout(() => {
+      saveSetting("cosmath_common_data", commonData);
+    }, 1000);
+
+    return () => clearTimeout(handler);
   }, [commonData, isInitialized]);
 
-  // ✅ [3] overrides(개별 행 기록) 변경 시 실시간으로 LocalStorage에 반영 및 유지
+  // ✅ [3] overrides(개별 행 기록) 변경 시 Supabase에 저장
   useEffect(() => {
     if (!isInitialized) return; 
-    localStorage.setItem("cosmath_overrides_data", JSON.stringify(overrides));
+
+    const handler = setTimeout(() => {
+      saveSetting("cosmath_overrides_data", overrides);
+    }, 1000);
+
+    return () => clearTimeout(handler);
   }, [overrides, isInitialized]);
 
   // ✅ 실시간 날짜 업데이트 (1분마다 확인)
@@ -309,6 +325,15 @@ export default function Home() {
       setIsGeneratingImage(false);
     }
   };
+
+  if (!isInitialized) {
+    return (
+      <div className="flex h-screen w-full flex-col items-center justify-center bg-slate-900 text-white font-sans">
+        <Loader2 className="h-10 w-10 animate-spin text-sky-400" />
+        <p className="mt-4 text-sm text-slate-400">Supabase 데이터베이스와 동기화 중...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen w-full bg-slate-200 font-['Hamchorom_Dotum', 'Dotum', 'sans-serif']">

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { ChevronDown, RotateCcw, ChevronLeft, Users, Plus, Trash2, X, Check } from "lucide-react";
 import { STUDENT_DATA } from "../../constants/students";
 import { StudentGroup } from "../../types/student";
+import { getSetting, saveSetting } from "../../lib/supabase";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -27,51 +28,90 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
   const [newName, setNewName] = useState("");
   const [newGrade, setNewGrade] = useState("");
 
-  // ✅ 1. 데이터 동기화 로드 (기존 저장 데이터 유지 + 고등부 누락 방지 병합)
-  useEffect(() => {
-    const savedData = localStorage.getItem("cosmath_student_data");
-    if (savedData) {
-      try {
-        let parsed: StudentGroup[] = JSON.parse(savedData);
-        
-        STUDENT_DATA.forEach((fileGroup) => {
-          const existingGroup = parsed.find((g) => g.group === fileGroup.group);
-          if (!existingGroup) {
-            parsed.push(fileGroup);
-          } else {
-            fileGroup.students.forEach((fileStudent) => {
-              const hasStudent = existingGroup.students.some((s) => s.id === fileStudent.id);
-              if (!hasStudent) {
-                existingGroup.students.push(fileStudent);
-              }
-            });
-          }
-        });
+  // ✅ 로컬 스토리지 및 Supabase 데이터 로드 완료 여부 플래그
+  const [isInitialized, setIsInitialized] = useState(false);
 
-        setLocalStudentData(parsed);
-        localStorage.setItem("cosmath_student_data", JSON.stringify(parsed));
+  // ✅ 1. 데이터 동기화 로드 (Supabase 기반)
+  useEffect(() => {
+    async function loadStudentData() {
+      let currentData = STUDENT_DATA;
+      let shouldForceSave = false;
+
+      // 중복 ID 검사 헬퍼 함수
+      const hasDuplicateIds = (groups: StudentGroup[]) => {
+        const ids = new Set<string>();
+        for (const g of groups) {
+          for (const s of g.students) {
+            if (ids.has(s.id)) return true;
+            ids.add(s.id);
+          }
+        }
+        return false;
+      };
+
+      // 1. Supabase에서 최신 학생 데이터 로드
+      try {
+        const dbData = await getSetting<StudentGroup[] | null>("cosmath_student_data", null);
+        if (dbData && dbData.length > 0) {
+          if (hasDuplicateIds(dbData)) {
+            console.warn("Supabase 데이터베이스에 중복 ID 감지됨 - 고유 ID로 자동 업데이트 수행");
+            currentData = STUDENT_DATA;
+            shouldForceSave = true;
+          } else {
+            currentData = dbData;
+          }
+        }
       } catch (e) {
-        setLocalStudentData(STUDENT_DATA);
+        console.error("Supabase 학생 데이터 로드 실패:", e);
       }
-    } else {
-      setLocalStudentData(STUDENT_DATA);
-      localStorage.setItem("cosmath_student_data", JSON.stringify(STUDENT_DATA));
+
+      // 2. 파일 기준 누락된 그룹/학생 병합
+      const merged = [...currentData];
+      STUDENT_DATA.forEach((fileGroup) => {
+        const existingGroup = merged.find((g) => g.group === fileGroup.group);
+        if (!existingGroup) {
+          merged.push(fileGroup);
+          shouldForceSave = true;
+        } else {
+          fileGroup.students.forEach((fileStudent) => {
+            const hasStudent = existingGroup.students.some((s) => s.id === fileStudent.id);
+            if (!hasStudent) {
+              existingGroup.students.push(fileStudent);
+              shouldForceSave = true;
+            }
+          });
+        }
+      });
+
+      setLocalStudentData(merged);
+
+      if (shouldForceSave) {
+        await saveSetting("cosmath_student_data", merged);
+      }
+
+      setIsInitialized(true);
     }
+
+    loadStudentData();
   }, []);
 
-  // ✅ 2. 데이터 상태 변화 추적 저장
+  // ✅ 2. 데이터 상태 변화 추적 → Supabase에만 저장 (로딩 완료 시에만)
   useEffect(() => {
-    if (localStudentData.length > 0) {
-      localStorage.setItem("cosmath_student_data", JSON.stringify(localStudentData));
-    }
-  }, [localStudentData]);
+    if (!isInitialized || localStudentData.length === 0) return;
+
+    const handler = setTimeout(() => {
+      saveSetting("cosmath_student_data", localStudentData);
+    }, 1000);
+
+    return () => clearTimeout(handler);
+  }, [localStudentData, isInitialized]);
 
   // ✅ 3. 초기화 버튼 기능
-  const handleResetData = () => {
+  const handleResetData = async () => {
     if (window.confirm("모든 학생 데이터를 소스코드 파일 기준으로 초기화하시겠습니까?\n(직접 수동 추가했거나 삭제한 학생 내역이 모두 사라집니다.)")) {
-      localStorage.setItem("cosmath_student_data", JSON.stringify(STUDENT_DATA));
       setLocalStudentData(STUDENT_DATA);
       setSelectedIds([]);
+      await saveSetting("cosmath_student_data", STUDENT_DATA);
       alert("최신 학생 데이터 목록으로 초기화되었습니다.");
     }
   };
@@ -151,7 +191,6 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
       const updated = prev.map((g) => 
         g.group === groupName ? { ...g, students: [...g.students, newStudent] } : g
       );
-      localStorage.setItem("cosmath_student_data", JSON.stringify(updated));
       return updated;
     });
 

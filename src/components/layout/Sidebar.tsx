@@ -105,24 +105,26 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
     );
   };
 
+  // selectedIds 변경을 부모 컴포넌트에 안전하게 전달 (렌더링 사이클 외부)
+  useEffect(() => {
+    if (!isInitialized) return;
+    const selectedStudentsObjects: { id: string; name: string; grade: string; group: string }[] = [];
+    localStudentData.forEach((g) => {
+      g.students.forEach((s) => {
+        if (selectedIds.includes(s.id)) {
+          selectedStudentsObjects.push({ id: s.id, name: s.name, grade: s.grade, group: g.group });
+        }
+      });
+    });
+    onBatchSelect(selectedStudentsObjects);
+  }, [selectedIds, localStudentData, isInitialized, onBatchSelect]);
+
   // 개별 체크박스 토글
   const handleStudentCheck = (studentId: string, name: string, grade: string, groupName: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setSelectedIds((prev) => {
       const isSelected = prev.includes(studentId);
-      const nextIds = isSelected ? prev.filter((id) => id !== studentId) : [...prev, studentId];
-
-      const selectedStudentsObjects: { id: string; name: string; grade: string; group: string }[] = [];
-      localStudentData.forEach((g) => {
-        g.students.forEach((s) => {
-          if (nextIds.includes(s.id)) {
-            selectedStudentsObjects.push({ id: s.id, name: s.name, grade: s.grade, group: g.group });
-          }
-        });
-      });
-
-      onBatchSelect(selectedStudentsObjects);
-      return nextIds;
+      return isSelected ? prev.filter((id) => id !== studentId) : [...prev, studentId];
     });
   };
 
@@ -135,27 +137,17 @@ export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBat
     const targetStudentIds = targetGroup.students.map((s) => s.id);
     const isAllSelected = targetStudentIds.every((id) => selectedIds.includes(id));
 
-    let nextIds = [...selectedIds];
-    if (isAllSelected) {
-      nextIds = nextIds.filter((id) => !targetStudentIds.includes(id));
-    } else {
-      targetStudentIds.forEach((id) => {
-        if (!nextIds.includes(id)) nextIds.push(id);
-      });
-    }
-
-    setSelectedIds(nextIds);
-
-    const selectedStudentsObjects: { id: string; name: string; grade: string; group: string }[] = [];
-    localStudentData.forEach((g) => {
-      g.students.forEach((s) => {
-        if (nextIds.includes(s.id)) {
-          selectedStudentsObjects.push({ id: s.id, name: s.name, grade: s.grade, group: g.group });
-        }
-      });
+    setSelectedIds((prev) => {
+      let nextIds = [...prev];
+      if (isAllSelected) {
+        nextIds = nextIds.filter((id) => !targetStudentIds.includes(id));
+      } else {
+        targetStudentIds.forEach((id) => {
+          if (!nextIds.includes(id)) nextIds.push(id);
+        });
+      }
+      return nextIds;
     });
-
-    onBatchSelect(selectedStudentsObjects);
   };
 
   // 🌟 [수정] 학생 이름/행 자체를 클릭하여 단일 선택 시 체크박스 상태도 1명으로 연동

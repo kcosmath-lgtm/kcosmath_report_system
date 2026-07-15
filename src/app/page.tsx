@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import StudentSidebar from "../components/layout/Sidebar";
 import { GRADE_REPORT_DATA } from "../constants/reportContents";
-import { Menu, Download, ChevronLeft, ChevronRight, Users, User, Loader2 } from "lucide-react";
+import { Menu, Download, ChevronLeft, ChevronRight, Users, User, Loader2, Save, HelpCircle, AlertTriangle, Wifi, X } from "lucide-react";
 import { toBlob } from "html-to-image";
 import Image from "next/image";
 import JSZip from "jszip";
@@ -37,6 +37,7 @@ export default function Home() {
   const [selectedStudents, setSelectedStudents] = useState<{ id: string, name: string, grade: string, group: string }[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
 
   const [commonData, setCommonData] = useState<ReportData>({
     date: getFormattedDate(),
@@ -82,21 +83,65 @@ export default function Home() {
     loadData();
   }, []);
 
-  useEffect(() => {
-    if (!isInitialized) return; 
-    const handler = setTimeout(() => {
-      saveSetting("cosmath_common_data", commonData);
-    }, 1000);
-    return () => clearTimeout(handler);
-  }, [commonData, isInitialized]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const isFirstLoad = useRef(true);
 
+  // 변경사항 감지
   useEffect(() => {
-    if (!isInitialized) return; 
-    const handler = setTimeout(() => {
-      saveSetting("cosmath_overrides_data", overrides);
-    }, 1000);
-    return () => clearTimeout(handler);
-  }, [overrides, isInitialized]);
+    if (!isInitialized) return;
+    if (isFirstLoad.current) {
+      isFirstLoad.current = false;
+      return;
+    }
+    setHasUnsavedChanges(true);
+  }, [commonData, overrides, isInitialized]);
+
+  // 페이지 이탈 시 경고
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = "저장하지 않은 변경사항이 있습니다. 정말 페이지를 떠나시겠습니까?";
+        return e.returnValue;
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  // DB 수동 저장 함수
+  const saveToSupabase = useCallback(async () => {
+    setIsSaving(true);
+    try {
+      const commonSaved = await saveSetting("cosmath_common_data", commonData);
+      const overridesSaved = await saveSetting("cosmath_overrides_data", overrides);
+      
+      if (commonSaved && overridesSaved) {
+        setHasUnsavedChanges(false);
+        alert("데이터가 Supabase DB에 성공적으로 저장되었습니다!");
+      } else {
+        alert("일부 데이터를 저장하지 못했습니다. Supabase 설정을 확인해주세요.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("저장 중 오류가 발생했습니다. 네트워크 연결 상태를 확인해주세요.");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [commonData, overrides]);
+
+  // Ctrl + S 저장 단축키 지원
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        saveToSupabase();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [saveToSupabase]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -374,6 +419,19 @@ export default function Home() {
             )}
 
             <button
+              onClick={saveToSupabase}
+              disabled={isSaving}
+              className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all shadow-lg active:scale-95 disabled:cursor-wait ${
+                hasUnsavedChanges
+                  ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse"
+                  : "bg-slate-700 hover:bg-slate-600 text-slate-300 border border-slate-600"
+              }`}
+            >
+              {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+              <span>{isSaving ? "저장 중..." : hasUnsavedChanges ? "DB 저장 (변경됨)" : "DB 저장 완료"}</span>
+            </button>
+
+            <button
               onClick={saveAsImage}
               disabled={isGeneratingImage}
               className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-400 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg active:scale-95 disabled:cursor-wait"
@@ -601,6 +659,102 @@ export default function Home() {
           )}
         </main>
       </div>
+
+      {/* 도움말 플로팅 버튼 */}
+      <button
+        onClick={() => setIsHelpOpen(true)}
+        className="fixed bottom-6 right-6 z-40 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600 shadow-xl hover:scale-105 active:scale-95 transition-all p-3.5 rounded-full flex items-center justify-center cursor-pointer group"
+        title="사용 가이드"
+      >
+        <HelpCircle size={22} className="group-hover:text-sky-400 transition-colors" />
+      </button>
+
+      {/* 도움말 모달 */}
+      {isHelpOpen && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setIsHelpOpen(false)}>
+          <div 
+            className="bg-slate-900 border border-slate-800 text-slate-100 rounded-3xl shadow-2xl w-full max-w-lg p-6 relative animate-in fade-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button 
+              onClick={() => setIsHelpOpen(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white hover:bg-slate-800 p-1.5 rounded-xl transition-colors"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 bg-sky-500/10 rounded-xl flex items-center justify-center text-sky-400 border border-sky-500/20">
+                <HelpCircle size={20} />
+              </div>
+              <h2 className="text-lg font-bold text-slate-200">COSMATH Report 사용 가이드</h2>
+            </div>
+
+            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+              {/* 가이드 카드 1: 동시 편집 */}
+              <div className="bg-slate-950/40 border border-slate-800/80 p-4 rounded-2xl flex gap-3">
+                <div className="text-amber-400 shrink-0 mt-0.5">
+                  <AlertTriangle size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-200 mb-1">동시 편집 주의 (가장 중요 / 대부분 원인이 아마 이거 때문인 것 같으니 각별히 주의해주세요)</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    여러 컴퓨터나 브라우저 창에서 동시에 문서를 수정하고 저장하면, 나중에 저장한 내용이 이전 내용을 덮어씁니다. 한 번에 한 분의 선생님만 한 창에서 수정해 주세요.
+                  </p>
+                </div>
+              </div>
+
+              {/* 가이드 카드 2: 수동 저장 및 단축키 */}
+              <div className="bg-slate-950/40 border border-slate-800/80 p-4 rounded-2xl flex gap-3">
+                <div className="text-emerald-400 shrink-0 mt-0.5">
+                  <Save size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-200 mb-1">수동 저장 생활화 및 단축키</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    수정이 완료되면 상단 헤더의 <span className="text-emerald-400 font-bold">DB 저장</span> 버튼을 누르거나, 키보드 단축키 <kbd className="bg-slate-800 text-[10px] px-1 py-0.5 rounded border border-slate-700 text-slate-300 font-mono">Ctrl + S</kbd> (Mac은 <kbd className="bg-slate-800 text-[10px] px-1 py-0.5 rounded border border-slate-700 text-slate-300 font-mono">Cmd + S</kbd>)를 누르면 즉시 저장됩니다.
+                  </p>
+                </div>
+              </div>
+
+              {/* 가이드 카드 3: 인터넷 및 이탈 경고 */}
+              <div className="bg-slate-950/40 border border-slate-800/80 p-4 rounded-2xl flex gap-3">
+                <div className="text-sky-400 shrink-0 mt-0.5">
+                  <Wifi size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-200 mb-1">네트워크 오류 및 경고</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    네트워크 연결이 일시적으로 불안정할 경우 저장 실패 경고창이 뜹니다. 만약 저장하지 않고 창을 닫으려고 하면 새로고침/이탈 차단 팝업이 띄워져 작성한 내용을 안전하게 보관할 수 있습니다.
+                  </p>
+                </div>
+              </div>
+
+              {/* 가이드 카드 4: 첫 접속 지연 */}
+              <div className="bg-slate-950/40 border border-slate-800/80 p-4 rounded-2xl flex gap-3">
+                <div className="text-indigo-400 shrink-0 mt-0.5">
+                  <Loader2 size={18} className="animate-spin" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-200 mb-1">장기 미사용 시 첫 로딩 대기</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    방학 등으로 인해 일주일 이상 아무도 접속하지 않은 경우, Supabase DB가 수면 모드로 전환됩니다. 오랜만에 첫 접속 시 로딩이 10~30초 지연될 수 있으니 잠시 기다려주시면 정상 연결됩니다.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button 
+                onClick={() => setIsHelpOpen(false)}
+                className="bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs px-5 py-2.5 rounded-xl active:scale-95 transition-all shadow-md"
+              >
+                가이드 확인 완료
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

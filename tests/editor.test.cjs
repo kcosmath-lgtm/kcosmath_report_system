@@ -33,6 +33,36 @@ async function mount(day = { lessons: [], reports: [] }) {
 afterEach(async () => { if (root) await act(async () => root.unmount()); root = null; global.window.confirm = () => true; });
 const a = { id: 'a', name: '학생 A', grade: '중2', group: '테스트 반', classId: 'class-a' };
 const b = { id: 'b', name: '학생 B', grade: '중2', group: '테스트 반', classId: 'class-a' };
+test('AI edits only current student in batch mode, persists individually and supports undo', async () => {
+  const batches = [];
+  save = async batch => { batches.push(batch); return echo(batch); };
+  await mount();
+  await act(async () => editor.handleBatchSelect([a, b]));
+  await act(async () => editor.saveToSupabase());
+  const before = { ...editor.reportData };
+  await act(async () => assert.equal(editor.applyAiPatch(a.id, before, { notes: 'AI 수정' }), true));
+  assert.equal(editor.reportData.notes, 'AI 수정');
+  const after = { ...editor.reportData };
+  await act(async () => editor.saveToSupabase());
+  assert.equal(batches[1].reports.length, 1);
+  assert.equal(batches[1].reports[0].student_id, a.id);
+  assert.equal(batches[1].lessons.length, 0);
+  await act(async () => assert.equal(editor.applyAiPatch(a.id, after, { notes: before.notes }), true));
+  assert.equal(editor.reportData.notes, before.notes);
+  await act(async () => editor.nextReport());
+  assert.equal(editor.reportData.notes, before.notes);
+});
+
+test('AI rejects stale replies, another student and protected fields', async () => {
+  await mount();
+  await act(async () => editor.handleBatchSelect([a, b]));
+  const before = { ...editor.reportData };
+  await act(async () => editor.updateField('notes', '수동 수정'));
+  assert.equal(editor.applyAiPatch(a.id, before, { notes: '늦은 응답' }), false);
+  assert.equal(editor.applyAiPatch(b.id, editor.reportData, { notes: '다른 학생' }), false);
+  assert.throws(() => editor.applyAiPatch(a.id, editor.reportData, { name: '이름 변경' }));
+  assert.equal(editor.reportData.notes, '수동 수정');
+});
 function echo(batch) {
   return { lessons: batch.lessons.map(item => ({ ...item, version: item.expected_version + 1 })),
     reports: batch.reports.map(item => ({ ...item, version: item.expected_version + 1 })) };

@@ -7,6 +7,7 @@ import { GRADE_REPORT_DATA } from "../constants/reportContents";
 import type { LessonRecord, ReportData, ReportRecord, ReportStudent } from "../types/report";
 import { loadReportDay, saveReportBatch, type ReportSaveBatch } from "./report-storage";
 import { defaultReport, defaultTeacher, isSameSnapshot, studentSnapshot } from "./report-model";
+import { parseAiReply, type AiPatch } from "./report-ai";
 
 export function useReportEditor() {
   const [reportDate, setReportDate] = useState(() => dayjs().format("YYYY-MM-DD"));
@@ -109,6 +110,18 @@ export function useReportEditor() {
     publishDrafts(next); setHasUnsavedChanges(dirtyStudents.current.size > 0);
   };
 
+  const applyAiPatch = (studentId: string, expected: ReportData, patch: AiPatch): boolean => {
+    if (loading.current || saving.current || loadFailed || currentStudent?.id !== studentId) return false;
+    const current = draftRef.current[studentId];
+    if (!current || JSON.stringify(current) !== JSON.stringify(expected)) return false;
+    const validated = parseAiReply({ reply: "apply", patch }).patch;
+    if (!Object.keys(validated).length) return false;
+    publishDrafts({ ...draftRef.current, [studentId]: { ...current, ...validated } });
+    dirtyStudents.current.add(studentId);
+    setHasUnsavedChanges(true);
+    return true;
+  };
+
   const saveToSupabase = useCallback(async () => {
     if (saving.current || loading.current || loadFailed) return;
     const ids = [...new Set([...dirtyStudents.current, ...selection.current.map(student => student.id)])];
@@ -172,7 +185,7 @@ export function useReportEditor() {
 
   return { reportDate, changeDate, savedReports, openSavedReport, isInitialized, isLoading, loadFailed, error, retryLoad,
     selectedStudents, currentIndex, setCurrentIndex, currentStudent, reportData,
-    isSaving, hasUnsavedChanges, isIndividualMode, setIsIndividualMode, handleBatchSelect, updateField, saveToSupabase,
+    isSaving, hasUnsavedChanges, isIndividualMode, setIsIndividualMode, handleBatchSelect, updateField, applyAiPatch, saveToSupabase,
     nextReport: () => setCurrentIndex(index => Math.min(index + 1, selectedStudents.length - 1)),
     prevReport: () => setCurrentIndex(index => Math.max(index - 1, 0)),
   };

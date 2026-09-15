@@ -2,8 +2,8 @@
 import dayjs from 'dayjs';
 import 'dayjs/locale/ko';
 
-export const getFormattedDate = () => {
-  const now = dayjs();
+export const getFormattedDate = (date?: string) => {
+  const now = date ? dayjs(date) : dayjs();
 
   // 1. 년, 월, 일 구하기
   const dateStr = now.format('YYYY년 MM월 DD일');

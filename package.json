@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint",
+    "test": "node --test tests/*.test.mjs tests/*.test.cjs",
+    "backup:legacy": "node scripts/backup-legacy.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.1",
@@ -24,6 +26,7 @@
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@tailwindcss/postcss": "^4",
     "@types/file-saver": "^2.0.7",
     "@types/node": "^20",
@@ -31,6 +34,8 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
+    "fake-indexeddb": "^6.2.5",
+    "react-test-renderer": "^19.2.3",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

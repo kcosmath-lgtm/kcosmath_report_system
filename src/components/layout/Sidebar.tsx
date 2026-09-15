@@ -1,314 +1,115 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { ChevronDown, RotateCcw, ChevronLeft, Users, Plus, Trash2, X, Check } from "lucide-react";
-import { STUDENT_DATA } from "../../constants/students";
-import { StudentGroup } from "../../types/student";
-import { getSetting, saveSetting } from "../../lib/supabase";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronLeft, Plus, RefreshCw, Trash2, Users } from "lucide-react";
+import { addClass, addStudent, archiveStudent, loadStudents } from "../../lib/report-storage";
+import styles from "../../app/report/workspace.module.css";
+import type { StudentGroup } from "../../types/student";
+import type { ReportStudent } from "../../types/report";
 
 interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelectStudent: (id: string, name: string, grade: string, group: string) => void;
-  onBatchSelect: (students: { id: string; name: string; grade: string; group: string }[]) => void;
+  onBatchSelect: (students: ReportStudent[]) => void;
+  disabled?: boolean;
 }
 
-const generateShortId = () => {
-  return "student_" + Math.random().toString(36).substring(2, 11);
-};
-
-export default function StudentSidebar({ isOpen, onClose, onSelectStudent, onBatchSelect }: SidebarProps) {
-  const [localStudentData, setLocalStudentData] = useState<StudentGroup[]>([]);
+export default function StudentSidebar({ isOpen, onClose, onBatchSelect, disabled = false }: SidebarProps) {
+  const [groups, setGroups] = useState<StudentGroup[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
+  const [expanded, setExpanded] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
+  const [className, setClassName] = useState("");
+  const [addingTo, setAddingTo] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [grade, setGrade] = useState("");
+  const lock = useRef(false);
+  const selectionCallback = useRef(onBatchSelect);
+  selectionCallback.current = onBatchSelect;
 
-  const [addingToGroup, setAddingToGroup] = useState<string | null>(null);
-  const [newName, setNewName] = useState("");
-  const [newGrade, setNewGrade] = useState("");
-
-  const [isInitialized, setIsInitialized] = useState(false);
-
-  // 데이터 로드
-  useEffect(() => {
-    async function loadStudentData() {
-      let currentData: StudentGroup[] = STUDENT_DATA;
-      let shouldForceSave = false;
-
-      const hasDuplicateIds = (groups: StudentGroup[]) => {
-        const ids = new Set<string>();
-        for (const g of groups) {
-          for (const s of g.students) {
-            if (ids.has(s.id)) return true;
-            ids.add(s.id);
-          }
-        }
-        return false;
-      };
-
-      try {
-        const dbData = await getSetting<StudentGroup[] | null>("cosmath_student_data", null);
-        if (dbData && dbData.length > 0) {
-          if (hasDuplicateIds(dbData)) {
-            currentData = STUDENT_DATA;
-            shouldForceSave = true;
-          } else {
-            currentData = dbData;
-          }
-        } else {
-          shouldForceSave = true;
-        }
-      } catch (e) {
-        console.error("Supabase 학생 데이터 로드 실패:", e);
-      }
-
-      const merged: StudentGroup[] = currentData.map(g => ({ ...g, students: [...g.students] }));
-
-      STUDENT_DATA.forEach((fileGroup) => {
-        const existingGroup = merged.find((g) => g.group === fileGroup.group);
-        if (!existingGroup) {
-          merged.push({ ...fileGroup, students: [...fileGroup.students] });
-          shouldForceSave = true;
-        }
-      });
-
-      setLocalStudentData(merged);
-      if (shouldForceSave) {
-        await saveSetting("cosmath_student_data", merged);
-      }
-      setIsInitialized(true);
-    }
-
-    loadStudentData();
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const rows = await loadStudents();
+      setGroups(rows);
+      const activeIds = new Set(rows.flatMap(group => group.students.map(student => student.id)));
+      setSelectedIds(ids => ids.filter(id => activeIds.has(id)));
+    } catch (e) { setError(e instanceof Error ? e.message : "학생 목록을 불러오지 못했습니다."); }
+    finally { setLoading(false); }
   }, []);
 
-  // 자동 저장
+  useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => {
-    if (!isInitialized || localStudentData.length === 0) return;
-    const handler = setTimeout(() => {
-      saveSetting("cosmath_student_data", localStudentData);
-    }, 1000);
-    return () => clearTimeout(handler);
-  }, [localStudentData, isInitialized]);
+    selectionCallback.current(groups.flatMap(group => group.students
+      .filter(student => selectedIds.includes(student.id))
+      .map(student => ({ id: student.id, name: student.name, grade: student.grade, group: group.group, classId: group.id }))));
+  }, [selectedIds, groups]);
 
-  const handleResetData = async () => {
-    if (window.confirm("모든 학생 데이터를 소스코드 파일 기준으로 초기화하시겠습니까?")) {
-      setLocalStudentData(STUDENT_DATA);
-      setSelectedIds([]);
-      await saveSetting("cosmath_student_data", STUDENT_DATA);
-      alert("최신 학생 데이터 목록으로 초기화되었습니다.");
-    }
-  };
+  async function mutate(action: () => Promise<void>) {
+    if (lock.current || disabled || loading) return;
+    lock.current = true;
+    setBusy(true); setError(""); setStatus("");
+    try { await action(); setStatus("학생 목록 변경사항이 저장되었습니다."); }
+    catch (e) { setError(e instanceof Error ? e.message : "저장에 실패했습니다. 다시 시도해 주세요."); }
+    finally { lock.current = false; setBusy(false); }
+  }
 
-  const toggleGroup = (groupName: string) => {
-    setExpandedGroups((prev) =>
-      prev.includes(groupName) ? prev.filter((g) => g !== groupName) : [...prev, groupName]
-    );
-  };
-
-  // selectedIds 변경을 부모 컴포넌트에 안전하게 전달 (렌더링 사이클 외부)
-  useEffect(() => {
-    if (!isInitialized) return;
-    const selectedStudentsObjects: { id: string; name: string; grade: string; group: string }[] = [];
-    localStudentData.forEach((g) => {
-      g.students.forEach((s) => {
-        if (selectedIds.includes(s.id)) {
-          selectedStudentsObjects.push({ id: s.id, name: s.name, grade: s.grade, group: g.group });
-        }
-      });
-    });
-    onBatchSelect(selectedStudentsObjects);
-  }, [selectedIds, localStudentData, isInitialized, onBatchSelect]);
-
-  // 개별 체크박스 토글
-  const handleStudentCheck = (studentId: string, name: string, grade: string, groupName: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setSelectedIds((prev) => {
-      const isSelected = prev.includes(studentId);
-      return isSelected ? prev.filter((id) => id !== studentId) : [...prev, studentId];
-    });
-  };
-
-  // 반 전체 선택/해제
-  const handleGroupSelectAll = (groupName: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const targetGroup = localStudentData.find((g) => g.group === groupName);
-    if (!targetGroup) return;
-
-    const targetStudentIds = targetGroup.students.map((s) => s.id);
-    const isAllSelected = targetStudentIds.every((id) => selectedIds.includes(id));
-
-    setSelectedIds((prev) => {
-      let nextIds = [...prev];
-      if (isAllSelected) {
-        nextIds = nextIds.filter((id) => !targetStudentIds.includes(id));
-      } else {
-        targetStudentIds.forEach((id) => {
-          if (!nextIds.includes(id)) nextIds.push(id);
-        });
-      }
-      return nextIds;
-    });
-  };
-
-  // 🌟 [수정] 학생 이름/행 자체를 클릭하여 단일 선택 시 체크박스 상태도 1명으로 연동
-  const handleSingleStudentClick = (id: string, name: string, grade: string, groupName: string) => {
-    setSelectedIds([id]); // 체크박스 상태를 이 학생 단 한명으로 교체 (유령 버그 제거)
-    onSelectStudent(id, name, grade, groupName);
-  };
-
-  const handleAddStudentSubmit = (groupName: string) => {
-    if (!newName.trim() || !newGrade.trim()) {
-      alert("이름과 학년을 모두 입력해 주세요.");
-      return;
-    }
-
-    const newStudent = {
-      id: generateShortId(),
-      name: newName.trim(),
-      grade: newGrade.trim(),
-    };
-
-    setLocalStudentData((prev) =>
-      prev.map((g) => (g.group === groupName ? { ...g, students: [...g.students, newStudent] } : g))
-    );
-
-    setNewName("");
-    setNewGrade("");
-    setAddingToGroup(null);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, groupName: string) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      handleAddStudentSubmit(groupName);
-    }
-  };
-
-  const handleRemoveStudent = (groupName: string, studentId: string, studentName: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (window.confirm(`[${studentName}] 학생을 목록에서 정말 삭제하시겠습니까?`)) {
-      setLocalStudentData((prev) =>
-        prev.map((g) => (g.group === groupName ? { ...g, students: g.students.filter((s) => s.id !== studentId) } : g))
-      );
-      setSelectedIds((prev) => prev.filter((id) => id !== studentId));
-    }
-  };
+  function toggleStudent(id: string) {
+    setSelectedIds(ids => ids.includes(id) ? ids.filter(value => value !== id) : [...ids, id]);
+  }
 
   return (
-    <div className={`bg-[#1e293b] text-slate-100 flex flex-col border-r border-slate-800 transition-all duration-300 shrink-0 h-full ${isOpen ? "w-72" : "w-0 overflow-hidden border-none"}`}>
-      <div className="h-24 px-6 border-b border-slate-800 flex items-center justify-between sticky top-0 bg-[#1e293b] z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-sky-500/10 rounded-xl flex items-center justify-center text-sky-400 border border-sky-500/20">
-            <Users size={20} />
-          </div>
-          <div className="flex flex-col">
-            <span className="font-bold text-sm text-slate-200">반별 학생 목록</span>
-            <span className="text-[10px] text-slate-500 font-medium">COSMATH ACADEMY</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-1">
-          <button onClick={handleResetData} className="p-2 hover:bg-slate-800 text-slate-500 hover:text-sky-400 rounded-lg transition-colors" title="데이터 초기화">
-            <RotateCcw size={16} />
-          </button>
-          <button onClick={onClose} className="p-2 hover:bg-slate-800 text-slate-500 hover:text-rose-400 rounded-lg transition-colors">
-            <ChevronLeft size={18} />
-          </button>
+    <aside aria-label="학생 목록" className={styles.sidebar} data-open={isOpen} inert={!isOpen}>
+      <div className={styles.sidebarHeader}>
+        <div className="flex items-center gap-3"><Users size={22} className="text-sky-400" /><h2 className="font-bold text-sm">반별 학생 목록</h2></div>
+        <div className="flex gap-2">
+          <button disabled={busy || loading || disabled} onClick={() => void refresh()} title="목록 새로고침" aria-label="목록 새로고침" className={styles.iconButton}><RefreshCw size={16} /></button>
+          <button onClick={onClose} aria-label="학생 목록 닫기" className={styles.iconButton}><ChevronLeft size={18} /></button>
         </div>
       </div>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-2 select-none">
-        {localStudentData.map((group) => {
-          const isExpanded = expandedGroups.includes(group.group);
-          const isGroupAllSelected = group.students.length > 0 && group.students.map((s) => s.id).every((id) => selectedIds.includes(id));
-
-          return (
-            <div key={group.group} className={`border border-slate-800/60 rounded-xl bg-slate-900/30 overflow-hidden transition-all duration-200 ${isExpanded ? "bg-slate-900/50 shadow-inner" : ""}`}>
-              <div onClick={() => toggleGroup(group.group)} className="flex items-center justify-between px-3.5 py-3 hover:bg-slate-800/40 cursor-pointer group/row transition-colors">
-                <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <div
-                    onClick={(e) => handleGroupSelectAll(group.group, e)}
-                    className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${isGroupAllSelected ? "bg-emerald-500 border-emerald-600 text-white" : "border-slate-700 hover:border-slate-500 bg-slate-950/40"}`}
-                  >
-                    {isGroupAllSelected && <Check size={11} strokeWidth={3} />}
-                  </div>
-                  <span className="font-bold text-[12.5px] text-slate-300 group-hover/row:text-white transition-colors truncate">{group.group}</span>
-                  <span className="text-[10px] bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded-full font-black tabular-nums">{group.students.length}</span>
-                </div>
-
-                <div className="flex items-center gap-1.5 ml-2">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setAddingToGroup(addingToGroup === group.group ? null : group.group);
-                      if (addingToGroup !== group.group) {
-                        setExpandedGroups((prev) => prev.includes(group.group) ? prev : [...prev, group.group]);
-                      }
-                    }}
-                    className="p-1 hover:bg-slate-700 text-slate-500 hover:text-sky-400 rounded transition-colors"
-                    title="학생 추가"
-                  >
-                    <Plus size={14} />
-                  </button>
-                  <ChevronDown size={14} className={`text-slate-600 group-hover/row:text-slate-400 transition-transform duration-200 ${isExpanded ? "transform rotate-180 text-sky-500" : ""}`} />
-                </div>
+      <div className="p-4 space-y-3 overflow-y-auto flex-1">
+        {error && <div role="alert" className="text-xs text-rose-700 bg-rose-50 p-3 rounded-lg">{error}<button disabled={busy || disabled} className="block underline mt-2" onClick={() => void refresh()}>목록 다시 불러오기</button></div>}
+        <p role="status" className="text-xs text-slate-400">{loading ? "학생 목록을 불러오는 중…" : busy ? "변경사항 저장 중…" : status}</p>
+        <fieldset disabled={busy || loading || disabled} className="space-y-3 disabled:opacity-60">
+          <form className="flex gap-2" onSubmit={e => { e.preventDefault(); if (!className.trim()) return; void mutate(async () => { const group = await addClass(className.trim()); setGroups(prev => [...prev, group]); setExpanded(prev => [...prev, group.id]); setClassName(""); }); }}>
+            <input aria-label="새 반 이름" placeholder="새 반 이름" value={className} onChange={e => setClassName(e.target.value)} required maxLength={100} className="min-w-0 flex-1 rounded bg-slate-800 border border-slate-700 p-2 text-xs" />
+            <button className={styles.primary}>반 추가</button>
+          </form>
+          {!loading && !error && groups.length === 0 && <p className="text-xs leading-6 text-slate-400 py-6">등록된 반과 학생이 없습니다.<br />반을 만든 뒤 학생을 추가해 주세요.</p>}
+          {groups.map(group => {
+            const isExpanded = expanded.includes(group.id);
+            const allSelected = group.students.length > 0 && group.students.every(student => selectedIds.includes(student.id));
+            return <div key={group.id} className={styles.group}>
+              <div className={styles.groupHead}>
+                <input type="checkbox" className={styles.checkbox} aria-label={`${group.group} 전체 선택`} ref={input => { if (input) input.indeterminate = !allSelected && group.students.some(student => selectedIds.includes(student.id)); }} checked={allSelected} disabled={!group.students.length} onChange={() => setSelectedIds(ids => allSelected ? ids.filter(id => !group.students.some(student => student.id === id)) : [...new Set([...ids, ...group.students.map(student => student.id)])])} />
+                <button className="text-xs text-left flex-1 min-w-0 flex items-center justify-between gap-1" aria-expanded={isExpanded} onClick={() => setExpanded(ids => isExpanded ? ids.filter(id => id !== group.id) : [...ids, group.id])}><span className="truncate">{group.group} ({group.students.length})</span><ChevronDown size={14} className={isExpanded ? "rotate-180" : ""} /></button>
+                <button aria-label={`${group.group} 학생 추가`} onClick={() => { setAddingTo(group.id); setName(""); setGrade(""); setExpanded(ids => [...new Set([...ids, group.id])]); }}><Plus size={16} /></button>
               </div>
-
-              {addingToGroup === group.group && (
-                <div className="px-3 pb-3 pt-1 border-t border-slate-800/40 bg-slate-950/40 flex gap-1.5 items-center">
-                  <input type="text" placeholder="이름" autoFocus className="flex-1 bg-slate-900 text-[11px] px-2 py-1.5 rounded outline-none border border-slate-700 focus:border-sky-500 text-slate-200 font-medium" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => handleKeyDown(e, group.group)} />
-                  <input type="text" placeholder="학년" className="w-12 bg-slate-900 text-[11px] px-2 py-1.5 rounded outline-none border border-slate-700 focus:border-sky-500 text-slate-200 text-center font-medium" value={newGrade} onChange={(e) => setNewGrade(e.target.value)} onKeyDown={(e) => handleKeyDown(e, group.group)} />
-                  <button type="button" onClick={() => handleAddStudentSubmit(group.group)} className="bg-sky-600 hover:bg-sky-500 active:scale-95 text-white text-[11px] px-3 py-1.5 rounded font-bold transition-all shrink-0">등록</button>
-                  <button type="button" onClick={() => { setNewName(""); setNewGrade(""); setAddingToGroup(null); }} className="text-slate-500 hover:text-slate-300 p-1 shrink-0"><X size={13} /></button>
-                </div>
-              )}
-
-              {isExpanded && (
-                <div className="border-t border-slate-800/40 divide-y divide-slate-800/30 bg-slate-950/10">
-                  {group.students.length === 0 ? (
-                    <div className="text-center py-4 text-[11px] text-slate-600 italic">등록된 학생이 없습니다.</div>
-                  ) : (
-                    group.students.map((student) => {
-                      const isChecked = selectedIds.includes(student.id);
-
-                      return (
-                        <div
-                          key={student.id}
-                          // 🌟 변경된 단일 클릭 핸들러 적용
-                          onClick={() => handleSingleStudentClick(student.id, student.name, student.grade, group.group)}
-                          className="flex items-center px-4 py-2.5 hover:bg-slate-800/30 cursor-pointer group transition-colors"
-                        >
-                          <div
-                            onClick={(e) => handleStudentCheck(student.id, student.name, student.grade, group.group, e)}
-                            className={`w-4 h-4 rounded border flex items-center justify-center mr-3 transition-all ${isChecked ? "bg-sky-500 border-sky-600 text-white" : "border-slate-800 hover:border-slate-600 bg-slate-900"}`}
-                          >
-                            {isChecked && <Check size={11} strokeWidth={3} />}
-                          </div>
-
-                          <span className={`flex-1 text-[13px] transition-colors ${isChecked ? "text-sky-400 font-bold" : "text-slate-400 group-hover:text-slate-200"}`}>{student.name}</span>
-                          <span className="text-[10px] text-slate-500 font-bold bg-slate-800/60 px-1.5 py-0.5 rounded uppercase mr-2 tracking-wide">{student.grade}</span>
-                          <button onClick={(e) => handleRemoveStudent(group.group, student.id, student.name, e)} className="opacity-0 group-hover:opacity-100 p-1 hover:bg-rose-500/20 text-slate-600 hover:text-rose-400 rounded transition-all" title="학생 삭제"><Trash2 size={12} /></button>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
+              {addingTo === group.id && <form className="p-3 space-y-2" onSubmit={e => { e.preventDefault(); if (!name.trim() || !grade.trim()) return; void mutate(async () => { const student = await addStudent(group.id, name.trim(), grade.trim()); setGroups(prev => prev.map(item => item.id === group.id ? { ...item, students: [...item.students, student] } : item)); setAddingTo(null); setName(""); setGrade(""); }); }}>
+                <input aria-label="학생 이름" placeholder="학생 이름" required maxLength={100} value={name} onChange={e => setName(e.target.value)} className="w-full bg-slate-800 border border-slate-700 p-2 rounded text-xs" />
+                <input aria-label="학년" placeholder="학년 (예: 중2)" required maxLength={30} value={grade} onChange={e => setGrade(e.target.value)} className="w-full bg-slate-800 border border-slate-700 p-2 rounded text-xs" />
+                <div className="flex gap-3 text-xs"><button className={styles.primary}>등록</button><button type="button" onClick={() => setAddingTo(null)}>취소</button></div>
+              </form>}
+              {isExpanded && <div className={styles.studentList}>
+                {!group.students.length && <p className="p-4 text-xs text-slate-400">등록된 학생이 없습니다.</p>}
+                {group.students.map(student => <div key={student.id} className={styles.student} data-selected={selectedIds.includes(student.id)}>
+                  <input type="checkbox" className={styles.checkbox} aria-label={`${student.name} 선택`} checked={selectedIds.includes(student.id)} onChange={() => toggleStudent(student.id)} />
+                  <button className="text-left flex-1" onClick={() => setSelectedIds([student.id])}>{student.name}</button><span className="text-slate-400">{student.grade}</span>
+                  <button aria-label={`${student.name} 퇴원 처리`} title="퇴원 처리 (보고서 보존)" className="p-1 text-slate-400 hover:text-rose-400" onClick={() => {
+                    if (!window.confirm(`[${student.name}] 학생을 퇴원 처리할까요? 목록에서 숨겨지며 기존 보고서는 보존됩니다.`)) return;
+                    void mutate(async () => { await archiveStudent(student.id, student.version); setGroups(prev => prev.map(item => ({ ...item, students: item.students.filter(value => value.id !== student.id) }))); setSelectedIds(ids => ids.filter(id => id !== student.id)); });
+                  }}><Trash2 size={14} /></button>
+                </div>)}
+              </div>}
+            </div>;
+          })}
+        </fieldset>
       </div>
-
-      <div className="p-4 bg-[#0f172a] border-t border-slate-800">
-        <div className="flex items-center justify-between bg-slate-800/50 rounded-xl px-4 py-3 border border-slate-700">
-          <div className="flex flex-col">
-            <span className="text-[10px] text-slate-500 font-black tracking-widest uppercase">Selected</span>
-            <span className="text-xs font-bold text-slate-300">총 <span className="text-sky-400 font-black text-sm">{selectedIds.length}</span>명 선택됨</span>
-          </div>
-          {selectedIds.length > 0 && (
-            <button onClick={() => setSelectedIds([])} className="text-[11px] text-rose-400 hover:text-rose-300 font-bold bg-rose-500/10 px-2.5 py-1 rounded-lg border border-rose-500/20 transition-colors">선택 해제</button>
-          )}
-        </div>
-      </div>
-    </div>
+      <div className={styles.selection}><span>선택한 학생 <strong>{selectedIds.length}</strong>명</span><button disabled={disabled || busy} onClick={() => setSelectedIds([])} className="text-rose-300">선택 해제</button></div>
+    </aside>
   );
 }

@@ -20,3 +20,8 @@ export async function addStudent(classId: string, name: string, grade: string) {
 export async function archiveStudent(id: string, version: number) { return (await storage()).archiveStudent(id, version); }
 export async function loadReportDay(date: string) { return (await storage()).loadReportDay(date); }
 export async function saveReportBatch(batch: ReportSaveBatch) { return (await storage()).saveReportBatch(batch); }
+export async function loadWrongAnswers(month: string) { return (await storage()).loadWrongAnswers(month); }
+export async function saveWrongAnswer(record: import("../types/wrong-answer").WrongAnswerRecord) { return (await storage()).saveWrongAnswer(record); }
+export async function loadHandoffs(month: string) { return (await storage()).loadHandoffs(month); }
+export async function addHandoff(record: import("../types/handoff").HandoffRecord) { return (await storage()).addHandoff(record); }
+export async function deleteHandoff(id: string) { return (await storage()).deleteHandoff(id); }

@@ -363,10 +363,10 @@ export default function ReportPage() {
       {/* 도움말 플로팅 버튼 */}
       <button
         onClick={() => setIsHelpOpen(true)}
-        className="fixed bottom-6 right-6 z-40 bg-blue-50 hover:bg-blue-100 text-slate-700 border border-blue-100 hover:border-blue-200 shadow-xl hover:scale-105 active:scale-95 transition-all p-3.5 rounded-full flex items-center justify-center cursor-pointer group"
+        className="fixed bottom-[18px] right-[18px] sm:bottom-[28px] sm:right-[30px] z-40 w-[52px] h-[52px] sm:w-[58px] sm:h-[58px] bg-blue-50 hover:bg-blue-100 text-slate-700 border border-blue-100 hover:border-blue-200 shadow-xl hover:scale-105 active:scale-95 transition-all p-0 rounded-full flex items-center justify-center cursor-pointer group"
         title="사용 가이드"
       >
-        <HelpCircle size={22} className="group-hover:text-blue-600 transition-colors" />
+        <HelpCircle size={25} className="group-hover:text-blue-600 transition-colors" />
       </button>
 
       {/* 도움말 모달 */}

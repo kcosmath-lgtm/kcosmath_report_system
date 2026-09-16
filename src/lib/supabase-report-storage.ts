@@ -1,6 +1,8 @@
 import { supabase } from "./supabase";
 import type { StudentGroup } from "../types/student";
 import type { LessonRecord, ReportRecord } from "../types/report";
+import type { WrongAnswerRecord } from "../types/wrong-answer";
+import type { HandoffRecord } from "../types/handoff";
 
 export function storageError(error: { message: string; code?: string }): Error {
   if (error.code === "40001" || error.code === "23505") {
@@ -63,4 +65,33 @@ export async function saveReportBatch(batch: ReportSaveBatch) {
   });
   if (error) throw storageError(error);
   return data as { lessons: LessonRecord[]; reports: ReportRecord[] };
+}
+
+export async function loadWrongAnswers(month: string): Promise<WrongAnswerRecord[]> {
+  const start = `${month}-01`;
+  const end = new Date(`${start}T00:00:00Z`); end.setUTCMonth(end.getUTCMonth() + 1);
+  const { data, error } = await supabase.from("cosmath_wrong_answers").select("id, student_id, record_date, total_wrong, corrected_count, memo, version").gte("record_date", start).lt("record_date", end.toISOString().slice(0, 10));
+  if (error) throw storageError(error);
+  return (data ?? []) as WrongAnswerRecord[];
+}
+
+export async function saveWrongAnswer(record: WrongAnswerRecord): Promise<WrongAnswerRecord> {
+  const { data, error } = await supabase.rpc("cosmath_save_wrong_answer", { p_id: record.id, p_student_id: record.student_id, p_record_date: record.record_date, p_total_wrong: record.total_wrong, p_corrected_count: record.corrected_count, p_memo: record.memo, p_expected_version: record.version });
+  if (error) throw storageError(error);
+  return data as WrongAnswerRecord;
+}
+
+export async function loadHandoffs(month: string): Promise<HandoffRecord[]> {
+  const start = `${month}-01`; const end = new Date(`${start}T00:00:00Z`); end.setUTCMonth(end.getUTCMonth() + 1);
+  const { data, error } = await supabase.from("cosmath_handoffs").select("id, handoff_date, author, title, content, created_at").gte("handoff_date", start).lt("handoff_date", end.toISOString().slice(0, 10)).order("created_at", { ascending: false });
+  if (error) throw storageError(error); return (data ?? []) as HandoffRecord[];
+}
+export async function addHandoff(record: HandoffRecord): Promise<HandoffRecord> {
+  const { data, error } = await supabase.rpc("cosmath_add_handoff", { p_id: record.id, p_date: record.handoff_date, p_author: record.author, p_title: record.title, p_content: record.content });
+  if (error) throw storageError(error); return data as HandoffRecord;
+}
+export async function deleteHandoff(id: string): Promise<void> {
+  const { data, error } = await supabase.rpc("cosmath_delete_handoff", { p_id: id });
+  if (error) throw storageError(error);
+  if (!data) throw storageError({ code: "40001", message: "Handoff changed" });
 }

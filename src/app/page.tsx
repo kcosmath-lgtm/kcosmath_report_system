@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import logo from "../../public/logo.png";
 import { ArrowRight, ArrowUpRight, BookOpen, Check, FileText, Layers3, Plus } from "lucide-react";
+import LandingMenu from "../components/LandingMenu";
 import styles from "./landing.module.css";
 
 const steps = [
@@ -16,7 +17,7 @@ export default function LandingPage() {
       <a href="#main" className={styles.skip}>본문으로 이동</a>
       <header className={styles.header}>
         <Link href="/" className={styles.brand} aria-label="COSMATH 홈"><Image src={logo} alt="COSMATH MATH ACADEMY" priority className={styles.logo} /><small>WORKSPACE</small></Link>
-        <nav aria-label="주 메뉴"><a href="#workspace">워크스페이스</a><a href="#guide">사용 안내</a><Link href="/report" className={styles.navButton}>보고서 작성 <ArrowUpRight size={15} aria-hidden="true" /></Link></nav>
+        <nav aria-label="주 메뉴"><a href="#workspace">워크스페이스</a><a href="#guide">사용 안내</a><LandingMenu /></nav>
       </header>
       <main id="main">
         <section className={styles.hero} aria-labelledby="hero-title">
@@ -38,7 +39,6 @@ export default function LandingPage() {
               <div className={styles.paperBottom}><span>매일의 배움이 쌓이는 곳</span><b>cosmath.</b></div>
             </div>
             <div className={styles.floating}><Layers3 size={23} aria-hidden="true" /><div><strong>함께 쓰고, 세심하게 더하고</strong><p>일괄 작성과 학생별 맞춤 편집</p></div></div>
-            <span className={styles.spark} aria-hidden="true">✳</span>
           </div>
         </section>
         <section id="workspace" className={styles.workspace} aria-labelledby="workspace-title">

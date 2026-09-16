@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { MessageCircle, X, Send, Loader2, Undo2 } from "lucide-react";
+import { MessageCircle, X, Send, Loader2, Undo2, Paperclip, FileText } from "lucide-react";
 import type { ReportData } from "../types/report";
-import { parseAiReply, type AiPatch, type ChatMessage } from "../lib/report-ai";
+import { attachmentLimits, parseAiReply, supportedAttachmentTypes, type AiPatch, type ChatAttachment, type ChatMessage } from "../lib/report-ai";
 import styles from "./report-chat.module.css";
+import AiLauncher from "./AiLauncher";
 
 type Props = {
   studentId: string;
@@ -19,6 +20,7 @@ export default function ReportChat({ studentId, report, disabled, onApply }: Pro
   const [password, setPassword] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -27,14 +29,43 @@ export default function ReportChat({ studentId, report, disabled, onApply }: Pro
   const latest = useRef({ report, disabled, allowEdit, onApply });
   const end = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   useEffect(() => { latest.current = { report, disabled, allowEdit, onApply }; });
   useEffect(() => () => controller.current?.abort(), []);
   useEffect(() => { if (open) end.current?.scrollIntoView({ block: "nearest" }); }, [messages, busy, open]);
 
   function close() { setOpen(false); trigger.current?.focus(); }
+  function addFiles(selected: FileList | null) {
+    if (!selected) return;
+    const next = [...files];
+    let validationError = "";
+    let total = next.reduce((sum, file) => sum + file.size, 0);
+    for (const file of Array.from(selected)) {
+      if (next.length >= attachmentLimits.count) { validationError = `파일은 최대 ${attachmentLimits.count}개까지 첨부할 수 있습니다.`; break; }
+      if (!supportedAttachmentTypes.includes(file.type as typeof supportedAttachmentTypes[number])) { validationError = `${file.name}: 지원하지 않는 파일 형식입니다.`; continue; }
+      if (total + file.size > attachmentLimits.totalBytes) { validationError = "첨부파일 전체 용량은 3MB 이하여야 합니다."; continue; }
+      next.push(file); total += file.size;
+    }
+    setFiles(next);
+    setError(validationError);
+    if (fileInput.current) fileInput.current.value = "";
+  }
+  async function encodeFiles(): Promise<ChatAttachment[]> {
+    return Promise.all(files.map(file => new Promise<ChatAttachment>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error(`${file.name} 파일을 읽지 못했습니다.`));
+      reader.onload = () => resolve({
+        name: file.name,
+        mimeType: file.type,
+        size: file.size,
+        data: String(reader.result).split(",", 2)[1] || "",
+      });
+      reader.readAsDataURL(file);
+    })));
+  }
   async function send() {
-    if (!input.trim() || busy || disabled || !password) return;
-    const question = input.trim();
+    if ((!input.trim() && !files.length) || busy || disabled || !password) return;
+    const question = input.trim() || "첨부파일의 내용을 분석해 주세요.";
     const history: ChatMessage[] = [...messages, { role: "user", text: question }];
     const snapshot = { ...report };
     const permitted = allowEdit;
@@ -44,12 +75,13 @@ export default function ReportChat({ studentId, report, disabled, onApply }: Pro
     try {
       const response = await fetch("/api/report-chat", {
         method: "POST", headers: { "Content-Type": "application/json", "x-ai-password": encodeURIComponent(password) },
-        body: JSON.stringify({ messages: history.slice(-19), report: snapshot, allowEdit: permitted }), signal: abort.signal,
+        body: JSON.stringify({ messages: history.slice(-19), report: snapshot, allowEdit: permitted, attachments: await encodeFiles() }), signal: abort.signal,
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "AI 요청에 실패했습니다.");
       const result = parseAiReply(data);
       if (abort.signal.aborted) return;
+      setFiles([]);
       setMessages([...history, { role: "assistant", text: result.reply }]);
       if (Object.keys(result.patch).length) {
         const current = latest.current;
@@ -68,9 +100,9 @@ export default function ReportChat({ studentId, report, disabled, onApply }: Pro
   }
 
   return <>
-    <button ref={trigger} className={styles.launcher} onClick={() => setOpen(!open)} aria-expanded={open} aria-controls="report-ai-chat" aria-label="AI 보고서 도우미 열기"><MessageCircle size={23} /></button>
+    <AiLauncher ref={trigger} open={open} onClick={() => setOpen(!open)} controls="report-ai-chat" offset />
     {open && <section id="report-ai-chat" className={styles.panel} aria-label="AI 보고서 도우미" onKeyDown={e => { if (e.key === "Escape") close(); }}>
-      <header className={styles.header}><div><strong>AI 보고서 도우미</strong><small>{report.name} · 현재 보고서</small></div><button onClick={close} aria-label="채팅 닫기"><X size={20} /></button></header>
+      <header className={styles.header}><div><strong>COSMATH AI</strong><small>보고서 편집 · {report.name}</small></div><button onClick={close} aria-label="채팅 닫기"><X size={20} /></button></header>
       <div className={styles.settings}>
         <label><input type="checkbox" checked={allowEdit} onChange={e => { latest.current.allowEdit = e.target.checked; setAllowEdit(e.target.checked); }} /> AI의 현재 보고서 수정 허용</label>
         <small>과목·교재·진도·과제·전달사항을 수정할 수 있어요. 일괄 편집 모드에서도 현재 학생에게만 적용돼요.</small>
@@ -92,10 +124,13 @@ export default function ReportChat({ studentId, report, disabled, onApply }: Pro
         <button disabled={busy} onClick={() => { setMessages([]); setError(""); setNotice(""); }}>새 대화</button>
       </div>
       <form className={styles.composer} onSubmit={e => { e.preventDefault(); void send(); }}>
+        {!!files.length && <div className={styles.attachments}>{files.map((file, index) => <span key={`${file.name}-${index}`}><FileText size={13} />{file.name}<button type="button" onClick={() => setFiles(files.filter((_, i) => i !== index))} aria-label={`${file.name} 첨부 취소`}><X size={12} /></button></span>)}</div>}
+        <input ref={fileInput} className={styles.fileInput} type="file" multiple accept={supportedAttachmentTypes.join(",")} onChange={e => addFiles(e.target.files)} />
+        <button className={styles.attachButton} type="button" disabled={busy || files.length >= attachmentLimits.count} onClick={() => fileInput.current?.click()} aria-label="파일 첨부" title="이미지, PDF, 텍스트, CSV, JSON 첨부"><Paperclip size={18} /></button>
         <textarea autoFocus aria-label="AI에게 요청할 내용" placeholder="보고서 작성 요청을 입력하세요" value={input} maxLength={4000} disabled={busy || disabled} onChange={e => setInput(e.target.value)} onKeyDown={e => {
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); }
         }} />
-        <button type="submit" disabled={!input.trim() || !password || busy || disabled} aria-label="메시지 전송"><Send size={18} /></button>
+        <button type="submit" disabled={(!input.trim() && !files.length) || !password || busy || disabled} aria-label="메시지 전송"><Send size={18} /></button>
       </form>
     </section>}
   </>;

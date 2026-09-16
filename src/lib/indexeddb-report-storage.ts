@@ -1,9 +1,11 @@
 import type { Student, StudentGroup } from "../types/student";
 import type { LessonRecord, ReportRecord } from "../types/report";
 import type { ReportSaveBatch } from "./report-storage";
+import type { WrongAnswerRecord } from "../types/wrong-answer";
+import type { HandoffRecord } from "../types/handoff";
 
 const DB_NAME = "cosmath-local-v1";
-const STORES = ["classes", "students", "lessons", "reports"];
+const STORES = ["classes", "students", "lessons", "reports", "wrongAnswers", "handoffs"];
 interface ClassRow { id: string; name: string }
 interface StudentRow extends Student { class_id: string; active: boolean }
 const conflict = () => new Error("다른 창에서 데이터가 변경되었거나 이미 등록되어 있습니다. 작성 내용을 보관한 뒤 다시 불러와 주세요.");
@@ -11,13 +13,15 @@ const conflict = () => new Error("다른 창에서 데이터가 변경되었거�
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === "undefined") { reject(new Error("이 브라우저에서 IndexedDB를 사용할 수 없습니다. 브라우저 저장소 설정을 확인해 주세요.")); return; }
-    const request = indexedDB.open(DB_NAME, 1);
+    const request = indexedDB.open(DB_NAME, 3);
     request.onupgradeneeded = () => {
       const db = request.result;
-      db.createObjectStore("classes", { keyPath: "id" }).createIndex("name", "name", { unique: true });
-      db.createObjectStore("students", { keyPath: "id" });
-      db.createObjectStore("lessons", { keyPath: "id" }).createIndex("class_date", ["class_id", "report_date"], { unique: true });
-      db.createObjectStore("reports", { keyPath: "id" }).createIndex("lesson_student", ["lesson_id", "student_id"], { unique: true });
+      if (!db.objectStoreNames.contains("classes")) db.createObjectStore("classes", { keyPath: "id" }).createIndex("name", "name", { unique: true });
+      if (!db.objectStoreNames.contains("students")) db.createObjectStore("students", { keyPath: "id" });
+      if (!db.objectStoreNames.contains("lessons")) db.createObjectStore("lessons", { keyPath: "id" }).createIndex("class_date", ["class_id", "report_date"], { unique: true });
+      if (!db.objectStoreNames.contains("reports")) db.createObjectStore("reports", { keyPath: "id" }).createIndex("lesson_student", ["lesson_id", "student_id"], { unique: true });
+      if (!db.objectStoreNames.contains("wrongAnswers")) db.createObjectStore("wrongAnswers", { keyPath: "id" }).createIndex("student_date", ["student_id", "record_date"], { unique: true });
+      if (!db.objectStoreNames.contains("handoffs")) db.createObjectStore("handoffs", { keyPath: "id" }).createIndex("handoff_date", "handoff_date");
     };
     request.onsuccess = () => { request.result.onversionchange = () => request.result.close(); resolve(request.result); };
     request.onerror = () => reject(request.error);
@@ -124,5 +128,36 @@ export async function saveReportBatch(batch: ReportSaveBatch) {
       await result(old ? store.put(row) : store.add(row)); saved.reports.push(row);
     }
     return saved;
+  });
+}
+
+export async function loadWrongAnswers(month: string): Promise<WrongAnswerRecord[]> {
+  return transaction("readonly", async tx => (await result<WrongAnswerRecord[]>(tx.objectStore("wrongAnswers").getAll())).filter(record => record.record_date.startsWith(month)));
+}
+
+export async function saveWrongAnswer(record: WrongAnswerRecord): Promise<WrongAnswerRecord> {
+  return transaction("readwrite", async tx => {
+    const store = tx.objectStore("wrongAnswers");
+    const old = await result<WrongAnswerRecord | undefined>(store.get(record.id));
+    if ((old?.version ?? 0) !== record.version || record.corrected_count < 0 || record.total_wrong < record.corrected_count) throw conflict();
+    const student = await result<StudentRow | undefined>(tx.objectStore("students").get(record.student_id));
+    if (!student?.active) throw conflict();
+    const saved = { ...record, version: record.version + 1 };
+    await result(old ? store.put(saved) : store.add(saved));
+    return saved;
+  });
+}
+
+export async function loadHandoffs(month: string): Promise<HandoffRecord[]> {
+  return transaction("readonly", async tx => (await result<HandoffRecord[]>(tx.objectStore("handoffs").getAll())).filter(record => record.handoff_date.startsWith(month)).sort((a, b) => b.created_at.localeCompare(a.created_at)));
+}
+export async function addHandoff(record: HandoffRecord): Promise<HandoffRecord> {
+  return transaction("readwrite", async tx => { await result(tx.objectStore("handoffs").add(record)); return record; });
+}
+export async function deleteHandoff(id: string): Promise<void> {
+  return transaction("readwrite", async tx => {
+    const store = tx.objectStore("handoffs");
+    if (!await result(store.get(id))) throw conflict();
+    await result(store.delete(id));
   });
 }

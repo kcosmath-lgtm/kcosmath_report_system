@@ -4,6 +4,21 @@ export const aiFields = ["subject", "book", "progress", "hwLast", "hwCurrent", "
 export type AiField = typeof aiFields[number];
 export type AiPatch = Partial<Pick<ReportData, AiField>>;
 export type ChatMessage = { role: "user" | "assistant"; text: string };
+export type ChatAttachment = { name: string; mimeType: string; data: string; size: number };
+
+export const attachmentLimits = { count: 3, totalBytes: 3 * 1024 * 1024 } as const;
+export const supportedAttachmentTypes = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+  "text/plain",
+  "text/markdown",
+  "text/csv",
+  "application/json",
+] as const;
 
 export function parseAiReply(value: unknown): { reply: string; patch: AiPatch } {
   if (!value || typeof value !== "object") throw new Error("AI 응답 형식이 올바르지 않습니다.");

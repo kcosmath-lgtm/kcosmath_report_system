@@ -34,9 +34,9 @@ export default function StudentManagerModal({ open, onClose, onChanged, mode = "
       setGroups(rows);
       setClassId(current => rows.some(group => group.id === current) ? current : rows[0]?.id ?? "");
       const ids = rows.flatMap(group => group.students.map(student => student.id));
-      setSelectedIds(current => { const valid = current.filter(id => ids.includes(id)); return valid.length ? valid : ids.slice(0, 1); });
-      setSelectedId(current => ids.includes(current) ? current : ids[0] ?? "");
-      setExpandedGroups(current => current.length ? current.filter(id => rows.some(group => group.id === id)) : rows.map(group => group.id));
+      setSelectedIds(current => current.filter(id => ids.includes(id)));
+      setSelectedId(current => ids.includes(current) ? current : "");
+      setExpandedGroups(current => current.filter(id => rows.some(group => group.id === id)));
     } catch (e) { setError(e instanceof Error ? e.message : "학생 목록을 불러오지 못했습니다."); }
     finally { setLoading(false); }
   }, []);

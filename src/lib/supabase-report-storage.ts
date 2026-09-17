@@ -47,6 +47,18 @@ export async function archiveStudent(id: string, version: number) {
   if (!data) throw storageError({ code: "40001", message: "Student changed" });
 }
 
+export async function deleteStudent(id: string) {
+  const { data, error } = await supabase.rpc("cosmath_delete_student", { p_student_id: id });
+  if (error) throw storageError(error);
+  if (!data) throw storageError({ code: "40001", message: "Student changed" });
+}
+
+export async function deleteClass(id: string) {
+  const { data, error } = await supabase.rpc("cosmath_delete_class", { p_class_id: id });
+  if (error) throw storageError(error);
+  if (!data) throw storageError({ code: "40001", message: "Class changed" });
+}
+
 export async function loadReportDay(date: string) {
   // One RPC gives a consistent snapshot of both tables in the same transaction.
   const { data, error } = await supabase.rpc("cosmath_load_report_day", { p_date: date });

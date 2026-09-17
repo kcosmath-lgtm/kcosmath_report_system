@@ -17,6 +17,7 @@ type AuthContextValue = {
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   updateProfile: (fullName: string) => Promise<string | null>;
+  uploadAvatar: (file: File) => Promise<string | null>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -87,6 +88,18 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     signOut: async () => { await supabase.auth.signOut(); setWorkspace(null); },
     updateProfile: async (fullName: string) => {
       const { error: updateError } = await supabase.auth.updateUser({ data: { full_name: fullName.trim() } });
+      return updateError?.message ?? null;
+    },
+    uploadAvatar: async (file: File) => {
+      if (!session?.user) return "로그인이 필요합니다.";
+      if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) return "JPG, PNG 또는 WebP 이미지만 사용할 수 있습니다.";
+      if (file.size > 2 * 1024 * 1024) return "프로필 사진은 2MB 이하여야 합니다.";
+      const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
+      const path = `${session.user.id}/profile.${extension}`;
+      const { error: uploadError } = await supabase.storage.from("cosmath-avatars").upload(path, file, { upsert: true, contentType: file.type, cacheControl: "3600" });
+      if (uploadError) return uploadError.message;
+      const { data } = supabase.storage.from("cosmath-avatars").getPublicUrl(path);
+      const { error: updateError } = await supabase.auth.updateUser({ data: { avatar_url: `${data.publicUrl}?v=${Date.now()}` } });
       return updateError?.message ?? null;
     },
   }), [session, workspace, loading]);

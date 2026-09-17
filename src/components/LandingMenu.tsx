@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { CalendarCheck, ClipboardPenLine, FileText, LogOut, Menu, Settings, UserRoundCog, X } from "lucide-react";
+import Image from "next/image";
+import { Building2, CalendarCheck, ClipboardPenLine, FileText, LogOut, Menu, Settings, UserRoundCog, X } from "lucide-react";
 import styles from "./landing-menu.module.css";
 import { useAuth } from "./AuthProvider";
 
 export default function LandingMenu({ profile = false }: { profile?: boolean }) {
   const { user, workspace, signOut } = useAuth();
+  const avatarUrl = user?.user_metadata?.avatar_url as string | undefined;
   const [open, setOpen] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -18,7 +20,7 @@ export default function LandingMenu({ profile = false }: { profile?: boolean }) 
     return () => window.removeEventListener("keydown", close);
   }, [open]);
   return <div className={styles.menu}>
-    <button className={`${styles.trigger} ${profile ? styles.profileTrigger : ""}`} onClick={() => setOpen(value => !value)} aria-expanded={open} aria-controls="landing-main-menu" aria-label={open ? "프로필 메뉴 닫기" : "프로필 메뉴 열기"}>{open ? <X size={19} /> : profile ? <span>{(user?.user_metadata?.full_name || user?.email || "P").slice(0,1).toUpperCase()}</span> : <Menu size={23} />}</button>
+    <button className={`${styles.trigger} ${profile ? styles.profileTrigger : ""}`} onClick={() => setOpen(value => !value)} aria-expanded={open} aria-controls="landing-main-menu" aria-label={open ? "프로필 메뉴 닫기" : "프로필 메뉴 열기"}>{open ? <X size={19} /> : profile ? avatarUrl ? <Image src={avatarUrl} alt="프로필 사진" width={38} height={38} unoptimized /> : <Building2 size={18} /> : <Menu size={23} />}</button>
     {open && <><button className={styles.scrim} aria-label="메뉴 닫기" onClick={() => setOpen(false)} /><div ref={panel} id="landing-main-menu" className={styles.panel} tabIndex={-1}>
       <small>COSMATH WORKSPACE</small><h2>어떤 일을 시작할까요?</h2>
       <Link href="/report" onClick={() => setOpen(false)}><span><FileText size={21} /></span><div><strong>보고서 작성</strong><p>수업 내용과 학생별 보고서를 작성합니다.</p></div></Link>

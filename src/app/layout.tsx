@@ -1,5 +1,7 @@
 // src/app/layout.tsx
 import "./globals.css";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import AuthProvider from "../components/AuthProvider";
 
 export const metadata = {
@@ -15,7 +17,11 @@ export default function RootLayout({
   return (
     <html lang="ko">
       {/* font-sans 클래스를 추가하여 globals.css에서 설정한 폰트를 불러옵니다 */}
-      <body className="antialiased font-sans"><AuthProvider>{children}</AuthProvider></body>
+      <body className="antialiased font-sans">
+        <AuthProvider>{children}</AuthProvider>
+        <Analytics />
+        <SpeedInsights />
+      </body>
     </html>
   );
 }

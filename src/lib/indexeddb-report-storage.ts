@@ -97,6 +97,36 @@ export async function archiveStudent(id: string, version: number) {
   });
 }
 
+export async function deleteStudent(id: string) {
+  await transaction("readwrite", async tx => {
+    const students = tx.objectStore("students");
+    if (!await result(students.get(id))) throw conflict();
+    const reports = await result<ReportRecord[]>(tx.objectStore("reports").getAll());
+    const wrongAnswers = await result<WrongAnswerRecord[]>(tx.objectStore("wrongAnswers").getAll());
+    for (const report of reports.filter(item => item.student_id === id)) await result(tx.objectStore("reports").delete(report.id));
+    for (const record of wrongAnswers.filter(item => item.student_id === id)) await result(tx.objectStore("wrongAnswers").delete(record.id));
+    await result(students.delete(id));
+  });
+}
+
+export async function deleteClass(id: string) {
+  await transaction("readwrite", async tx => {
+    const classes = tx.objectStore("classes");
+    if (!await result(classes.get(id))) throw conflict();
+    const students = (await result<StudentRow[]>(tx.objectStore("students").getAll())).filter(item => item.class_id === id);
+    const studentIds = new Set(students.map(item => item.id));
+    const lessons = (await result<LessonRecord[]>(tx.objectStore("lessons").getAll())).filter(item => item.class_id === id);
+    const lessonIds = new Set(lessons.map(item => item.id));
+    const reports = await result<ReportRecord[]>(tx.objectStore("reports").getAll());
+    const wrongAnswers = await result<WrongAnswerRecord[]>(tx.objectStore("wrongAnswers").getAll());
+    for (const report of reports.filter(item => lessonIds.has(item.lesson_id) || studentIds.has(item.student_id))) await result(tx.objectStore("reports").delete(report.id));
+    for (const record of wrongAnswers.filter(item => studentIds.has(item.student_id))) await result(tx.objectStore("wrongAnswers").delete(record.id));
+    for (const lesson of lessons) await result(tx.objectStore("lessons").delete(lesson.id));
+    for (const student of students) await result(tx.objectStore("students").delete(student.id));
+    await result(classes.delete(id));
+  });
+}
+
 export async function loadReportDay(date: string) {
   return transaction("readonly", async tx => {
     const lessons = (await result<LessonRecord[]>(tx.objectStore("lessons").getAll())).filter(lesson => lesson.report_date === date);

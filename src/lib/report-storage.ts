@@ -18,6 +18,8 @@ export async function loadStudents() { return (await storage()).loadStudents(); 
 export async function addClass(name: string) { return (await storage()).addClass(name); }
 export async function addStudent(classId: string, name: string, grade: string) { return (await storage()).addStudent(classId, name, grade); }
 export async function archiveStudent(id: string, version: number) { return (await storage()).archiveStudent(id, version); }
+export async function deleteStudent(id: string) { return (await storage()).deleteStudent(id); }
+export async function deleteClass(id: string) { return (await storage()).deleteClass(id); }
 export async function loadReportDay(date: string) { return (await storage()).loadReportDay(date); }
 export async function saveReportBatch(batch: ReportSaveBatch) { return (await storage()).saveReportBatch(batch); }
 export async function loadWrongAnswers(month: string) { return (await storage()).loadWrongAnswers(month); }

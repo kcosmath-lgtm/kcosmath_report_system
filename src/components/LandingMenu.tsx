@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { CalendarCheck, ClipboardPenLine, FileText, Menu, UserRoundCog, X } from "lucide-react";
+import { CalendarCheck, ClipboardPenLine, FileText, LogOut, Menu, UserRoundCog, X } from "lucide-react";
 import styles from "./landing-menu.module.css";
+import { useAuth } from "./AuthProvider";
 
 export default function LandingMenu() {
+  const { user, workspace, signOut } = useAuth();
   const [open, setOpen] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -23,6 +25,7 @@ export default function LandingMenu() {
       <Link href="/students" onClick={() => setOpen(false)}><span><UserRoundCog size={21} /></span><div><strong>학생 관리</strong><p>반과 학생을 등록하고 퇴원 처리합니다.</p></div></Link>
       <Link href="/errors" onClick={() => setOpen(false)}><span><CalendarCheck size={21} /></span><div><strong>오답 관리</strong><p>날짜별 오답과 수정 현황을 기록합니다.</p></div></Link>
       <Link href="/handoffs" onClick={() => setOpen(false)}><span><ClipboardPenLine size={21} /></span><div><strong>인수인계</strong><p>날짜별 특이사항과 참고사항을 공유합니다.</p></div></Link>
+      <div className={styles.account}><div><strong>{workspace?.name}</strong><small>{user?.email}</small></div><button onClick={() => void signOut()} aria-label="로그아웃" title="로그아웃"><LogOut size={17} /></button></div>
     </div></>}
   </div>;
 }

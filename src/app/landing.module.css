@@ -9,6 +9,7 @@
 .header nav { display: flex; align-items: center; gap: 30px; font-size: 13px; font-weight: 600; }
 .header nav a:hover, .actions > a:last-child:hover { color: #235e9f; }
 .navButton { display: flex; align-items: center; gap: 14px; border: 1px solid #cbdcf0; padding: 12px 17px; border-radius: 7px; }
+.loginButton{display:flex;align-items:center;justify-content:center;gap:7px;min-width:88px;height:40px;padding:0 14px;border:1px solid #b9cee3;border-radius:7px;color:#fff;background:#2864a9;font-size:12px;font-weight:700}.loginButton:hover{background:#1e4f89}.authPlaceholder{display:block;width:88px;height:40px}
 .hero { display: grid; grid-template-columns: 1.1fr 1fr; align-items: center; gap: 45px; padding: 75px 0 85px; }
 .eyebrow { font-size: 10px; letter-spacing: 1.7px; font-weight: 700; color: #4b7099; }
 .hero h1 { margin: 25px 0; font-size: clamp(34px, 3.6vw, 48px); line-height: 1.48; letter-spacing: -2.5px; font-weight: 700; }

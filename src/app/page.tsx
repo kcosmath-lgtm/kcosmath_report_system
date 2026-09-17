@@ -2,7 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import logo from "../../public/logo.png";
 import { ArrowRight, ArrowUpRight, BookOpen, Check, FileText, Layers3, Plus } from "lucide-react";
-import LandingMenu from "../components/LandingMenu";
+import LandingAuthNav from "../components/LandingAuthNav";
 import styles from "./landing.module.css";
 
 const steps = [
@@ -17,7 +17,7 @@ export default function LandingPage() {
       <a href="#main" className={styles.skip}>본문으로 이동</a>
       <header className={styles.header}>
         <Link href="/" className={styles.brand} aria-label="COSMATH 홈"><Image src={logo} alt="COSMATH MATH ACADEMY" priority className={styles.logo} /><small>WORKSPACE</small></Link>
-        <nav aria-label="주 메뉴"><a href="#workspace">워크스페이스</a><a href="#guide">사용 안내</a><LandingMenu /></nav>
+        <nav aria-label="주 메뉴"><a href="#workspace">워크스페이스</a><a href="#guide">사용 안내</a><LandingAuthNav /></nav>
       </header>
       <main id="main">
         <section className={styles.hero} aria-labelledby="hero-title">

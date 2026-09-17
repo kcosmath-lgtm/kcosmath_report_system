@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -34,8 +34,15 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   const [creating, setCreating] = useState(false);
   const [academyName, setAcademyName] = useState("");
   const [error, setError] = useState("");
+  const activeUserId = useRef<string | null>(null);
 
   const loadWorkspace = useCallback(async (nextSession: Session | null) => {
+    const nextUserId = nextSession?.user.id ?? null;
+    if (nextUserId && activeUserId.current === nextUserId) {
+      setSession(nextSession);
+      return;
+    }
+    activeUserId.current = nextUserId;
     setSession(nextSession);
     setWorkspace(null);
     if (!nextSession) { setLoading(false); return; }

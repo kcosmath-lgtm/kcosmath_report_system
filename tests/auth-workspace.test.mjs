@@ -8,6 +8,7 @@ const files = [
   "202609160001_wrong_answers.sql",
   "202609160002_handoffs.sql",
   "202609170001_auth_workspaces.sql",
+  "202609170002_remove_ambiguous_foreign_keys.sql",
 ];
 const migrations = files.map(file => readFileSync(new URL(`../supabase/migrations/${file}`, import.meta.url), "utf8"));
 const ownerId = "10000000-0000-4000-8000-000000000001";
@@ -31,6 +32,7 @@ test("workspace migration preserves legacy data and blocks anonymous access", as
       INSERT INTO auth.users(id) VALUES ('${ownerId}');
     `);
     await db.exec(migrations[3]);
+    await db.exec(migrations[4]);
     assert.equal((await db.query("SELECT count(*)::int n FROM cosmath_handoffs WHERE academy_id IS NOT NULL")).rows[0].n, 1);
 
     await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [ownerId]);

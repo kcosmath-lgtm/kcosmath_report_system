@@ -16,7 +16,7 @@ export function storageError(error: { message: string; code?: string }): Error {
 
 export async function loadStudents(): Promise<StudentGroup[]> {
   const { data, error } = await supabase.from("cosmath_classes")
-    .select("id, name, cosmath_students(id, name, grade, version, active)").order("name");
+    .select("id, name, cosmath_students!cosmath_students_class_academy_fk(id, name, grade, version, active)").order("name");
   if (error) throw storageError(error);
   return (data ?? []).map(group => ({ id: group.id, group: group.name,
     students: group.cosmath_students.filter(student => student.active)

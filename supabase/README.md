@@ -65,6 +65,8 @@ select count(*) as reports from public.cosmath_reports;
 6. Google Client ID와 Client Secret을 Supabase Authentication > Providers > Google에 입력하고 활성화합니다.
 7. 앱에 가장 먼저 로그인해 학원 이름을 입력합니다. 이 최초 계정이 기존 데이터를 인수하는 `owner`가 됩니다.
 
+인증 마이그레이션을 이미 적용했다면 바로 이어서 `202609170002_remove_ambiguous_foreign_keys.sql`도 실행합니다. 학원 격리용 복합 외래키와 기존 외래키가 동시에 노출되어 PostgREST 관계 조회가 모호해지는 것을 방지하는 후속 마이그레이션입니다.
+
 새 마이그레이션은 기존 반, 학생, 수업, 보고서, 오답, 인수인계를 삭제하지 않습니다. 소유자가 없는 임시 학원에 먼저 귀속한 뒤 최초 워크스페이스 생성자가 인수합니다. 따라서 마이그레이션 적용 후 공개 주소를 다른 사람에게 전달하기 전에 실제 소유자 계정으로 먼저 로그인해야 합니다.
 
 적용 후 `anon`의 업무 데이터 권한은 제거됩니다. 로그인한 사용자도 `academy_members`에 등록된 자신의 학원 데이터만 RLS와 RPC 검증을 통과할 수 있습니다. 현재는 사용자당 학원 한 곳과 `owner` 역할만 실제 UI에서 사용하며, `staff` 역할은 향후 초대 기능을 위해 예약되어 있습니다.

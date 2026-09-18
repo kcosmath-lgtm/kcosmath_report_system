@@ -129,9 +129,20 @@ export async function deleteClass(id: string) {
 
 export async function loadReportDay(date: string) {
   return transaction("readonly", async tx => {
-    const lessons = (await result<LessonRecord[]>(tx.objectStore("lessons").getAll())).filter(lesson => lesson.report_date === date);
-    const ids = new Set(lessons.map(lesson => lesson.id));
-    const reports = (await result<ReportRecord[]>(tx.objectStore("reports").getAll())).filter(report => ids.has(report.lesson_id));
+    // Reports are rolling records. Keep the date argument for adapter/API
+    // compatibility, but resume the newest saved row for each class/student.
+    void date;
+    const allLessons = await result<LessonRecord[]>(tx.objectStore("lessons").getAll());
+    const lessonById = new Map(allLessons.map(lesson => [lesson.id, lesson]));
+    const lessons = [...allLessons]
+      .sort((a, b) => b.report_date.localeCompare(a.report_date) || b.version - a.version)
+      .filter((lesson, index, rows) => rows.findIndex(item => item.class_id === lesson.class_id) === index);
+    const reports = (await result<ReportRecord[]>(tx.objectStore("reports").getAll()))
+      .sort((a, b) => {
+        const dateOrder = (lessonById.get(b.lesson_id)?.report_date ?? "").localeCompare(lessonById.get(a.lesson_id)?.report_date ?? "");
+        return dateOrder || b.version - a.version;
+      })
+      .filter((report, index, rows) => rows.findIndex(item => item.student_id === report.student_id) === index);
     return { lessons, reports };
   });
 }

@@ -60,7 +60,8 @@ export async function deleteClass(id: string) {
 }
 
 export async function loadReportDay(date: string) {
-  // One RPC gives a consistent snapshot of both tables in the same transaction.
+  // The RPC keeps this argument for compatibility but returns each student's
+  // latest rolling report, regardless of the day it was first created.
   const { data, error } = await supabase.rpc("cosmath_load_report_day", { p_date: date });
   if (error) throw storageError(error);
   return data as { lessons: LessonRecord[]; reports: ReportRecord[] };

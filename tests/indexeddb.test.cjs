@@ -81,13 +81,14 @@ test('concurrent same-version saves have only one winner', async () => {
   assert.equal((await local.loadReportDay('2026-09-14')).reports[0].version, 2);
 });
 
-test('archive prevents new reports but retains history; dates and students are isolated', async () => {
+test('archive prevents new reports and rolling reports remain visible on later dates', async () => {
   const { a, b, lesson, report } = await fixture();
   await local.saveReportBatch({ lessons: [], reports: [{ ...report, id: crypto.randomUUID(), student_id: b.id, snapshot: { notes: '학생 B' } }] });
   await local.archiveStudent(a.id, 1);
   const nextLesson = { ...lesson, id: crypto.randomUUID(), report_date: '2026-09-15' };
   await assert.rejects(local.saveReportBatch({ lessons: [nextLesson], reports: [{ ...report, id: crypto.randomUUID(), lesson_id: nextLesson.id }] }), /다른 창/);
-  assert.equal((await local.loadReportDay('2026-09-15')).lessons.length, 0);
+  const nextDay = await local.loadReportDay('2026-09-15');
+  assert.equal(nextDay.lessons.length, 1);
   const day = await local.loadReportDay('2026-09-14');
   assert.equal(day.reports.length, 2);
   assert.equal(day.reports.find(row => row.student_id === a.id).snapshot.notes, '기존 내용');

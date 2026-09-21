@@ -4,10 +4,11 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { Session, User } from "@supabase/supabase-js";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { Building2, Loader2, LogIn } from "lucide-react";
+import { Loader2, LogIn } from "lucide-react";
 import logo from "../../public/logo.png";
 import { supabase } from "../lib/supabase";
 import styles from "./auth-shell.module.css";
+import WorkspaceOnboarding from "./WorkspaceOnboarding";
 
 export type Workspace = { id: string; name: string; role: "owner" | "staff" };
 type AuthContextValue = {
@@ -33,25 +34,28 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   const [session, setSession] = useState<Session | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [academyName, setAcademyName] = useState("");
   const [error, setError] = useState("");
   const activeUserId = useRef<string | null>(null);
 
-  const loadWorkspace = useCallback(async (nextSession: Session | null) => {
+  const requestSequence = useRef(0);
+  const loadWorkspace = useCallback(async (nextSession: Session | null, force = false) => {
     const nextUserId = nextSession?.user.id ?? null;
-    if (nextUserId && activeUserId.current === nextUserId) {
-      setSession(nextSession);
-      return;
-    }
-    activeUserId.current = nextUserId;
     setSession(nextSession);
-    setWorkspace(null);
+    if (!force && nextUserId && activeUserId.current === nextUserId) return;
+    activeUserId.current = nextUserId;
+    const sequence = ++requestSequence.current;
+    setLoading(true); setError(""); setWorkspace(null);
     if (!nextSession) { setLoading(false); return; }
-    const { data, error: requestError } = await supabase.rpc("cosmath_get_my_workspace");
-    if (requestError) setError(requestError.message);
-    else setWorkspace(data as Workspace | null);
-    setLoading(false);
+    try {
+      const { data, error: requestError } = await supabase.rpc("cosmath_get_my_workspace");
+      if (sequence !== requestSequence.current) return;
+      if (requestError) throw requestError;
+      setWorkspace(data as Workspace | null);
+    } catch (e) {
+      if (sequence !== requestSequence.current) return;
+      activeUserId.current = null;
+      setError((e as { message?: string })?.message || "학원 정보를 불러오지 못했습니다.");
+    } finally { if (sequence === requestSequence.current) setLoading(false); }
   }, []);
 
   useEffect(() => {
@@ -69,15 +73,6 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       options: { redirectTo: window.location.origin },
     });
     if (signInError) setError(signInError.message);
-  }
-
-  async function createWorkspace() {
-    if (!academyName.trim()) return;
-    setCreating(true); setError("");
-    const { data, error: createError } = await supabase.rpc("cosmath_create_workspace", { p_name: academyName.trim() });
-    if (createError) setError(createError.message);
-    else setWorkspace(data as Workspace);
-    setCreating(false);
   }
 
   const value = useMemo<AuthContextValue>(() => ({
@@ -105,7 +100,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   }), [session, workspace, loading]);
 
   let content = children;
-  if (pathname !== "/" && loading) content = <div className={styles.loading}><Loader2 className="animate-spin" /><span>워크스페이스를 준비하고 있습니다.</span></div>;
+  if ((pathname !== "/" || session) && loading) content = <div className={styles.loading}><Loader2 className="animate-spin" /><span>워크스페이스를 준비하고 있습니다.</span></div>;
   else if (pathname !== "/" && !session) content = <main className={styles.authPage}><section className={styles.authPanel}>
     <Image src={logo} alt="COSMATH" priority />
     <p>선생님의 기록, 학생의 성장</p>
@@ -114,15 +109,11 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     <button onClick={() => void signIn()}><b>G</b> Google로 계속하기 <LogIn /></button>
     {error && <div role="alert" className={styles.error}>{error}</div>}
   </section></main>;
-  else if (pathname !== "/" && !workspace) content = <main className={styles.authPage}><section className={styles.authPanel}>
-    <Image src={logo} alt="COSMATH" priority />
-    <div className={styles.workspaceIcon}><Building2 /></div>
-    <h1>학원 워크스페이스 만들기</h1>
-    <span>기존 데이터가 있다면 이 계정의 학원으로 안전하게 연결됩니다.</span>
-    <label>학원 이름<input value={academyName} maxLength={100} autoFocus onChange={event => setAcademyName(event.target.value)} onKeyDown={event => { if (event.key === "Enter") void createWorkspace(); }} placeholder="예: 코스매스 수학학원" /></label>
-    <button disabled={creating || !academyName.trim()} onClick={() => void createWorkspace()}>{creating ? <Loader2 className="animate-spin" /> : <Building2 />} 워크스페이스 시작하기</button>
-    <button className={styles.secondary} onClick={() => void value.signOut()}>다른 계정으로 로그인</button>
-    {error && <div role="alert" className={styles.error}>{error}</div>}
+  else if (session && error && !workspace) content = <main className={styles.authPage}><section className={styles.authPanel}>
+    <h1>학원 정보를 확인하지 못했습니다</h1><div role="alert" className={styles.error}>{error}</div>
+    <button onClick={() => void loadWorkspace(session, true)}>다시 확인</button>
+    <button onClick={() => void value.signOut()}>로그아웃</button>
   </section></main>;
+  else if (session && !workspace) content = <WorkspaceOnboarding key={session.user.id} refresh={() => loadWorkspace(session, true)} signOut={value.signOut} />;
   return <AuthContext.Provider value={value}>{content}</AuthContext.Provider>;
 }

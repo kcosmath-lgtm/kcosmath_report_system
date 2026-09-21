@@ -5,7 +5,7 @@ import type { WrongAnswerRecord } from "../types/wrong-answer";
 import type { HandoffRecord } from "../types/handoff";
 
 export function storageError(error: { message: string; code?: string }): Error {
-  if (error.code === "40001" || error.code === "23505") {
+  if (error.code === "PT409" || error.code === "40001" || error.code === "23505") {
     return new Error("다른 창에서 데이터가 변경되었거나 이미 등록되어 있습니다. 현재 작성 내용을 별도로 복사한 뒤 새로고침하여 다시 확인해 주세요.");
   }
   if (["42P01", "PGRST205", "PGRST202"].includes(error.code ?? "")) {

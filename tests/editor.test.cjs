@@ -115,17 +115,35 @@ test('an individual edit does not rewrite another student or common lesson', asy
 
 test('conflict keeps unsaved draft; deselected dirty reports are included when saving', async () => {
   let batch;
-  save = async value => { batch = value; throw new Error('다른 창에서 변경됨'); };
+  let attempts = 0;
+  save = async value => { attempts++; batch = value; throw new Error('다른 창에서 변경됨'); };
   await mount();
   await act(async () => editor.handleBatchSelect([a]));
   await act(async () => editor.updateField('notes', '보존할 내용'));
   await act(async () => editor.handleBatchSelect([b]));
   await act(async () => editor.saveToSupabase());
   assert.equal(editor.hasUnsavedChanges, true);
+  assert.equal(editor.isSaving, false);
+  assert.equal(attempts, 1);
   assert.match(editor.error, /다른 창/);
   assert.equal(batch.reports.find(item => item.student_id === 'a').snapshot.notes, '보존할 내용');
   await act(async () => editor.handleBatchSelect([a]));
   assert.equal(editor.reportData.notes, '보존할 내용');
+});
+
+test('editing one class excludes loaded or selected unchanged reports in other classes', async () => {
+  const other = { ...b, classId: 'class-b', group: '고1' };
+  const batches = [];
+  save = async batch => { batches.push(batch); return echo(batch); };
+  // Missing display fields must not turn an untouched historical report into a write.
+  await mount({ lessons: [a, other].map(s => ({ id: `lesson-${s.id}`, class_id: s.classId, report_date: '2026-09-18', version: 1, common_data: {} })),
+    reports: [a, other].map(s => ({ id: `report-${s.id}`, student_id: s.id, lesson_id: `lesson-${s.id}`, version: 1, snapshot: { name: s.name, grade: s.grade, group: s.group, classId: s.classId, notes: 'old' } })) });
+  await act(async () => editor.handleBatchSelect([a]));
+  await act(async () => editor.updateField('progress', 'changed class A'));
+  await act(async () => editor.handleBatchSelect([other]));
+  await act(async () => editor.saveToSupabase());
+  assert.deepEqual(batches[0].reports.map(r => r.student_id), [a.id]);
+  assert.deepEqual(batches[0].lessons.map(l => l.class_id), [a.classId]);
 });
 
 test('saved snapshots keep historical names and contents; selecting does not mark dirty', async () => {

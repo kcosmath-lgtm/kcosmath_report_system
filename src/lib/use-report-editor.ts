@@ -133,6 +133,9 @@ export function useReportEditor() {
       for (const id of ids) {
         const student = students.current[id];
         const existing = reports.current[id];
+        // Loaded snapshots can have display-only date/identity differences.
+        // Selection alone must never rewrite an existing report from another tab.
+        if (existing && !dirtyStudents.current.has(id)) continue;
         const snapshot = { ...draftRef.current[id], group: student.group, classId: student.classId };
         if (existing && isSameSnapshot(existing.snapshot, snapshot)) continue;
         let lesson = lessons.current[student.classId];

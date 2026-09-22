@@ -6,4 +6,5 @@ export interface WrongAnswerRecord {
   corrected_count: number;
   memo: string;
   version: number;
+  completed?: boolean;
 }

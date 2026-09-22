@@ -22,6 +22,16 @@ test('last report save wins for stale updates and competing new IDs; tenant chec
     await db.exec("SET ROLE authenticated; SELECT cosmath_create_workspace('Test');");
     await db.query("INSERT INTO cosmath_classes(id,name) VALUES ($1,'Class')", [classId]);
     await db.query("INSERT INTO cosmath_students(id,class_id,name,grade) VALUES ('a',$1,'A','1'),('b',$1,'B','1')", [classId]);
+    await db.exec('RESET ROLE');
+    await db.exec(readFileSync(new URL('../supabase/migrations/202609220002_wrong_answer_completion.sql', import.meta.url), 'utf8'));
+    await db.exec('SET ROLE authenticated');
+    const completionId = '50000000-0000-4000-8000-000000000001';
+    const complete = async (version, done) => (await db.query("SELECT * FROM cosmath_save_wrong_answer_status($1,'a','2026-09-22',0,0,'memo',$2,$3)", [completionId, version, done])).rows[0];
+    const completed = await complete(0, true);
+    assert.equal(completed.completed, true);
+    assert.equal(completed.total_wrong, 0);
+    assert.equal(completed.corrected_count, 0);
+    assert.equal((await complete(completed.version, false)).completed, false);
     const lesson = { id: lessonId, class_id: classId, report_date: '2026-09-22', common_data: { progress: 'first' }, expected_version: 0 };
     const report = { id: reportId, lesson_id: lessonId, student_id: 'a', snapshot: { notes: 'first' }, expected_version: 0 };
     await rpc([lesson], [report]);
@@ -38,6 +48,12 @@ test('last report save wins for stale updates and competing new IDs; tenant chec
     assert.equal((await db.query("SELECT snapshot->>'notes' AS notes FROM cosmath_reports WHERE student_id='b'")).rows[0].notes, 'first');
     await assert.rejects(rpc([{ ...lesson, common_data: { progress: 'rollback' } }], [{ ...report, student_id: 'missing' }]));
     assert.equal((await db.query('SELECT common_data FROM cosmath_lessons')).rows[0].common_data.progress, 'second');
+    // The rolling editor submits today's date with yesterday's existing IDs.
+    const rolling = await rpc([{ ...lesson, report_date: '2026-09-23', expected_version: 1 }],
+      [{ ...report, expected_version: 1, snapshot: { notes: 'next day' } }]);
+    assert.equal(rolling.lessons[0].id, lessonId);
+    assert.equal(rolling.reports[0].snapshot.notes, 'next day');
+    assert.equal((await db.query('SELECT count(*)::int AS n FROM cosmath_lessons')).rows[0].n, 1);
     await db.exec('RESET ROLE');
     const outsider = '10000000-0000-4000-8000-000000000002';
     await db.query('INSERT INTO auth.users VALUES ($1)', [outsider]);
@@ -45,5 +61,6 @@ test('last report save wins for stale updates and competing new IDs; tenant chec
     await db.exec("SET ROLE authenticated; SELECT cosmath_create_workspace('Other');");
     await assert.rejects(rpc([lesson], [report]), /Class not found/);
     await assert.rejects(rpc([], [report]), /Student archived or class changed/);
+    await assert.rejects(complete(2, true));
   } finally { await db.close(); }
 });

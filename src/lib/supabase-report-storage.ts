@@ -83,13 +83,13 @@ export async function saveReportBatch(batch: ReportSaveBatch) {
 export async function loadWrongAnswers(month: string): Promise<WrongAnswerRecord[]> {
   const start = `${month}-01`;
   const end = new Date(`${start}T00:00:00Z`); end.setUTCMonth(end.getUTCMonth() + 1);
-  const { data, error } = await supabase.from("cosmath_wrong_answers").select("id, student_id, record_date, total_wrong, corrected_count, memo, version").gte("record_date", start).lt("record_date", end.toISOString().slice(0, 10));
+  const { data, error } = await supabase.from("cosmath_wrong_answers").select("id, student_id, record_date, total_wrong, corrected_count, memo, version, completed").gte("record_date", start).lt("record_date", end.toISOString().slice(0, 10));
   if (error) throw storageError(error);
   return (data ?? []) as WrongAnswerRecord[];
 }
 
 export async function saveWrongAnswer(record: WrongAnswerRecord): Promise<WrongAnswerRecord> {
-  const { data, error } = await supabase.rpc("cosmath_save_wrong_answer", { p_id: record.id, p_student_id: record.student_id, p_record_date: record.record_date, p_total_wrong: record.total_wrong, p_corrected_count: record.corrected_count, p_memo: record.memo, p_expected_version: record.version });
+  const { data, error } = await supabase.rpc("cosmath_save_wrong_answer_status", { p_id: record.id, p_student_id: record.student_id, p_record_date: record.record_date, p_total_wrong: record.total_wrong, p_corrected_count: record.corrected_count, p_memo: record.memo, p_expected_version: record.version, p_completed: record.completed ?? false });
   if (error) throw storageError(error);
   return data as WrongAnswerRecord;
 }

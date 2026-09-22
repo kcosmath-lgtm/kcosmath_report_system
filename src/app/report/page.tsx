@@ -389,9 +389,9 @@ export default function ReportPage() {
                   <AlertTriangle size={18} />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-700 mb-1">다른 창과 수정 충돌이 발생한 경우</h3>
+                  <h3 className="text-sm font-bold text-slate-700 mb-1">여러 창에서 같은 보고서를 저장할 때</h3>
                   <p className="text-xs text-slate-500 leading-relaxed">
-                    같은 보고서나 반별 공통 내용을 다른 창에서 먼저 저장하면 현재 저장은 중단됩니다. 작성 내용을 별도로 복사한 뒤 다시 불러와 최신 내용에 반영해 주세요. 서로 다른 학생의 개별 보고서는 따로 저장됩니다.
+                    같은 보고서나 반별 공통 내용을 여러 창에서 수정하면 마지막으로 저장한 내용이 반영됩니다. 앞서 저장한 내용은 덮어쓰며, 서로 다른 학생의 개별 보고서는 따로 저장됩니다.
                   </p>
                 </div>
               </div>

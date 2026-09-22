@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect } from "react";
 import StudentSidebar from "../../components/layout/Sidebar";
 import { Menu, Download, ChevronLeft, ChevronRight, Users, User, Loader2, Save, HelpCircle, AlertTriangle, Wifi, X } from "lucide-react";
-import { toBlob } from "html-to-image";
+import { flushSync } from "react-dom";
+import { captureReportImage } from "../../lib/report-image";
 import Image from "next/image";
 import logo from "../../../public/logo.png";
 import Link from "next/link";
@@ -20,7 +21,7 @@ export default function ReportPage() {
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLTextAreaElement>(null);
-  const { reportDate, isInitialized, isLoading, loadFailed, error,
+  const { reportDate, changeDate, isInitialized, isLoading, loadFailed, error,
     selectedStudents, currentIndex, setCurrentIndex, currentStudent, reportData, isSaving, hasUnsavedChanges,
     isIndividualMode, setIsIndividualMode, handleBatchSelect, updateField, applyAiPatch, saveToSupabase, nextReport, prevReport } = useReportEditor();
 
@@ -36,13 +37,15 @@ export default function ReportPage() {
   // 🌟 [수정] 이미지 일괄 저장 안정화 로직
   const saveAsImage = async () => {
     if (!reportRef.current || selectedStudents.length === 0) return;
+    if (isGeneratingImage) return;
+    const originalIndex = currentIndex;
     setIsGeneratingImage(true);
 
     try {
       if (selectedStudents.length === 1) {
-        const blob = await toBlob(reportRef.current, { backgroundColor: "#ffffff", pixelRatio: 3 });
+        const blob = await captureReportImage(reportRef.current);
         const fileName = `${reportData.grade} ${reportData.name}`;
-        if (blob) saveAs(blob, `${fileName}.jpg`);
+        if (blob) saveAs(blob, `${fileName}.png`);
       } else {
         const zip = new JSZip();
         const firstGrade = selectedStudents[0].grade;
@@ -50,43 +53,24 @@ export default function ReportPage() {
         const targetFolder = isAllSameGrade ? zip.folder(firstGrade) : zip;
         if (!targetFolder) throw new Error("Zip folder creation failed");
 
-        const originalIndex = currentIndex;
-
         for (let i = 0; i < selectedStudents.length; i++) {
           const student = selectedStudents[i];
-          
-          // 1. 상태값 변경 트리거
-          setCurrentIndex(i);
-          
-          // 2. React가 DOM을 완전히 리렌더링하고 브라우저 Paint를 마칠 때까지 충분한 시간을 대기
-          await new Promise(resolve => setTimeout(resolve, 150));
-          await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 150)));
-
-          if (reportRef.current) {
-            // 3. 간혹 폰트나 이미지 로드가 느려질 때를 방지하기 위해 캡처 시도 전 강제 갱신 유도용 옵션 지정 가능
-            const blob = await toBlob(reportRef.current, { 
-              backgroundColor: "#ffffff", 
-              pixelRatio: 3,
-              cacheBust: true // 캐시 버그 방지
-            });
-            const fileName = `${student.grade} ${student.name}.jpg`;
-            if (blob) {
-              targetFolder.file(fileName, blob);
-            }
-          }
+          flushSync(() => setCurrentIndex(i));
+          await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+          if (!reportRef.current) throw new Error("보고서 화면을 찾지 못했습니다.");
+          const blob = await captureReportImage(reportRef.current);
+          targetFolder.file(student.grade + " " + student.name + ".png", blob);
         }
 
-        // 작업 종료 후 보던 화면으로 백업
-        setCurrentIndex(originalIndex);
-        
         const zipBlob = await zip.generateAsync({ type: "blob" });
-        const zipName = isAllSameGrade ? `${firstGrade}_학습보고서.zip` : `학습보고서_모음_${getFormattedDate()}.zip`;
+        const zipName = isAllSameGrade ? `${firstGrade}_학습보고서.zip` : `학습보고서_모음_${getFormattedDate(reportDate)}.zip`;
         saveAs(zipBlob, zipName);
       }
     } catch (error) {
       console.error("Image generation failed:", error);
       alert("이미지 저장 중 오류가 발생했습니다.");
     } finally {
+      setCurrentIndex(originalIndex);
       setIsGeneratingImage(false);
     }
   };
@@ -120,6 +104,9 @@ export default function ReportPage() {
             <div className={styles.title}><h1>수업 보고서</h1><p>STUDENT REPORT</p></div>
           </div>
           <div className={styles.actions}>
+            <label>보고서 날짜 <input type="date" value={reportDate}
+              disabled={isLoading || isSaving || isGeneratingImage}
+              onChange={event => changeDate(event.target.value)} /></label>
             {selectedStudents.length > 0 && <>
               <div className={styles.pager}>
                 <button onClick={prevReport} disabled={currentIndex === 0 || isGeneratingImage} className={styles.iconButton} aria-label="이전 학생"><ChevronLeft size={16} /></button>

@@ -24,6 +24,7 @@ Module._load = function (request, parent, isMain) {
 };
 const { useReportEditor } = require('../src/lib/use-report-editor.ts');
 const { defaultReport } = require('../src/lib/report-model.ts');
+const { getFormattedDate } = require('../src/utils/date.ts');
 let editor, root;
 function Harness() { editor = useReportEditor(); return null; }
 async function mount(day = { lessons: [], reports: [] }) {
@@ -154,9 +155,25 @@ test('saved snapshots keep historical names and contents; selecting does not mar
   assert.equal(editor.reportData.name, '과거 이름');
   assert.equal(editor.reportData.grade, '중1');
   assert.equal(editor.reportData.notes, '과거 기록');
+  assert.equal(editor.reportData.date, getFormattedDate(editor.reportDate));
   assert.equal(editor.hasUnsavedChanges, false);
   await act(async () => editor.openSavedReport(a.id));
   assert.equal(editor.reportData.notes, '과거 기록');
+});
+
+test('selected date overrides stale common dates across month and week boundaries', async () => {
+  const batches = [];
+  save = async batch => { batches.push(batch); return echo(batch); };
+  await mount({ lessons: [{ id: 'lesson', class_id: a.classId, version: 1,
+    common_data: { date: '2025년 01월 01일 1주차' } }], reports: [] });
+  await act(async () => editor.changeDate('2026-09-30'));
+  await act(async () => editor.handleBatchSelect([a]));
+  assert.equal(editor.reportData.date, '2026년 09월 30일 5주차');
+  await act(async () => editor.changeDate('2026-10-01'));
+  await act(async () => editor.handleBatchSelect([a]));
+  assert.equal(editor.reportData.date, '2026년 10월 01일 1주차');
+  await act(async () => editor.saveToSupabase());
+  assert.equal(batches[0].reports[0].snapshot.date, '2026년 10월 01일 1주차');
 });
 
 test('save in progress blocks duplicate saves and edits; date change can be cancelled', async () => {

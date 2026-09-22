@@ -50,7 +50,7 @@ export function useReportEditor() {
         group: report.snapshot.group, classId: report.snapshot.classId,
       }]));
       publishDrafts(Object.fromEntries(day.reports.map(report => [report.student_id, {
-        ...defaultReport(getFormattedDate(reportDate)), ...report.snapshot,
+        ...defaultReport(getFormattedDate(reportDate)), ...report.snapshot, date: getFormattedDate(reportDate),
       }])));
       setSavedReports(day.reports);
       dirtyStudents.current.clear(); dirtyClasses.current.clear();
@@ -80,6 +80,7 @@ export function useReportEditor() {
           time: student.grade.includes("중") ? "17:30 ~ 19:30" : student.grade.includes("고") ? "19:00 ~ 22:00" : "15:30 ~ 17:30",
           ...(preset ? { book: preset.book, progress: preset.progress, notes: preset.notes } : {}),
           ...lessons.current[student.classId]?.common_data,
+          date: getFormattedDate(reportDate),
         };
         next[student.id] = studentSnapshot(defaults, student);
       }

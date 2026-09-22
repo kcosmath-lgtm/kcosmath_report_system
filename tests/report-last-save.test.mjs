@@ -14,7 +14,7 @@ test('last report save wins for stale updates and competing new IDs; tenant chec
     await db.exec(`CREATE ROLE anon; CREATE ROLE authenticated; CREATE SCHEMA auth;
       CREATE TABLE auth.users(id uuid PRIMARY KEY);
       CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;`);
-    for (const file of ['202609140001_normalized_reports.sql','202609160001_wrong_answers.sql','202609160002_handoffs.sql','202609170001_auth_workspaces.sql','202609220001_report_last_save_wins.sql']) {
+    for (const file of ['202609140001_normalized_reports.sql','202609160001_wrong_answers.sql','202609160002_handoffs.sql','202609170001_auth_workspaces.sql','202609220003_report_field_patches.sql']) {
       await db.exec(readFileSync(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8'));
     }
     await db.query('INSERT INTO auth.users VALUES ($1)', [uid]);
@@ -54,6 +54,10 @@ test('last report save wins for stale updates and competing new IDs; tenant chec
     assert.equal(rolling.lessons[0].id, lessonId);
     assert.equal(rolling.reports[0].snapshot.notes, 'next day');
     assert.equal((await db.query('SELECT count(*)::int AS n FROM cosmath_lessons')).rows[0].n, 1);
+    await rpc([], [{...report,patch:{book:'NEW'},snapshot:{book:'NEW'}}]);
+    const patched=await rpc([], [{...report,patch:{notes:'changed only'},snapshot:{book:'OLD',notes:'changed only'}}]);
+    assert.equal(patched.reports[0].snapshot.book,'NEW');
+    assert.equal(patched.reports[0].snapshot.notes,'changed only');
     await db.exec('RESET ROLE');
     const outsider = '10000000-0000-4000-8000-000000000002';
     await db.query('INSERT INTO auth.users VALUES ($1)', [outsider]);

@@ -1,4 +1,5 @@
 "use client";
+import { useRosterRefresh } from "../lib/use-roster-refresh";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -27,10 +28,13 @@ export default function StudentManagerModal({ open, onClose, onChanged, mode = "
   const [status, setStatus] = useState("");
   const dialog = useRef<HTMLDivElement>(null);
 
+  const refreshSequence = useRef(0);
   const refresh = useCallback(async () => {
+    const sequence = ++refreshSequence.current;
     setLoading(true); setError("");
     try {
       const rows = await loadStudents();
+      if (sequence !== refreshSequence.current) return;
       setGroups(rows);
       setClassId(current => rows.some(group => group.id === current) ? current : rows[0]?.id ?? "");
       const ids = rows.flatMap(group => group.students.map(student => student.id));
@@ -38,8 +42,9 @@ export default function StudentManagerModal({ open, onClose, onChanged, mode = "
       setSelectedId(current => ids.includes(current) ? current : "");
       setExpandedGroups(current => current.filter(id => rows.some(group => group.id === id)));
     } catch (e) { setError(e instanceof Error ? e.message : "학생 목록을 불러오지 못했습니다."); }
-    finally { setLoading(false); }
+    finally { if (sequence === refreshSequence.current) setLoading(false); }
   }, []);
+  useRosterRefresh(refresh, busy || !open);
 
   useEffect(() => { if (open) void refresh(); }, [open, refresh]);
   useEffect(() => {

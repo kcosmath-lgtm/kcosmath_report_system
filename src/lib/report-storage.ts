@@ -17,9 +17,9 @@ async function storage() {
 export async function loadStudents() { return (await storage()).loadStudents(); }
 export async function addClass(name: string) { return (await storage()).addClass(name); }
 export async function addStudent(classId: string, name: string, grade: string) { return (await storage()).addStudent(classId, name, grade); }
-export async function archiveStudent(id: string, version: number) { return (await storage()).archiveStudent(id, version); }
-export async function deleteStudent(id: string) { return (await storage()).deleteStudent(id); }
-export async function deleteClass(id: string) { return (await storage()).deleteClass(id); }
+export async function archiveStudent(id: string, version: number) { const value = await (await storage()).archiveStudent(id, version); rosterChanged(); return value; }
+export async function deleteStudent(id: string) { const value = await (await storage()).deleteStudent(id); rosterChanged(); return value; }
+export async function deleteClass(id: string) { const value = await (await storage()).deleteClass(id); rosterChanged(); return value; }
 export async function loadReportDay(date: string) { return (await storage()).loadReportDay(date); }
 export async function saveReportBatch(batch: ReportSaveBatch) { return (await storage()).saveReportBatch(batch); }
 export async function loadWrongAnswers(month: string) { return (await storage()).loadWrongAnswers(month); }
@@ -27,3 +27,11 @@ export async function saveWrongAnswer(record: import("../types/wrong-answer").Wr
 export async function loadHandoffs(month: string) { return (await storage()).loadHandoffs(month); }
 export async function addHandoff(record: import("../types/handoff").HandoffRecord) { return (await storage()).addHandoff(record); }
 export async function deleteHandoff(id: string) { return (await storage()).deleteHandoff(id); }
+
+function rosterChanged() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event("cosmath-roster-changed"));
+  if (typeof BroadcastChannel !== "undefined") {
+    const channel = new BroadcastChannel("cosmath-roster"); channel.postMessage("changed"); channel.close();
+  }
+}

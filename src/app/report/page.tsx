@@ -69,7 +69,7 @@ export default function ReportPage() {
       }
     } catch (error) {
       console.error("Image generation failed:", error);
-      alert("이미지 저장 중 오류가 발생했습니다.");
+      alert(`이미지 저장 실패: ${error instanceof Error ? error.message : "브라우저가 이미지 변환을 완료하지 못했습니다."}`);
     } finally {
       setCurrentIndex(originalIndex);
       setIsGeneratingImage(false);
@@ -105,7 +105,7 @@ export default function ReportPage() {
             <div className={styles.title}><h1>수업 보고서</h1><p>STUDENT REPORT</p></div>
           </div>
           <div className={styles.actions}>
-            <label>보고서 날짜 <input type="date" value={reportDate}
+            <label title="최근 저장한 내용을 이어 쓰며, 작성일만 선택합니다.">보고서 작성일 <input type="date" value={reportDate}
               disabled={isLoading || isSaving || isGeneratingImage}
               onChange={event => changeDate(event.target.value)} /></label>
             {selectedStudents.length > 0 && <>

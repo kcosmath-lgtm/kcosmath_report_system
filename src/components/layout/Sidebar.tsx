@@ -1,4 +1,5 @@
 "use client";
+import { useRosterRefresh } from "../../lib/use-roster-refresh";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronLeft, RefreshCw, Users } from "lucide-react";
@@ -24,17 +25,21 @@ export default function StudentSidebar({ isOpen, onClose, onBatchSelect, disable
   const selectionCallback = useRef(onBatchSelect);
   selectionCallback.current = onBatchSelect;
 
+  const refreshSequence = useRef(0);
   const refresh = useCallback(async () => {
+    const sequence = ++refreshSequence.current;
     setLoading(true);
     setError("");
     try {
       const rows = await loadStudents();
+      if (sequence !== refreshSequence.current) return;
       setGroups(rows);
       const activeIds = new Set(rows.flatMap(group => group.students.map(student => student.id)));
       setSelectedIds(ids => ids.filter(id => activeIds.has(id)));
     } catch (e) { setError(e instanceof Error ? e.message : "학생 목록을 불러오지 못했습니다."); }
-    finally { setLoading(false); }
+    finally { if (sequence === refreshSequence.current) setLoading(false); }
   }, []);
+  useRosterRefresh(refresh, disabled);
 
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => {

@@ -68,8 +68,8 @@ export async function loadReportDay(date: string) {
 }
 
 export interface ReportSaveBatch {
-  lessons: Array<Omit<LessonRecord, "version"> & { expected_version: number }>;
-  reports: Array<Omit<ReportRecord, "version"> & { expected_version: number }>;
+  lessons: Array<Omit<LessonRecord, "version"> & { expected_version: number; patch?: Record<string, unknown> }>;
+  reports: Array<Omit<ReportRecord, "version"> & { expected_version: number; patch?: Record<string, unknown> }>;
 }
 
 export async function saveReportBatch(batch: ReportSaveBatch) {

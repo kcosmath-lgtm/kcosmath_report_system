@@ -59,11 +59,36 @@ export async function captureReportImage(source: HTMLElement): Promise<Blob> {
         node.style.fontFamily = '"Malgun Gothic", "Apple SD Gothic Neo", sans-serif';
       }
     }
-    const blob = await toBlob(copy, {
+    let blob = await optionalImageResource(toBlob(copy, {
       backgroundColor: "#ffffff", pixelRatio: 3,
       fontEmbedCSS: useSystemFont ? "" : fontEmbedCSS, skipFonts: useSystemFont,
       height: Math.max(copy.offsetHeight, copy.scrollHeight),
-    });
+    }), 15000);
+    if (!blob) {
+      // SVG/foreignObject decoding is browser-dependent. Fall back to a direct canvas renderer.
+      const { default: html2canvas } = await import("html2canvas");
+      const colorCanvas = document.createElement("canvas");
+      colorCanvas.width = colorCanvas.height = 1;
+      const colorContext = colorCanvas.getContext("2d", { willReadFrequently: true });
+      for (const node of [copy, ...Array.from(copy.querySelectorAll<HTMLElement>("*"))]) {
+        const style = getComputedStyle(node);
+        for (const property of ["color", "background-color", "border-top-color", "border-right-color", "border-bottom-color", "border-left-color", "text-decoration-color"]) {
+          if (!colorContext) continue;
+          colorContext.clearRect(0, 0, 1, 1);
+          colorContext.fillStyle = style.getPropertyValue(property);
+          colorContext.fillRect(0, 0, 1, 1);
+          const [r,g,b,a] = colorContext.getImageData(0,0,1,1).data;
+          node.style.setProperty(property, `rgba(${r},${g},${b},${a / 255})`);
+        }
+        node.style.boxShadow = "none";
+      }
+      const canvas = await html2canvas(copy, { scale: 2, backgroundColor: "#ffffff", logging: false,
+        onclone: (_document, element) => {
+          if (element.parentElement) element.parentElement.style.left = "0";
+        },
+      });
+      blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, "image/png"));
+    }
     if (!blob) throw new Error("보고서 이미지를 생성하지 못했습니다.");
     return blob;
   } finally {

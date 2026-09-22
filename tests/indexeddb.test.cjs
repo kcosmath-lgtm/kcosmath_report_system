@@ -20,7 +20,7 @@ Module._load = function(request, parent, isMain) {
 const local = require('../src/lib/indexeddb-report-storage.ts');
 const storage = require('../src/lib/report-storage.ts');
 const originalEnv = process.env.NODE_ENV;
-beforeEach(() => { global.indexedDB = new IDBFactory(); global.window = { location: { hostname: 'localhost' } }; process.env.NODE_ENV = 'development'; cloudImports = 0; });
+beforeEach(() => { global.indexedDB = new IDBFactory(); global.window = { location: { hostname: 'localhost' }, dispatchEvent() {} }; process.env.NODE_ENV = 'development'; cloudImports = 0; });
 after(() => { process.env.NODE_ENV = originalEnv; Module._load = originalLoad; });
 
 async function fixture() {
@@ -61,24 +61,26 @@ test('production local addresses remain local; public deployment uses cloud adap
   assert.equal(storage.usesLocalStorage(), true);
 });
 
-test('conflicting report rolls back all lesson changes in the same transaction', async () => {
-  const { lesson, report } = await fixture();
-  await local.saveReportBatch({ lessons: [], reports: [{ ...report, expected_version: 1, snapshot: { notes: '다른 창의 최신 내용' } }] });
-  await assert.rejects(local.saveReportBatch({
-    lessons: [{ ...lesson, expected_version: 1, common_data: { notes: '취소할 수정' } }],
-    reports: [{ ...report, expected_version: 1 }],
-  }), /다른 창/);
-  const day = await local.loadReportDay('2026-09-14');
-  assert.equal(day.lessons[0].version, 1);
-  assert.equal(day.lessons[0].common_data.notes, '공통');
-  assert.equal(day.reports[0].snapshot.notes, '다른 창의 최신 내용');
+test('stale field patches preserve a newer book and next-day saves work', async () => {
+ const {lesson,report}=await fixture();
+ await local.saveReportBatch({lessons:[],reports:[{...report,patch:{book:'NEW'},snapshot:{book:'NEW'}}]});
+ await local.saveReportBatch({lessons:[{...lesson,report_date:'2026-09-22',expected_version:1,patch:{notes:'new common'}}],reports:[{...report,expected_version:1,patch:{notes:'new notes'},snapshot:{book:'OLD',notes:'new notes'}}]});
+ const day=await local.loadReportDay('2026-09-22');
+ assert.equal(day.reports[0].snapshot.book,'NEW');
+ assert.equal(day.reports[0].snapshot.notes,'new notes');
 });
-
-test('concurrent same-version saves have only one winner', async () => {
-  const { report } = await fixture();
-  const outcomes = await Promise.allSettled(['창 A', '창 B'].map(notes => local.saveReportBatch({ lessons: [], reports: [{ ...report, expected_version: 1, snapshot: { notes } }] })));
-  assert.equal(outcomes.filter(outcome => outcome.status === 'fulfilled').length, 1);
-  assert.equal((await local.loadReportDay('2026-09-14')).reports[0].version, 2);
+test('concurrent same-version saves both succeed',async()=>{
+ const {report}=await fixture();
+ const outcomes=await Promise.allSettled(['A','B'].map(notes=>local.saveReportBatch({lessons:[],reports:[{...report,expected_version:1,patch:{notes}}]})));
+ assert.equal(outcomes.filter(x=>x.status==='fulfilled').length,2);
+ assert.equal((await local.loadReportDay('2026-09-14')).reports[0].version,3);
+});
+test('deleted student cannot be restored by a stale report save',async()=>{
+ const {a,lesson,report}=await fixture();
+ await local.deleteStudent(a.id);
+ await assert.rejects(local.saveReportBatch({lessons:[lesson],reports:[report]}));
+ assert.equal((await local.loadStudents())[0].students.some(s=>s.id===a.id),false);
+ assert.equal((await local.loadReportDay('2026-09-22')).reports.length,0);
 });
 
 test('archive prevents new reports and rolling reports remain visible on later dates', async () => {
@@ -97,8 +99,8 @@ test('archive prevents new reports and rolling reports remain visible on later d
 test('duplicate class or student-report key cannot overwrite data', async () => {
   const { lesson, report } = await fixture();
   await assert.rejects(local.addClass('테스트 반'), /다른 창/);
-  await assert.rejects(local.saveReportBatch({ lessons: [], reports: [{ ...report, id: crypto.randomUUID() }] }), /다른 창/);
-  await assert.rejects(local.saveReportBatch({ lessons: [{ ...lesson, id: crypto.randomUUID() }], reports: [] }), /다른 창/);
+  await local.saveReportBatch({ lessons: [], reports: [{ ...report, id: crypto.randomUUID() }] });
+  await local.saveReportBatch({ lessons: [{ ...lesson, id: crypto.randomUUID() }], reports: [] });
   assert.equal((await local.loadStudents()).length, 1);
   assert.equal((await local.loadReportDay('2026-09-14')).reports.length, 1);
 });

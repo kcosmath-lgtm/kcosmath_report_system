@@ -150,23 +150,31 @@ export async function loadReportDay(date: string) {
 export async function saveReportBatch(batch: ReportSaveBatch) {
   return transaction("readwrite", async tx => {
     const saved = { lessons: [] as LessonRecord[], reports: [] as ReportRecord[] };
-    for (const { expected_version, ...item } of batch.lessons) {
+    const mapping = new Map<string,string>();
+    for (const { expected_version, patch, ...item } of batch.lessons) {
+      void expected_version;
       const store = tx.objectStore("lessons");
-      const old = await result<LessonRecord | undefined>(store.get(item.id));
-      if ((old?.version ?? 0) !== expected_version || (old && (old.class_id !== item.class_id || old.report_date !== item.report_date))) throw conflict();
+      const byId = await result<LessonRecord | undefined>(store.get(item.id));
+      if (byId && byId.class_id !== item.class_id) throw conflict();
+      const old = byId ?? await result<LessonRecord | undefined>(store.index("class_date").get([item.class_id,item.report_date]));
       if (!await result(tx.objectStore("classes").get(item.class_id))) throw conflict();
-      const row = { ...item, version: expected_version + 1 };
-      await result(old ? store.put(row) : store.add(row)); saved.lessons.push(row);
+      const row = { ...item, id: old?.id ?? item.id, report_date: old?.report_date ?? item.report_date,
+        common_data: old ? { ...old.common_data, ...(patch ?? item.common_data) } : item.common_data, version: (old?.version ?? 0)+1 };
+      await result(store.put(row)); saved.lessons.push(row); mapping.set(item.id,row.id);
     }
-    for (const { expected_version, ...item } of batch.reports) {
+    for (const { expected_version, patch, ...item } of batch.reports) {
+      void expected_version;
       const store = tx.objectStore("reports");
-      const old = await result<ReportRecord | undefined>(store.get(item.id));
-      if ((old?.version ?? 0) !== expected_version || (old && (old.student_id !== item.student_id || old.lesson_id !== item.lesson_id))) throw conflict();
+      const lessonId = mapping.get(item.lesson_id) ?? item.lesson_id;
+      const byId = await result<ReportRecord | undefined>(store.get(item.id));
+      if (byId && byId.student_id !== item.student_id) throw conflict();
+      const old = byId ?? await result<ReportRecord | undefined>(store.index("lesson_student").get([lessonId,item.student_id]));
       const student = await result<StudentRow | undefined>(tx.objectStore("students").get(item.student_id));
-      const lesson = await result<LessonRecord | undefined>(tx.objectStore("lessons").get(item.lesson_id));
-      if (!student || !lesson || (!old && (!student.active || student.class_id !== lesson.class_id))) throw conflict();
-      const row = { ...item, version: expected_version + 1 };
-      await result(old ? store.put(row) : store.add(row)); saved.reports.push(row);
+      const lesson = await result<LessonRecord | undefined>(tx.objectStore("lessons").get(lessonId));
+      if (!student || !lesson || !student.active || student.class_id !== lesson.class_id) throw conflict();
+      const row = { ...item, id: old?.id ?? item.id, lesson_id: old?.lesson_id ?? lessonId,
+        snapshot: old ? { ...old.snapshot, ...(patch ?? item.snapshot) } : item.snapshot, version: (old?.version ?? 0)+1 };
+      await result(store.put(row)); saved.reports.push(row);
     }
     return saved;
   });

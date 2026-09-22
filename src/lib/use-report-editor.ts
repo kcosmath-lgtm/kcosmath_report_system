@@ -30,6 +30,7 @@ export function useReportEditor() {
   const selection = useRef<ReportStudent[]>([]);
   const dirtyStudents = useRef(new Set<string>());
   const dirtyClasses = useRef(new Set<string>());
+  const classPatches = useRef<Record<string, Partial<ReportData>>>({});
   const saving = useRef(false);
   const loading = useRef(true);
 
@@ -54,7 +55,7 @@ export function useReportEditor() {
         hwLast: normalizeHomeworkStatus(report.snapshot.hwLast ?? "O"),
       }])));
       setSavedReports(day.reports);
-      dirtyStudents.current.clear(); dirtyClasses.current.clear();
+      dirtyStudents.current.clear(); dirtyClasses.current.clear(); classPatches.current = {};
       setHasUnsavedChanges(false); setSelectedStudents([]); selection.current = []; setCurrentIndex(0);
     }).catch(e => { if (!cancelled) { setError(e instanceof Error ? e.message : "보고서를 불러오지 못했습니다."); setLoadFailed(true); } })
       .finally(() => { if (!cancelled) { loading.current = false; setIsLoading(false); setIsInitialized(true); } });
@@ -109,6 +110,7 @@ export function useReportEditor() {
         };
         lessons.current[student.classId] = { ...lesson, common_data: { ...lesson.common_data, [key]: value } };
         dirtyClasses.current.add(student.classId);
+        classPatches.current[student.classId] = { ...classPatches.current[student.classId], [key]: value };
       }
     }
     publishDrafts(next); setHasUnsavedChanges(dirtyStudents.current.size > 0);
@@ -150,26 +152,27 @@ export function useReportEditor() {
         }
         classIds.add(student.classId);
         batch.reports.push({ id: existing?.id ?? crypto.randomUUID(), lesson_id: lesson.id, student_id: id,
-          snapshot, expected_version: existing?.version ?? 0 });
+          snapshot, patch: existing ? Object.fromEntries(Object.entries(snapshot).filter(([key, value]) => value !== existing.snapshot[key as keyof typeof existing.snapshot])) : undefined, expected_version: existing?.version ?? 0 });
       }
       for (const classId of classIds) {
         const lesson = lessons.current[classId];
         if (lesson.version === 0 || dirtyClasses.current.has(classId)) {
-          batch.lessons.push({ id: lesson.id, class_id: classId, report_date: reportDate,
-            common_data: lesson.common_data, expected_version: lesson.version });
+          batch.lessons.push({ id: lesson.id, class_id: classId, report_date: lesson.report_date,
+            common_data: lesson.common_data, patch: lesson.version ? classPatches.current[classId] : undefined, expected_version: lesson.version });
         }
       }
       if (batch.reports.length || batch.lessons.length) {
         const saved = await saveReportBatch(batch);
         for (const lesson of saved.lessons) lessons.current[lesson.class_id] = lesson;
         for (const report of saved.reports) reports.current[report.student_id] = report;
+        publishDrafts({ ...draftRef.current, ...Object.fromEntries(saved.reports.map(report => [report.student_id, { ...report.snapshot, date: getFormattedDate(reportDate) }])) });
         setSavedReports(Object.values(reports.current));
       }
-      dirtyStudents.current.clear(); dirtyClasses.current.clear(); setHasUnsavedChanges(false);
+      dirtyStudents.current.clear(); dirtyClasses.current.clear(); classPatches.current = {}; setHasUnsavedChanges(false);
       alert("선택한 학생과 수정한 보고서가 저장되었습니다.");
     } catch (e) { setError(e instanceof Error ? e.message : "저장에 실패했습니다. 작성 내용은 화면에 유지됩니다."); }
     finally { saving.current = false; setIsSaving(false); }
-  }, [loadFailed, reportDate]);
+  }, [loadFailed, reportDate, publishDrafts]);
 
   useEffect(() => {
     const save = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); void saveToSupabase(); } };

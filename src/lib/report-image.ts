@@ -1,10 +1,13 @@
 import { getFontEmbedCSS, toBlob } from "html-to-image";
+import { optionalImageResource } from "./report-image-fonts";
 
 // Capture text, not native form controls (whose value/scroll rendering varies by browser).
 export async function captureReportImage(source: HTMLElement): Promise<Blob> {
-  await document.fonts.load('16px "Hamchorom Dotum"', '학습 현황 관리');
-  await document.fonts.ready;
-  await Promise.all(Array.from(source.querySelectorAll("img"), image => image.decode()));
+  const fonts = await optionalImageResource(document.fonts.load('16px "Hamchorom Dotum"', '학습 현황 관리'));
+  await Promise.all(Array.from(source.querySelectorAll("img"), async image => {
+    await optionalImageResource(image.decode());
+    if (!image.complete || !image.naturalWidth) throw new Error("보고서 로고를 불러오지 못했습니다. 네트워크 연결을 확인하고 다시 저장해 주세요.");
+  }));
 
   const copy = source.cloneNode(true) as HTMLElement;
   const originals = [source, ...Array.from(source.querySelectorAll<HTMLElement>("*"))];
@@ -14,6 +17,19 @@ export async function captureReportImage(source: HTMLElement): Promise<Blob> {
     const computed = getComputedStyle(original);
     for (const property of Array.from(computed)) {
       target.style.setProperty(property, computed.getPropertyValue(property));
+    }
+    if (original instanceof HTMLImageElement && target instanceof HTMLImageElement) {
+      // Reuse the decoded logo instead of fetching the Next image URL again.
+      const canvas = document.createElement("canvas");
+      canvas.width = original.naturalWidth;
+      canvas.height = original.naturalHeight;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("이 브라우저에서 이미지 저장을 준비하지 못했습니다.");
+      context.drawImage(original, 0, 0);
+      target.removeAttribute("srcset");
+      target.removeAttribute("sizes");
+      target.src = canvas.toDataURL("image/png");
+      target.loading = "eager";
     }
     if (original instanceof HTMLInputElement || original instanceof HTMLTextAreaElement) {
       const text = document.createElement("div");
@@ -36,9 +52,16 @@ export async function captureReportImage(source: HTMLElement): Promise<Blob> {
   host.append(copy);
   document.body.append(host);
   try {
-    const fontEmbedCSS = await getFontEmbedCSS(copy);
+    const fontEmbedCSS = fonts?.length ? await optionalImageResource(getFontEmbedCSS(copy)) : undefined;
+    const useSystemFont = !fontEmbedCSS || !fontEmbedCSS.includes("data:");
+    if (useSystemFont) {
+      for (const node of [copy, ...Array.from(copy.querySelectorAll<HTMLElement>("*"))]) {
+        node.style.fontFamily = '"Malgun Gothic", "Apple SD Gothic Neo", sans-serif';
+      }
+    }
     const blob = await toBlob(copy, {
-      backgroundColor: "#ffffff", pixelRatio: 3, fontEmbedCSS,
+      backgroundColor: "#ffffff", pixelRatio: 3,
+      fontEmbedCSS: useSystemFont ? "" : fontEmbedCSS, skipFonts: useSystemFont,
       height: Math.max(copy.offsetHeight, copy.scrollHeight),
     });
     if (!blob) throw new Error("보고서 이미지를 생성하지 못했습니다.");

@@ -14,6 +14,7 @@ import { getFormattedDate } from "../../utils/date";
 import styles from "./workspace.module.css";
 import { useReportEditor } from "../../lib/use-report-editor";
 import ReportChat from "../../components/ReportChat";
+import { nextHomeworkStatus, normalizeHomeworkStatus } from "../../lib/report-model";
 
 
 export default function ReportPage() {
@@ -316,7 +317,11 @@ export default function ReportPage() {
                   <tr style={{ height: '12mm' }}>
                     <td className="border border-black bg-[#e8f0fe] text-center font-normal leading-tight px-1">지난 과제 여부</td>
                     <td className="border border-black text-center font-normal px-[1.8mm]">
-                      <input className="w-full text-center outline-none border-none bg-transparent font-normal" value={reportData.hwLast} onChange={(e) => updateField('hwLast', e.target.value)} />
+                      <button type="button" className="w-full text-center outline-none border-none bg-transparent font-normal"
+                        aria-label={`지난 과제 여부 ${normalizeHomeworkStatus(reportData.hwLast)}. 누르면 다음 상태로 변경`}
+                        onClick={() => updateField('hwLast', nextHomeworkStatus(reportData.hwLast))}>
+                        {normalizeHomeworkStatus(reportData.hwLast)}
+                      </button>
                     </td>
                     <td colSpan={2} className="border border-black bg-[#e8f0fe] text-center font-normal">과제 현황</td>
                     <td colSpan={3} className="border border-black px-[1.8mm]">

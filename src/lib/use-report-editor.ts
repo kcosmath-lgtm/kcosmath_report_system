@@ -6,7 +6,7 @@ import { getFormattedDate } from "../utils/date";
 import { GRADE_REPORT_DATA } from "../constants/reportContents";
 import type { LessonRecord, ReportData, ReportRecord, ReportStudent } from "../types/report";
 import { loadReportDay, saveReportBatch, type ReportSaveBatch } from "./report-storage";
-import { defaultReport, defaultTeacher, isSameSnapshot, studentSnapshot } from "./report-model";
+import { defaultReport, defaultTeacher, isSameSnapshot, studentSnapshot, normalizeHomeworkStatus } from "./report-model";
 import { parseAiReply, type AiPatch } from "./report-ai";
 
 export function useReportEditor() {
@@ -51,6 +51,7 @@ export function useReportEditor() {
       }]));
       publishDrafts(Object.fromEntries(day.reports.map(report => [report.student_id, {
         ...defaultReport(getFormattedDate(reportDate)), ...report.snapshot, date: getFormattedDate(reportDate),
+        hwLast: normalizeHomeworkStatus(report.snapshot.hwLast ?? "O"),
       }])));
       setSavedReports(day.reports);
       dirtyStudents.current.clear(); dirtyClasses.current.clear();
@@ -81,6 +82,7 @@ export function useReportEditor() {
           ...(preset ? { book: preset.book, progress: preset.progress, notes: preset.notes } : {}),
           ...lessons.current[student.classId]?.common_data,
           date: getFormattedDate(reportDate),
+          hwLast: normalizeHomeworkStatus(lessons.current[student.classId]?.common_data.hwLast ?? "O"),
         };
         next[student.id] = studentSnapshot(defaults, student);
       }
@@ -93,6 +95,7 @@ export function useReportEditor() {
   const reportData = (currentStudent && drafts[currentStudent.id]) || defaultReport(getFormattedDate(reportDate));
 
   const updateField = (key: keyof ReportData, value: string) => {
+    if (key === "hwLast") value = normalizeHomeworkStatus(value);
     if (loading.current || saving.current || loadFailed || key === "date" || key === "name" || key === "grade") return;
     const targets = isIndividualMode ? (currentStudent ? [currentStudent] : []) : selectedStudents;
     const next = { ...draftRef.current };
@@ -116,6 +119,7 @@ export function useReportEditor() {
     const current = draftRef.current[studentId];
     if (!current || JSON.stringify(current) !== JSON.stringify(expected)) return false;
     const validated = parseAiReply({ reply: "apply", patch }).patch;
+    if (validated.hwLast !== undefined) validated.hwLast = normalizeHomeworkStatus(validated.hwLast);
     if (!Object.keys(validated).length) return false;
     publishDrafts({ ...draftRef.current, [studentId]: { ...current, ...validated } });
     dirtyStudents.current.add(studentId);

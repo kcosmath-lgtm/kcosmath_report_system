@@ -25,6 +25,7 @@ Module._load = function (request, parent, isMain) {
 const { useReportEditor } = require('../src/lib/use-report-editor.ts');
 const { defaultReport } = require('../src/lib/report-model.ts');
 const { getFormattedDate } = require('../src/utils/date.ts');
+const { nextHomeworkStatus } = require('../src/lib/report-model.ts');
 let editor, root;
 function Harness() { editor = useReportEditor(); return null; }
 async function mount(day = { lessons: [], reports: [] }) {
@@ -68,6 +69,26 @@ function echo(batch) {
   return { lessons: batch.lessons.map(item => ({ ...item, version: item.expected_version + 1 })),
     reports: batch.reports.map(item => ({ ...item, version: item.expected_version + 1 })) };
 }
+
+test('homework cycles O triangle X in batch and individual editing and saves each value', async () => {
+  const batches = [];
+  save = async batch => { batches.push(batch); return echo(batch); };
+  await mount();
+  await act(async () => editor.handleBatchSelect([a, b]));
+  assert.equal(editor.reportData.hwLast, 'O');
+  await act(async () => editor.updateField('hwLast', nextHomeworkStatus(editor.reportData.hwLast)));
+  await act(async () => editor.nextReport());
+  assert.equal(editor.reportData.hwLast, '△');
+  await act(async () => editor.setIsIndividualMode(true));
+  await act(async () => editor.updateField('hwLast', nextHomeworkStatus(editor.reportData.hwLast)));
+  assert.equal(editor.reportData.hwLast, 'X');
+  await act(async () => editor.prevReport());
+  assert.equal(editor.reportData.hwLast, '△');
+  await act(async () => editor.saveToSupabase());
+  assert.equal(batches[0].reports.find(r => r.student_id === a.id).snapshot.hwLast, '△');
+  assert.equal(batches[0].reports.find(r => r.student_id === b.id).snapshot.hwLast, 'X');
+  assert.equal(nextHomeworkStatus('X'), 'O');
+});
 
 test('read failure blocks saving and never writes defaults', async () => {
   let writes = 0;

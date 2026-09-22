@@ -1,8 +1,19 @@
 import type { ReportData, ReportStudent } from "../types/report";
 
+export function normalizeHomeworkStatus(value: string): "O" | "△" | "X" {
+  if (["△", "세모"].includes(value)) return "△";
+  if (value.toUpperCase() === "X" || value === "×") return "X";
+  return "O";
+}
+
+export function nextHomeworkStatus(value: string): "O" | "△" | "X" {
+  const values = ["O", "△", "X"] as const;
+  return values[(values.indexOf(normalizeHomeworkStatus(value)) + 1) % values.length];
+}
+
 export function defaultReport(date: string): ReportData {
   return { date, type: "정규", teacher: "", name: "", subject: "수학", grade: "", book: "",
-    attendance: "o", time: "", status: "-", reason: "-", progress: "", hwLast: "-", hwCurrent: "-", notes: "" };
+    attendance: "o", time: "", status: "-", reason: "-", progress: "", hwLast: "O", hwCurrent: "-", notes: "" };
 }
 
 export function defaultTeacher(group: string): string {

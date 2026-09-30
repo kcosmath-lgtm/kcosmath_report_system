@@ -32,6 +32,21 @@ test('last report save wins for stale updates and competing new IDs; tenant chec
     assert.equal(completed.total_wrong, 0);
     assert.equal(completed.corrected_count, 0);
     assert.equal((await complete(completed.version, false)).completed, false);
+    await db.exec('RESET ROLE');
+    await db.exec(readFileSync(new URL('../supabase/migrations/202609300001_homework_status.sql', import.meta.url), 'utf8'));
+    await db.exec('SET ROLE authenticated');
+    assert.equal((await db.query('SELECT homework_status FROM cosmath_wrong_answers')).rows[0].homework_status, null);
+    const homework = async (version, status) => (await db.query("SELECT * FROM cosmath_save_wrong_answer_homework($1,'a','2026-09-22',0,0,'memo',$2,true,$3)", [completionId, version, status])).rows[0];
+    let homeworkVersion = 2;
+    for (const status of ['O', '△', 'X', null]) {
+      const saved = await homework(homeworkVersion++, status);
+      assert.equal(saved.homework_status, status);
+      assert.equal(saved.completed, true);
+      assert.equal(saved.version, homeworkVersion);
+    }
+    await assert.rejects(homework(homeworkVersion, 'invalid'), e => e.code === '22023');
+    await assert.rejects(homework(0, 'O'));
+    assert.equal((await db.query('SELECT version FROM cosmath_wrong_answers')).rows[0].version, homeworkVersion);
     const lesson = { id: lessonId, class_id: classId, report_date: '2026-09-22', common_data: { progress: 'first' }, expected_version: 0 };
     const report = { id: reportId, lesson_id: lessonId, student_id: 'a', snapshot: { notes: 'first' }, expected_version: 0 };
     await rpc([lesson], [report]);

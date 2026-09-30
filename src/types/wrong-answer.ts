@@ -1,3 +1,5 @@
+export type HomeworkStatus = "O" | "△" | "X";
+
 export interface WrongAnswerRecord {
   id: string;
   student_id: string;
@@ -7,4 +9,5 @@ export interface WrongAnswerRecord {
   memo: string;
   version: number;
   completed?: boolean;
+  homework_status?: HomeworkStatus | null;
 }

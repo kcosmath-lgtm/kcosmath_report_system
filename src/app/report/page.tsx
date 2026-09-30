@@ -13,7 +13,6 @@ import { saveAs } from "file-saver";
 import { getFormattedDate } from "../../utils/date";
 import styles from "./workspace.module.css";
 import { useReportEditor } from "../../lib/use-report-editor";
-import ReportChat from "../../components/ReportChat";
 import { nextHomeworkStatus, normalizeHomeworkStatus } from "../../lib/report-model";
 
 
@@ -24,7 +23,7 @@ export default function ReportPage() {
   const progressRef = useRef<HTMLTextAreaElement>(null);
   const { reportDate, changeDate, isInitialized, isLoading, loadFailed, error,
     selectedStudents, currentIndex, setCurrentIndex, currentStudent, reportData, isSaving, hasUnsavedChanges,
-    isIndividualMode, setIsIndividualMode, handleBatchSelect, updateField, applyAiPatch, saveToSupabase, nextReport, prevReport } = useReportEditor();
+    isIndividualMode, setIsIndividualMode, handleBatchSelect, updateField, saveToSupabase, nextReport, prevReport } = useReportEditor();
 
   useEffect(() => {
     if (progressRef.current) {
@@ -87,7 +86,6 @@ export default function ReportPage() {
 
   return (
     <div className={styles.workspace}>
-      {currentStudent && <ReportChat key={`${reportDate}:${currentStudent.id}`} studentId={currentStudent.id} report={reportData} disabled={isLoading || isSaving || loadFailed || isGeneratingImage} onApply={applyAiPatch} />}
       <StudentSidebar
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}

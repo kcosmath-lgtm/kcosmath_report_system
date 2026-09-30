@@ -7,7 +7,6 @@ import { BookOpen, ChevronDown, ChevronLeft, ChevronRight, GraduationCap, Loader
 import { addClass, addStudent, archiveStudent, deleteClass, deleteStudent, loadStudents } from "../lib/report-storage";
 import type { StudentGroup } from "../types/student";
 import styles from "./student-manager.module.css";
-import StudentAdminChat from "./StudentAdminChat";
 
 type Props = { open: boolean; onClose: () => void; onChanged: () => void; mode?: "modal" | "page" };
 
@@ -128,7 +127,6 @@ export default function StudentManagerModal({ open, onClose, onChanged, mode = "
         </section>
       </div>
       {mode === "page" && <button className={styles.floatingAdd} onClick={() => { setAddingMode("class"); setAddingOpen(true); }} aria-label="새 반 추가" title="새 반 추가"><Plus size={25} /></button>}
-      {mode === "page" && <StudentAdminChat groups={groups} disabled={busy || loading} onChanged={async () => { await refresh(); onChanged(); }} />}
     </div>
   </div>;
   return mode === "modal" ? createPortal(content, document.body) : content;

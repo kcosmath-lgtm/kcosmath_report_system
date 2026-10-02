@@ -184,6 +184,12 @@ export async function loadWrongAnswers(month: string): Promise<WrongAnswerRecord
   return transaction("readonly", async tx => (await result<WrongAnswerRecord[]>(tx.objectStore("wrongAnswers").getAll())).filter(record => record.record_date.startsWith(month)));
 }
 
+export async function loadWrongAnswerRange(start: string, end: string, studentIds: string[]): Promise<WrongAnswerRecord[]> {
+  return transaction("readonly", async tx => (await result<WrongAnswerRecord[]>(tx.objectStore("wrongAnswers").getAll()))
+    .filter(r => studentIds.includes(r.student_id) && r.record_date >= start && r.record_date <= end)
+    .sort((a, b) => a.record_date.localeCompare(b.record_date)));
+}
+
 export async function saveWrongAnswer(record: WrongAnswerRecord): Promise<WrongAnswerRecord> {
   return transaction("readwrite", async tx => {
     const store = tx.objectStore("wrongAnswers");

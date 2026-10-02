@@ -23,6 +23,7 @@ export async function deleteClass(id: string) { const value = await (await stora
 export async function loadReportDay(date: string) { return (await storage()).loadReportDay(date); }
 export async function saveReportBatch(batch: ReportSaveBatch) { return (await storage()).saveReportBatch(batch); }
 export async function loadWrongAnswers(month: string) { return (await storage()).loadWrongAnswers(month); }
+export async function loadWrongAnswerRange(start: string, end: string, studentIds: string[]) { return (await storage()).loadWrongAnswerRange(start, end, studentIds); }
 export async function saveWrongAnswer(record: import("../types/wrong-answer").WrongAnswerRecord) { return (await storage()).saveWrongAnswer(record); }
 export async function loadHandoffs(month: string) { return (await storage()).loadHandoffs(month); }
 export async function addHandoff(record: import("../types/handoff").HandoffRecord) { return (await storage()).addHandoff(record); }

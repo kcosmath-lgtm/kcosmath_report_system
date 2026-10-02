@@ -88,6 +88,22 @@ export async function loadWrongAnswers(month: string): Promise<WrongAnswerRecord
   return (data ?? []) as WrongAnswerRecord[];
 }
 
+export async function loadWrongAnswerRange(start: string, end: string, studentIds: string[]): Promise<WrongAnswerRecord[]> {
+  if (!studentIds.length) return [];
+  const records: WrongAnswerRecord[] = [];
+  // Page through records so long periods are not truncated by the API row limit.
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await supabase.from("cosmath_wrong_answers")
+      .select("id, student_id, record_date, total_wrong, corrected_count, version, completed, homework_status")
+      .in("student_id", studentIds).gte("record_date", start).lte("record_date", end)
+      .order("record_date").order("id").range(offset, offset + 499);
+    if (error) throw storageError(error);
+    const page = (data ?? []).map(r => ({ ...r, memo: "" })) as WrongAnswerRecord[];
+    records.push(...page);
+    if (page.length < 500) return records;
+  }
+}
+
 export async function saveWrongAnswer(record: WrongAnswerRecord): Promise<WrongAnswerRecord> {
   const { data, error } = await supabase.rpc("cosmath_save_wrong_answer_homework", { p_id: record.id, p_student_id: record.student_id, p_record_date: record.record_date, p_total_wrong: record.total_wrong, p_corrected_count: record.corrected_count, p_memo: record.memo, p_expected_version: record.version, p_completed: record.completed ?? false, p_homework_status: record.homework_status ?? null });
   if (error) throw storageError(error);

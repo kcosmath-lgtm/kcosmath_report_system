@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { Building2, CalendarCheck, ClipboardPenLine, FileText, LogOut, Menu, Settings, UserRoundCog, X } from "lucide-react";
+import { Building2, CalendarCheck, ClipboardPenLine, FileText, LogOut, Menu, ScanText, Settings, UserRoundCog, X } from "lucide-react";
 import styles from "./landing-menu.module.css";
 import { useAuth } from "./AuthProvider";
 
@@ -24,6 +24,7 @@ export default function LandingMenu({ profile = false }: { profile?: boolean }) 
     {open && <><button className={styles.scrim} aria-label="메뉴 닫기" onClick={() => setOpen(false)} /><div ref={panel} id="landing-main-menu" className={styles.panel} tabIndex={-1}>
       <small>COSMATH WORKSPACE</small><h2>어떤 일을 시작할까요?</h2>
       <Link href="/report" onClick={() => setOpen(false)}><span><FileText size={21} /></span><div><strong>보고서 작성</strong><p>수업 내용과 학생별 보고서를 작성합니다.</p></div></Link>
+      <Link href="/typing" onClick={() => setOpen(false)}><span><ScanText size={21} /></span><div><strong>시험지 타이핑</strong><p>시험지 PDF·이미지를 편집 가능한 문서로 만듭니다.</p></div></Link>
       <Link href="/students" onClick={() => setOpen(false)}><span><UserRoundCog size={21} /></span><div><strong>학생 관리</strong><p>반과 학생을 등록하고 퇴원 처리합니다.</p></div></Link>
       <Link href="/errors" onClick={() => setOpen(false)}><span><CalendarCheck size={21} /></span><div><strong>오답 및 숙제 관리</strong><p>날짜별 오답과 숙제 수행 상태를 기록합니다.</p></div></Link>
       <Link href="/handoffs" onClick={() => setOpen(false)}><span><ClipboardPenLine size={21} /></span><div><strong>인수인계</strong><p>날짜별 특이사항과 참고사항을 공유합니다.</p></div></Link>

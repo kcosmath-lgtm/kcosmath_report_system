@@ -1,0 +1,51 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { PGlite } from "@electric-sql/pglite";
+
+test("only designated typing managers can grant access; academy ownership never grants paid OCR", async () => {
+  const db = new PGlite();
+  const admin = "10000000-0000-4000-8000-000000000001", staff = "10000000-0000-4000-8000-000000000002", otherOwner = "10000000-0000-4000-8000-000000000003";
+  const academy = "20000000-0000-4000-8000-000000000001", otherAcademy = "20000000-0000-4000-8000-000000000002";
+  try {
+    await db.exec(`CREATE ROLE anon; CREATE ROLE authenticated; CREATE SCHEMA auth;
+      CREATE TABLE auth.users(id uuid PRIMARY KEY,email text,raw_user_meta_data jsonb DEFAULT '{}');
+      CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
+      CREATE TABLE public.cosmath_academies(id uuid PRIMARY KEY,name text);
+      CREATE TABLE public.cosmath_academy_members(user_id uuid PRIMARY KEY,academy_id uuid,role text);
+      CREATE FUNCTION public.cosmath_current_academy_id() RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$ SELECT academy_id FROM cosmath_academy_members WHERE user_id=auth.uid() $$;
+      INSERT INTO auth.users(id,email) VALUES ('${admin}','kcosmath@gmail.com'),('${staff}','staff@example.test'),('${otherOwner}','other@example.test');
+      INSERT INTO cosmath_academies VALUES ('${academy}','우리 학원'),('${otherAcademy}','다른 학원');
+      INSERT INTO cosmath_academy_members VALUES ('${admin}','${academy}','owner'),('${staff}','${academy}','staff'),('${otherOwner}','${otherAcademy}','owner');`);
+    for (const name of ["202610080001_typing_documents.sql", "202610080002_typing_access.sql"]) await db.exec(readFileSync(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8"));
+    const login = async uid => { await db.exec("RESET ROLE"); await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [uid]); await db.exec("SET ROLE authenticated"); };
+    const status = async () => (await db.query("SELECT cosmath_typing_access_status() value")).rows[0].value;
+    await login(otherOwner);
+    assert.deepEqual(await status(), { allowed: false, can_manage: false });
+    await assert.rejects(db.query("SELECT cosmath_set_typing_access($1,true)", [otherOwner]), /관리자만/);
+    await assert.rejects(db.query("SELECT cosmath_list_typing_users()"), /관리자만/);
+    await assert.rejects(db.query("INSERT INTO cosmath_typing_access(user_id,can_manage) VALUES ($1,true)", [otherOwner]), /permission denied/);
+    await assert.rejects(db.query("INSERT INTO cosmath_typing_documents(title,document) VALUES ('무단 사용','{}')"), /row-level security/);
+    await login(admin);
+    assert.deepEqual(await status(), { allowed: true, can_manage: true });
+    assert.equal((await db.query("SELECT cosmath_list_typing_users() value")).rows[0].value.length, 3);
+    const documentId = (await db.query("INSERT INTO cosmath_typing_documents(title,document) VALUES ('시험지','{}') RETURNING id")).rows[0].id;
+    await db.query("SELECT cosmath_set_typing_access($1,true)", [staff]);
+    await assert.rejects(db.query("SELECT cosmath_set_typing_access($1,false)", [admin]), /관리자 권한/);
+    await login(staff);
+    assert.deepEqual(await status(), { allowed: true, can_manage: false });
+    assert.equal((await db.query("SELECT id FROM cosmath_typing_documents")).rows.length, 1);
+    await assert.rejects(db.query("SELECT cosmath_set_typing_access($1,true)", [otherOwner]), /관리자만/);
+    await login(admin); await db.query("SELECT cosmath_set_typing_access($1,false)", [staff]);
+    await db.query("SELECT cosmath_set_typing_access($1,true)", [otherOwner]);
+    await login(staff);
+    assert.deepEqual(await status(), { allowed: false, can_manage: false });
+    assert.equal((await db.query("SELECT id FROM cosmath_typing_documents")).rows.length, 0);
+    assert.equal((await db.query("UPDATE cosmath_typing_documents SET title='우회' WHERE id=$1 RETURNING id", [documentId])).rows.length, 0);
+    await login(otherOwner);
+    assert.deepEqual(await status(), { allowed: true, can_manage: false });
+    assert.equal((await db.query("SELECT id FROM cosmath_typing_documents")).rows.length, 0);
+    await db.exec("RESET ROLE; SET ROLE anon");
+    await assert.rejects(db.query("SELECT cosmath_has_typing_access()"), /permission denied/);
+  } finally { await db.close(); }
+});

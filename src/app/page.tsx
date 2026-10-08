@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import logo from "../../public/logo.png";
-import { ArrowRight, ArrowUpRight, BookOpen, Check, FileText, Layers3, Plus } from "lucide-react";
+import { ArrowRight, ArrowUpRight, BookOpen, Check, FileText, Layers3, ScanText } from "lucide-react";
 import LandingAuthNav from "../components/LandingAuthNav";
 import styles from "./landing.module.css";
 
@@ -45,7 +45,7 @@ export default function LandingPage() {
           <div className={styles.heading}><div><p className={styles.eyebrow}>YOUR WORKSPACE</p><h2 id="workspace-title">오늘은 어떤 일을 시작할까요?</h2></div><p>수업에 필요한 도구를 하나씩, 한곳에.</p></div>
           <div className={styles.cards}>
             <Link href="/report" className={styles.card}><div className={styles.cardTop}><span className={styles.icon}><FileText size={25} aria-hidden="true" /></span><span className={styles.badge}>사용 가능</span></div><h3>수업 보고서</h3><p>수업 진도, 과제, 전달사항을 기록하고<br />학생별 보고서를 간편하게 완성하세요.</p><div className={styles.tags}><span>학생별 기록</span><span>일괄 편집</span><span>이미지 저장</span></div><div className={styles.cardBottom}>보고서 작성 시작하기 <ArrowUpRight size={22} aria-hidden="true" /></div></Link>
-            <div className={styles.future}><Plus size={28} strokeWidth={1.4} aria-hidden="true" /><small>COMING NEXT</small><h3>더 넓어질 코스매스</h3><p>선생님에게 필요한 다음 기능이<br />이곳에 하나씩 더해질 예정이에요.</p><span>새로운 기능을 위한 공간</span></div>
+            <Link href="/typing" className={styles.card}><div className={styles.cardTop}><span className={styles.icon}><ScanText size={25} aria-hidden="true" /></span><span className={styles.badge}>NEW</span></div><h3>시험지 타이핑</h3><p>시험지 PDF·이미지의 문항과 수식을 옮기고<br />여백이 넉넉한 2단 시험지로 완성하세요.</p><div className={styles.tags}><span>수식 편집</span><span>Word · 한글</span><span>PDF 출력</span></div><div className={styles.cardBottom}>시험지 만들기 <ArrowUpRight size={22} aria-hidden="true" /></div></Link>
           </div>
         </section>
         <section id="guide" className={styles.guide} aria-labelledby="guide-title"><div className={styles.heading}><div><p className={styles.eyebrow}>SIMPLE STEPS</p><h2 id="guide-title">수업의 마무리, 세 단계면 충분해요.</h2></div><Link href="/report">지금 시작하기 →</Link></div><div className={styles.steps}>{steps.map(([number, title, text]) => <div key={number}><span>{number}</span><h3>{title}</h3><p>{text}</p></div>)}</div></section>

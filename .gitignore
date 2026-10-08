@@ -12,6 +12,9 @@
 
 # testing
 /coverage
+/test-results/
+/playwright-report/
+/public/typing/pdf.worker.min.mjs
 /.local-backups/
 
 # next.js

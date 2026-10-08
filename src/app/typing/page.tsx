@@ -13,8 +13,9 @@ import TypingMath from "../../components/TypingMath";
 import { useAuth } from "../../components/AuthProvider";
 import { supabase } from "../../lib/supabase";
 import { storageError } from "../../lib/supabase-report-storage";
-import { COLUMN_HEIGHT, hasProseChoices, formatBoxContent, choiceLabels, examPages, normalizeProblems, sampleProblems, type ExamDocument, type ExamProblem, type ExamTable } from "../../lib/typing-model";
+import { COLUMN_HEIGHT, choiceRowsEnabled, formatBoxContent, choiceLabels, examPages, normalizeProblems, sampleProblems, type ExamDocument, type ExamProblem, type ExamTable } from "../../lib/typing-model";
 import { cropFigure, imageData, readSource, type SourcePage } from "../../lib/typing-upload";
+import { buildDocx, buildHwpx, downloadBlob, prepareExportDocument } from "../../lib/typing-export";
 import styles from "./typing.module.css";
 
 function PaperTitle({ text }: { text: string }) {
@@ -32,7 +33,8 @@ function PaperTitle({ text }: { text: string }) {
   }, [text]);
   return <div className={styles.paperTitle}><span ref={ref}>{text}</span></div>;
 }
-function Choices({ choices }: { choices: string[] }) {
+function Choices({ choices, choiceLayout }: Pick<ExamProblem, "choices" | "choiceLayout">) {
+  const rows = choiceRowsEnabled({ choices, choiceLayout });
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const node = ref.current; if (!node || !choices.length) return;
@@ -44,16 +46,16 @@ function Choices({ choices }: { choices: string[] }) {
         const content = item.lastElementChild as HTMLElement;
         return label.offsetWidth + 5 + content.scrollWidth;
       }));
-      const columns = hasProseChoices(choices) ? 1 : Math.max(1, Math.min(5, Math.floor((node.clientWidth + 16) / (width + 16))));
+      const columns = rows ? 1 : Math.max(1, Math.min(5, Math.floor((node.clientWidth + 16) / (width + 16))));
       node.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
     };
     const observer = new ResizeObserver(fit); observer.observe(node);
     fit(); void document.fonts.ready.then(fit);
     return () => { cancelled = true; observer.disconnect(); };
-  }, [choices]);
-  return <div className={styles.choices} data-prose={hasProseChoices(choices)} ref={ref}>{choices.map((c, n) => <div key={n}><span>{choiceLabels[n]}</span><div className={styles.choiceContent}><TypingMath text={c}/></div></div>)}</div>;
+  }, [choices, rows]);
+  return <div className={styles.choices} data-prose={rows} ref={ref}>{choices.map((c, n) => <div key={n}><span>{choiceLabels[n]}</span><div className={styles.choiceContent}><TypingMath text={c}/></div></div>)}</div>;
 }
-function ProblemView({ p, measure = false }: { p: ExamProblem; measure?: boolean }) { return <section className={styles.problem} data-problem={measure ? undefined : true} data-problem-id={measure ? undefined : p.id}><div className={styles.question}><strong>{p.number}.</strong><div><TypingMath text={p.question}/>{p.points && <small> [{p.points}]</small>}</div></div>{p.boxContent && <div className={styles.box}><div className={styles.boxLabel}>〈보기〉</div><TypingMath text={formatBoxContent(p.boxContent)}/></div>}{p.tables?.map((table, ti) => <table className={styles.examTable} key={ti}>{table.caption && <caption>{table.caption}</caption>}<tbody>{table.rows.map((row, ri) => <tr key={ri}>{row.map((cell, ci) => <td key={ci}><TypingMath text={cell}/></td>)}</tr>)}</tbody></table>)}{p.figure && <img className={styles.figure} src={p.figure} alt={`${p.number}번 문항 그림`}/>}<Choices choices={p.choices}/></section>; }
+function ProblemView({ p, measure = false }: { p: ExamProblem; measure?: boolean }) { return <section className={styles.problem} data-problem={measure ? undefined : true} data-problem-id={measure ? undefined : p.id}><div className={styles.question}><strong>{p.number}.</strong><div><TypingMath text={p.question}/>{p.points && <small> [{p.points}]</small>}</div></div>{p.boxContent && <div className={styles.box}><div className={styles.boxLabel}>〈보기〉</div><TypingMath text={formatBoxContent(p.boxContent)}/></div>}{p.tables?.map((table, ti) => <table className={styles.examTable} key={ti}>{table.caption && <caption>{table.caption}</caption>}<tbody>{table.rows.map((row, ri) => <tr key={ri}>{row.map((cell, ci) => <td key={ci}><TypingMath text={cell}/></td>)}</tr>)}</tbody></table>)}{p.figure && <img className={styles.figure} src={p.figure} alt={`${p.number}번 문항 그림`}/>}<Choices choices={p.choices} choiceLayout={p.choiceLayout}/></section>; }
 function cleanDocument(doc: ExamDocument): ExamDocument {
   return { ...doc, problems: normalizeProblems(doc.problems).map((p, i) => ({ ...p, id: doc.problems[i].id || p.id, figure: doc.problems[i].figure, sourcePage: doc.problems[i].sourcePage })) };
 }
@@ -195,20 +197,21 @@ function TypingWorkspace() {
     if (format !== "json" && oversized.length) { setError("한 단보다 긴 문항이 있습니다. 본문이나 그림 크기를 줄인 후 다운로드해 주세요."); return; }
     setBusy("다운로드 준비 중"); setError("");
     try {
-      const { buildDocx, buildHwpx, downloadBlob } = await import("../../lib/typing-export");
       const choiceColumns = Object.fromEntries(Array.from(preview.current?.querySelectorAll<HTMLElement>('[data-problem]') ?? []).map(node => {
         const choices = node.querySelector<HTMLElement>(`.${styles.choices}`);
         return [node.getAttribute('data-problem-id') ?? '', Number(choices?.style.gridTemplateColumns.match(/repeat\((\d+)/)?.[1] ?? 1)];
       }));
       let blob: Blob;
+      const prepared = format === "json" ? { document: doc, warnings: [] } : prepareExportDocument(doc, format);
       const brandImage = format === "json" ? undefined : await imageData(new File([await (await fetch(logo.src)).blob()], "logo.png", { type: "image/png" }), 400);
       if (format === "json") blob = new Blob([JSON.stringify(doc, null, 2)], { type: "application/json" });
-      else if (format === "docx") blob = await buildDocx({ ...doc, brandImage, choiceColumns, problemHeights: heights });
+      else if (format === "docx") blob = await buildDocx({ ...prepared.document, brandImage, choiceColumns, problemHeights: heights });
       else {
         const response = await fetch("/typing/blank.hwpx"); if (!response.ok) throw new Error("한글 문서 양식을 불러오지 못했습니다.");
-        blob = await buildHwpx({ ...doc, brandImage, choiceColumns, problemHeights: heights }, await response.arrayBuffer());
+        blob = await buildHwpx({ ...prepared.document, brandImage, choiceColumns, problemHeights: heights }, await response.arrayBuffer());
       }
       downloadBlob(blob, `${doc.title || "시험지"}.${format}`); setMessage(`${format.toUpperCase()} 편집본을 내려받았습니다.`);
+      if (prepared.warnings.length) setError(`문항 ${prepared.warnings.join(", ")}: 변환할 수 없는 수식은 파일에 편집 가능한 원문으로 보존했습니다. 수식 문법을 확인해 주세요.`);
     } catch (e) { setError(e instanceof Error ? e.message : "내보내기에 실패했습니다."); } finally { setBusy(""); }
   }
   async function importJson(file: File) {
@@ -260,13 +263,14 @@ function TypingWorkspace() {
               <label>문제 본문<textarea value={p.question} rows={5} onChange={e => update(p.id, { question: e.target.value })}/></label>
               <label>보기 / 조건 박스<textarea value={p.boxContent} rows={2} onChange={e => update(p.id, { boxContent: e.target.value })}/></label>
               <label>선택지 · 한 줄에 하나씩, 최대 5개<textarea value={p.choices.join("\n")} rows={3} onChange={e => update(p.id, { choices: e.target.value ? e.target.value.split("\n").slice(0, 5) : [] })}/></label>
+              <label>선택지 배치<select aria-label={`문항 ${p.number} 선택지 배치`} value={p.choiceLayout ?? "auto"} onChange={e => update(p.id, { choiceLayout: e.target.value as ExamProblem["choiceLayout"] })}><option value="auto">자동 · 문장형은 한 줄에 하나</option><option value="rows">한 줄에 하나씩</option><option value="grid">짧은 선지 나란히</option></select></label>
               <div className={styles.tableEditor}><strong>표 편집</strong><button disabled={(p.tables?.length ?? 0) >= 6} onClick={() => update(p.id, { tables: [...(p.tables ?? []), { caption: "", rows: [["", ""], ["", ""]] }] })}><Plus size={13}/>표 추가</button>
                 {p.tables?.map((table, ti) => {
                   const changeTable = (patch: Partial<ExamTable>) => update(p.id, { tables: p.tables!.map((t, index) => index === ti ? { ...t, ...patch } : t) });
                   return <div className={styles.tableCard} key={ti}><label>표 제목<input value={table.caption} maxLength={150} onChange={e => changeTable({ caption: e.target.value })}/></label><div className={styles.tableCells}><table><tbody>{table.rows.map((row, ri) => <tr key={ri}>{row.map((cell, ci) => <td key={ci}><input aria-label={`문항 ${p.number} 표 ${ti + 1} ${ri + 1}행 ${ci + 1}열`} value={cell} maxLength={2000} onChange={e => changeTable({ rows: table.rows.map((r, rowIndex) => rowIndex === ri ? r.map((c, columnIndex) => columnIndex === ci ? e.target.value : c) : r) })}/></td>)}</tr>)}</tbody></table></div><div className={styles.tableActions}><button disabled={table.rows.length >= 20} onClick={() => changeTable({ rows: [...table.rows, table.rows[0].map(() => "")] })}>행 추가</button><button disabled={table.rows.length <= 1} onClick={() => changeTable({ rows: table.rows.slice(0, -1) })}>마지막 행 삭제</button><button disabled={table.rows[0].length >= 10} onClick={() => changeTable({ rows: table.rows.map(row => [...row, ""]) })}>열 추가</button><button disabled={table.rows[0].length <= 1} onClick={() => changeTable({ rows: table.rows.map(row => row.slice(0, -1)) })}>마지막 열 삭제</button><button onClick={() => update(p.id, { tables: p.tables!.filter((_, index) => index !== ti) })}>표 삭제</button></div></div>;
                 })}
               </div>
-              <TypingFigureEditor problem={p} sources={sources} onChange={patch => update(p.id, patch)} onError={setError}/>
+              <TypingFigureEditor problem={p} sources={sources} onSources={pages => setSources(prev => [...prev, ...pages].slice(-30))} onChange={patch => update(p.id, patch)} onError={setError}/>
             </section>)}
           </>}
         </fieldset>

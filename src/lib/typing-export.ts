@@ -1,7 +1,7 @@
 import JSZip from "jszip";
 import katex from "katex";
 import { mml2omml } from "mathml2omml";
-import { choiceLabels, hasProseChoices, formatBoxContent, examPages, splitMath, type ExamDocument, type ExamProblem } from "./typing-model";
+import { choiceLabels, choiceRowsEnabled, formatBoxContent, examPages, splitMath, type ExamDocument, type ExamProblem } from "./typing-model";
 
 export const xml = (s: string) => s.replace(/[<>&"']/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" }[c]!));
 function mathML(latex: string, display = false) {
@@ -69,6 +69,27 @@ export function latexToHancom(latex: string): string {
 }
 
 const textRun = (text: string) => `<w:r><w:t xml:space="preserve">${xml(text)}</w:t></w:r>`;
+// Preserve unconvertible OCR formulas as editable source instead of losing the
+// whole document. Report every affected problem; valid formulas stay native.
+export function prepareExportDocument(doc: ExamDocument, format: "docx" | "hwpx") {
+  const warnings = new Set<string>();
+  const problems = doc.problems.map(problem => {
+    const repair = (text: string) => splitMath(text).map(part => {
+      if (!part.math) return part.value;
+      try {
+        if (format === "hwpx") latexToHancom(part.value);
+        else mml2omml(mathML(part.value, part.display), { disableDecode: true });
+        return (part.display ? "$$" : "$") + part.value + (part.display ? "$$" : "$");
+      } catch {
+        warnings.add(problem.number);
+        return `[수식 원문: ${part.value.replace(/\$/g, "＄")}]`;
+      }
+    }).join("");
+    return { ...problem, question: repair(problem.question), boxContent: repair(formatBoxContent(problem.boxContent)), choices: problem.choices.map(repair),
+      tables: problem.tables?.map(table => ({ caption: repair(table.caption), rows: table.rows.map(row => row.map(repair)) })) };
+  });
+  return { document: { ...doc, problems }, warnings: [...warnings] };
+}
 function wordRuns(text: string) {
   return splitMath(text).map(part => part.math ? mml2omml(mathML(part.value, part.display), { disableDecode: true }) : part.value.split("\n").map(textRun).join("<w:r><w:br/></w:r>")).join("");
 }
@@ -128,7 +149,7 @@ export async function buildDocx(doc: ExamDocument): Promise<Blob> {
     }
     if (p.figure) result += picture(p.figure);
     if (p.choices.length) {
-      const columns = hasProseChoices(p.choices) ? 1 : Math.max(1, Math.min(5, doc.choiceColumns?.[p.id] ?? (p.choices.some(c => c.length > 20) ? 1 : 3)));
+      const columns = choiceRowsEnabled(p) ? 1 : Math.max(1, Math.min(5, doc.choiceColumns?.[p.id] ?? (p.choices.some(c => c.length > 20) ? 1 : 3)));
       result += wordTable(Array.from({ length: Math.ceil(p.choices.length / columns) }, (_, ri) => Array.from({ length: columns }, (_, ci) => {
         const i = ri * columns + ci; return p.choices[i] === undefined ? "" : choiceLabels[i] + " " + p.choices[i];
       })));
@@ -196,7 +217,7 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
     }
     if (p.figure) text += picture(p.figure);
     if (p.choices.length) {
-      const columns = hasProseChoices(p.choices) ? 1 : Math.max(1, Math.min(5, doc.choiceColumns?.[p.id] ?? (p.choices.some(c => c.length > 20) ? 1 : 3)));
+      const columns = choiceRowsEnabled(p) ? 1 : Math.max(1, Math.min(5, doc.choiceColumns?.[p.id] ?? (p.choices.some(c => c.length > 20) ? 1 : 3)));
       const rows = Array.from({ length: Math.ceil(p.choices.length / columns) }, (_, ri) => Array.from({ length: columns }, (_, ci) => {
         const i = ri * columns + ci; return p.choices[i] === undefined ? "" : choiceLabels[i] + " " + p.choices[i];
       }));
@@ -250,6 +271,7 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
 
 export function downloadBlob(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob), a = document.createElement("a");
-  a.href = url; a.download = name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_"); a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  a.href = url; a.download = name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_");
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

@@ -1,12 +1,13 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 import { useRef, useState, type PointerEvent } from "react";
-import { cropFigure, imageData, type SourcePage } from "../lib/typing-upload";
+import { cropFigure, imageData, readSource, type SourcePage } from "../lib/typing-upload";
 import type { ExamProblem, FigureBox } from "../lib/typing-model";
 import styles from "./TypingFigureEditor.module.css";
 
-export default function TypingFigureEditor({ problem, sources, onChange, onError }: {
+export default function TypingFigureEditor({ problem, sources, onSources, onChange, onError }: {
   problem: ExamProblem; sources: SourcePage[];
+  onSources: (pages: SourcePage[]) => void;
   onChange: (patch: Partial<ExamProblem>) => void; onError: (message: string) => void;
 }) {
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false);
@@ -43,9 +44,17 @@ export default function TypingFigureEditor({ problem, sources, onChange, onError
       }}/>
     </label>
     {problem.figure && <div className={styles.attachment}><img src={problem.figure} alt={`${problem.number}번 첨부 그림 미리보기`}/><button type="button" disabled={busy} onClick={() => { onChange({ figure: undefined, figureBox: undefined, figureSourceId: undefined }); setOpen(false); }}>첨부 그림 삭제</button></div>}
+    <label className={styles.upload}>그림 자르기용 원본 PDF·이미지 올리기<input type="file" aria-label={`${problem.number}번 그림 자르기용 원본`} disabled={busy} accept="application/pdf,image/png,image/jpeg,image/webp,.pdf" onChange={async e => {
+      const file = e.target.files?.[0]; e.target.value = ""; if (!file) return;
+      setBusy(true);
+      try { const pages = await readSource(file); onSources(pages); setSourceId(pages[0]?.id ?? ""); setOpen(true); }
+      catch (e) { onError(e instanceof Error ? e.message : "원본을 읽지 못했습니다."); }
+      finally { setBusy(false); }
+    }}/></label>
     <button type="button" disabled={!sources.length || busy} onClick={() => { setBox(problem.figureBox ?? [200,100,600,900]); setOpen(!open); }}>{problem.figure ? "원본에서 그림 영역 다시 선택" : "원본에서 그림 영역 선택"}</button>
     {!sources.length && <p>원본을 올리면 그림 영역을 직접 선택할 수 있습니다.</p>}
-    {open && source && <div className={styles.crop}>
+    {open && source && <div className={styles.crop} role="dialog" aria-modal="true" aria-label={`${problem.number}번 그림 영역 편집`}>
+      <div className={styles.heading}><strong>그림 영역 선택</strong><button type="button" disabled={busy} onClick={() => setOpen(false)}>닫기</button></div>
       <label>그림 원본 페이지<select value={source.id} disabled={busy} onChange={e => { setSourceId(e.target.value); setBox([200,100,600,900]); }}>{sources.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
       <p>그림을 감싸도록 드래그하세요. 축·눈금·글자가 모두 들어가게 선택해 주세요.</p>
       <div className={styles.canvas} onPointerDown={e => { if (busy || e.button !== 0) return; start.current = point(e); e.currentTarget.setPointerCapture(e.pointerId); }} onPointerMove={drag} onPointerUp={e => { drag(e); start.current = null; }} onPointerCancel={() => { start.current = null; }}>

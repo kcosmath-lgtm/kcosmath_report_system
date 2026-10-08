@@ -5,6 +5,7 @@ export type ExamProblem = {
   id: string; number: string; points: string; question: string;
   boxContent: string; choices: string[]; sourcePage?: number;
   figure?: string; figureBox?: FigureBox; figureSourceId?: string; review?: string; tables?: ExamTable[];
+  choiceLayout?: "auto" | "rows" | "grid";
 };
 export type ExamDocument = { title: string; problems: ExamProblem[]; perPage: number; choiceColumns?: Record<string, number>; brandImage?: string; problemHeights?: Record<string, number> };
 export const choiceLabels = ["①", "②", "③", "④", "⑤"];
@@ -25,9 +26,12 @@ export function splitMath(text: string): TextPart[] {
 }
 export function hasProseChoices(choices: string[]): boolean {
   return choices.some(choice => {
-    const prose = splitMath(choice).filter(part => !part.math).map(part => part.value).join(" ");
+    const prose = choice.replace(/\\[a-zA-Z]+/g, " ");
     return /[가-힣]{2,}|\b[A-Za-z]{3,}\b/.test(prose);
   });
+}
+export function choiceRowsEnabled(problem: Pick<ExamProblem, "choices" | "choiceLayout">): boolean {
+  return problem.choiceLayout === "rows" || (problem.choiceLayout !== "grid" && hasProseChoices(problem.choices));
 }
 export function repairMath(text: string): string {
   const repaired = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => '$' + math + '$').replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => '$$' + math + '$$');
@@ -72,7 +76,7 @@ export function normalizeProblems(value: unknown, sourcePage?: number): ExamProb
     const review = [text(item.review, 1000), figureWarning, question.trim().length < 12 && !item.choices?.length && !item.tables?.length && !text(item.review).includes(warning) ? warning : ''].filter(Boolean).join(' / ');
     return { id: crypto.randomUUID(), number, points: text(item.points, 30), question,
       boxContent: repairMath(text(item.boxContent).replace(/^\s*(?:[〈<＜]\s*)?보기(?:\s*[〉>＞])?\s*\n?/, '')),
-      choices: Array.isArray(item.choices) ? item.choices.slice(0, 5).map((v: unknown) => repairMath(text(v).replace(/^\s*[①②③④⑤]\s*/, ''))) : [], sourcePage, review, figureBox, figureSourceId: text(item.figureSourceId, 100) || undefined, tables: normalizeTables(item.tables) };
+      choices: Array.isArray(item.choices) ? item.choices.slice(0, 5).map((v: unknown) => repairMath(text(v).replace(/^\s*[①②③④⑤]\s*/, ''))) : [], choiceLayout: item.choiceLayout === "rows" || item.choiceLayout === "grid" ? item.choiceLayout : "auto", sourcePage, review, figureBox, figureSourceId: text(item.figureSourceId, 100) || undefined, tables: normalizeTables(item.tables) };
   });
 }
 export const COLUMN_HEIGHT = 970;

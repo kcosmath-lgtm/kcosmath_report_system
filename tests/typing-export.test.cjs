@@ -16,8 +16,26 @@ function load(relative) {
   return compiled.exports;
 }
 const model = load("../src/lib/typing-model.ts");
-const { buildDocx, buildHwpx, latexToHancom } = load("../src/lib/typing-export.ts");
+const { buildDocx, buildHwpx, latexToHancom, prepareExportDocument } = load("../src/lib/typing-export.ts");
 const doc = { title: "수학 <시험> & 복습", perPage: 4, problems: model.sampleProblems.map((p, i) => ({ ...p, id: String(i) })) };
+test('sentence choices include OCR prose inside math and manual row layout survives normalization', () => {
+  assert.equal(model.hasProseChoices(['$\\text{각 A의 크기는 }130^\\circ\\text{ 이다.}$']), true);
+  assert.equal(model.hasProseChoices(['$\\frac{1}{2}$', '$\\sqrt{3}$']), false);
+  const [p] = model.normalizeProblems([{ question: '값은?', choices: ['1','2'], choiceLayout: 'rows' }]);
+  assert.equal(model.choiceRowsEnabled(p), true);
+});
+test('invalid OCR formula preserves editable source without blocking either export', async () => {
+  const input = { ...doc, problems: [{ ...doc.problems[0], question: '문법 오류 $\\frac{$ 와 정상 수식 $x^2$' }] };
+  for (const format of ['docx', 'hwpx']) {
+    const prepared = prepareExportDocument(input, format);
+    assert.deepEqual(prepared.warnings, [input.problems[0].number]);
+    assert.match(prepared.document.problems[0].question, /수식 원문/);
+    assert.ok(prepared.document.problems[0].question.includes('$x^2$'));
+    const template = fs.readFileSync(path.resolve(__dirname, '../public/typing/blank.hwpx'));
+    const blob = format === 'docx' ? await buildDocx(prepared.document) : await buildHwpx(prepared.document, template);
+    assert.ok(blob.size > 1000);
+  }
+});
 function parse(text) {
   const errors = [];
   const xml = new DOMParser({ onError: (level, message) => { if (level !== "warning") errors.push(message); } }).parseFromString(text, "application/xml");

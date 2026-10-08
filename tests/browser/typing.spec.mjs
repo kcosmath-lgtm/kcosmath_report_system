@@ -304,19 +304,19 @@ test('picture choices crop independently, keep 2+2+1 alignment, export and persi
 
 
 test('AI cleanup keeps the original until accepted, preserves it on failure, and saves the applied result', async ({ page }) => {
-  let calls=0, fail=false, output='';
+  let calls=0, fail=false;
   await page.route('**/api/typing/clean-figure', route=>{
     calls++;const body=route.request().postDataJSON();expect(body.apiKey).toBeUndefined();expect(route.request().headers().authorization).toMatch(/^Bearer /);
-    return route.fulfill(fail?{status:502,json:{error:'그림 정리 실패 테스트'}}:{json:{image:output}});
+    return route.fulfill(fail?{status:502,json:{error:'그림 정리 실패 테스트'}}:{json:{diagram:{width:100,height:80,elements:[{kind:'polyline',points:[[0,0],[100,80]],x:0,y:0,rx:0,ry:0,text:''}]}}});
   });
   await page.goto('/typing');await page.getByRole('button',{name:'예시 시험지 4문항으로 시작'}).click();
   const makeImage=async width=>page.evaluate(w=>{const c=document.createElement('canvas');c.width=w;c.height=80;const ctx=c.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,w,80);return c.toDataURL('image/png');},width);
-  const original=await makeImage(200);output=await makeImage(100);
+  const original=await makeImage(200);
   await page.getByLabel('그림 별도 첨부').first().setInputFiles({name:'marked.png',mimeType:'image/png',buffer:Buffer.from(original.split(',')[1],'base64')});
   const figure=page.locator('[data-problem]').first().locator('img');await expect(figure).toHaveCount(1);
   const before=await figure.getAttribute('src');
   await expect(page.locator('[data-problem]').first().locator('[data-prose] .katex')).toHaveCount(5);
-  const clean=page.getByRole('button',{name:'AI로 손글씨 지우고 재생성',exact:true});
+  const clean=page.getByRole('button',{name:'AI로 그림 구조 추출',exact:true});
   await clean.click();await expect(page.getByAltText('1번 AI 정리 결과',{exact:true})).toBeVisible();
   expect(await figure.getAttribute('src')).toBe(before);
   await page.getByRole('button',{name:'원본 유지',exact:true}).click();expect(await figure.getAttribute('src')).toBe(before);

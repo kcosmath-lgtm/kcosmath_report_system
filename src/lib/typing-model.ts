@@ -1,11 +1,12 @@
+import type { FigureDiagram } from "./typing-diagram";
 export const OCR_MODEL = "gemini-3.1-flash-lite";
 export type FigureBox = [number, number, number, number];
 export type ExamTable = { caption: string; rows: string[][] };
-export type ChoiceFigure = { figure?: string; figureBox?: FigureBox; figureSourceId?: string };
+export type ChoiceFigure = { figureDiagram?: FigureDiagram; figure?: string; figureBox?: FigureBox; figureSourceId?: string };
 export type ExamProblem = {
   id: string; number: string; points: string; question: string;
   boxContent: string; choices: string[]; sourcePage?: number;
-  figure?: string; figureBox?: FigureBox; figureSourceId?: string; review?: string; tables?: ExamTable[];
+  figureDiagram?: FigureDiagram; figure?: string; figureBox?: FigureBox; figureSourceId?: string; review?: string; tables?: ExamTable[];
   choiceLayout?: "auto" | "rows" | "grid";
   choiceFigures?: ChoiceFigure[];
 };
@@ -98,13 +99,13 @@ export function normalizeProblems(value: unknown, sourcePage?: number): ExamProb
     const figureBox = normalizeFigureBox(item.figureBox);
     const choiceFigures: ChoiceFigure[] = Array.from({ length: Math.min(5, Math.max(item.choices?.length ?? 0, item.choiceFigures?.length ?? 0, item.choiceFigureBoxes?.length ?? 0)) }, (_, index) => {
       const existing = item.choiceFigures?.[index];
-      return { figure: typeof existing?.figure === "string" && /^data:image\/(png|jpeg);base64,/.test(existing.figure) ? existing.figure : undefined,
+      return { figureDiagram: existing?.figureDiagram, figure: typeof existing?.figure === "string" && /^data:image\/(png|jpeg);base64,/.test(existing.figure) ? existing.figure : undefined,
         figureBox: normalizeFigureBox(existing?.figureBox ?? item.choiceFigureBoxes?.[index]), figureSourceId: text(existing?.figureSourceId, 100) || undefined };
     });
     const figureWarning = Array.isArray(item.figureBox) && item.figureBox.length && !figureBox ? "그림 위치를 확인하지 못했습니다. 원본에서 영역을 직접 선택해 주세요." : "";
     const warning = '본문이 매우 짧습니다. 문장 조각을 문항으로 인식했는지 원본과 확인해 주세요.';
     const review = [text(item.review, 1000), figureWarning, question.trim().length < 12 && !item.choices?.length && !item.tables?.length && !text(item.review).includes(warning) ? warning : ''].filter(Boolean).join(' / ');
-    return { id: crypto.randomUUID(), number, points: text(item.points, 30), question,
+    return { id: crypto.randomUUID(), figureDiagram: item.figureDiagram, number, points: text(item.points, 30), question,
       boxContent: repairMath(text(item.boxContent).replace(/^\s*(?:[〈<＜]\s*)?보기(?:\s*[〉>＞])?\s*\n?/, '')),
       choices: Array.from({ length: choiceFigures.length }, (_, index) => repairMath(text(item.choices?.[index]).replace(/^\s*[①②③④⑤]\s*/, ''))), choiceFigures, choiceLayout: item.choiceLayout === "rows" || item.choiceLayout === "grid" ? item.choiceLayout : "auto", sourcePage, review, figureBox, figureSourceId: text(item.figureSourceId, 100) || undefined, tables: normalizeTables(item.tables) };
   });

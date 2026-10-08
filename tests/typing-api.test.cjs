@@ -15,6 +15,7 @@ const apiMocks = {
   "next/server": { NextResponse: { json: (data, init) => new Response(JSON.stringify(data), init) } },
   "@supabase/supabase-js": { createClient: () => ({ auth: { getUser: async token => ({ data: { user: token === "valid" ? { id: "teacher" } : null } }) }, rpc: async () => ({ data: access, error: accessError }), from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: member ? { academy_id: "academy" } : null }) }) }) }) }) },
   "../../../../lib/typing-model": model,
+  "../../../../lib/typing-diagram": compile("../src/lib/typing-diagram.ts"),
 };
 const { POST } = compile("../src/app/api/typing/extract/route.ts", apiMocks);
 const { POST: cleanFigure } = compile("../src/app/api/typing/clean-figure/route.ts", apiMocks);
@@ -121,18 +122,28 @@ test('figure cleanup enforces access and server key before any paid request', as
 test('figure cleanup sends one authenticated image edit and rejects missing images without retry', async () => {
   const oldFetch=global.fetch,oldLog=console.error;let calls=0;
   global.fetch=async(url,options)=>{
-    calls++;assert.match(url,/models\/gemini-2\.5-flash-image:generateContent$/);
+    calls++;assert.match(url,/models\/gemini-3\.1-flash-lite:generateContent$/);
     assert.equal(options.headers['x-goog-api-key'],'server-test-key');
-    const body=JSON.parse(options.body);assert.deepEqual(body.generationConfig.responseModalities,['TEXT','IMAGE']);
+    const body=JSON.parse(options.body);assert.equal(body.generationConfig.responseMimeType,'application/json');assert.equal(body.generationConfig.responseModalities,undefined);
     assert.equal(body.contents[0].parts[1].inlineData.data,payload.image);
-    return new Response(JSON.stringify({candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:'aGVsbG8='}}]}}]}));
+    return new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify({supported:true,width:100,height:100,elements:[{kind:'polyline',points:[[0,0],[100,100]],x:0,y:0,rx:0,ry:0,text:''}]})}]}}]}));
   };
   console.error=()=>{};
   try {
-    const response=await cleanFigure(request(payload));assert.equal(response.status,200);assert.equal((await response.json()).image,'data:image/png;base64,aGVsbG8=');assert.equal(calls,1);
+    const response=await cleanFigure(request(payload));assert.equal(response.status,200);assert.equal((await response.json()).diagram.elements.length,1);assert.equal(calls,1);
     global.fetch=async()=>new Response(JSON.stringify({candidates:[{content:{parts:[{text:'no image'}]}}]}));
-    assert.equal((await (await cleanFigure(request(payload))).json()).code,'FIGURE_NO_IMAGE');
+    assert.equal((await (await cleanFigure(request(payload))).json()).code,'FIGURE_INVALID_JSON');
     global.fetch=async()=>new Response('',{status:429});assert.equal((await cleanFigure(request(payload))).status,429);
     global.fetch=async()=>{throw new DOMException('private data','TimeoutError');};assert.equal((await cleanFigure(request(payload))).status,504);
   } finally {global.fetch=oldFetch;console.error=oldLog;}
+});
+
+
+test('diagram SVG escapes labels and rejects invalid coordinates and excessive primitives', () => {
+  const {normalizeDiagram,diagramSvg}=compile('../src/lib/typing-diagram.ts');
+  const element={kind:'text',points:[],x:5,y:20,rx:0,ry:0,text:'<script>alert(1)</script>'};
+  const diagram={width:100,height:100,elements:[element]};
+  const svg=diagramSvg(diagram);assert.ok(svg.includes('&lt;script&gt;'));assert.ok(!svg.includes('<script>'));
+  assert.throws(()=>normalizeDiagram({...diagram,elements:[{...element,x:NaN}]}));
+  assert.throws(()=>normalizeDiagram({...diagram,elements:Array(301).fill(element)}));
 });

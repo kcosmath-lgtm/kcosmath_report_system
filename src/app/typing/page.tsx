@@ -105,7 +105,7 @@ function TypingWorkspace() {
     if (problem) {
       const [kind, a, b, c] = previewEdit.field.split(":");
       if (kind === "question" || kind === "boxContent") update(problem.id, { [kind]: value });
-      else if (kind === "figure") update(problem.id, { figure: undefined, figureBox: undefined, figureSourceId: undefined });
+      else if (kind === "figure") update(problem.id, { figureDiagram: undefined, figure: undefined, figureBox: undefined, figureSourceId: undefined });
       else if (kind === "choice") update(problem.id, { choices: problem.choices.map((choice, i) => i === Number(a) ? value : choice) });
       else if (kind === "choiceFigure") update(problem.id, { choiceFigures: problem.choiceFigures?.map((figure, i) => i === Number(a) ? {} : figure) });
       else if (kind === "table") update(problem.id, { tables: problem.tables?.map((table, ti) => ti === Number(a) ? { ...table, rows: table.rows.map((row, ri) => ri === Number(b) ? row.map((cell, ci) => ci === Number(c) ? value.slice(0,2000) : cell) : row) } : table) });
@@ -313,8 +313,8 @@ function TypingWorkspace() {
                 })}
               </div>
               <TypingFigureEditor problem={p} sources={sources} onSources={pages => setSources(prev => [...prev, ...pages].slice(-30))} onChange={patch => update(p.id, patch)} onError={setError}/>
-              <details className={styles.choiceFigureEditor}><summary>객관식 선지별 그림 편집 (①~⑤)</summary>{Array.from({ length: 5 }, (_, index) => <div key={index}><strong>{choiceLabels[index]} 선지 그림</strong><TypingFigureEditor problem={{ ...p, number: p.number + "-" + choiceLabels[index], figure: p.choiceFigures?.[index]?.figure, figureBox: p.choiceFigures?.[index]?.figureBox, figureSourceId: p.choiceFigures?.[index]?.figureSourceId }} sources={sources} onSources={pages => setSources(prev => [...prev, ...pages].slice(-30))} onChange={patch => {
-                const choiceFigures = Array.from({ length: Math.max(p.choices.length, index + 1) }, (_, i) => i === index ? { figure: patch.figure, figureBox: patch.figureBox, figureSourceId: patch.figureSourceId } : (p.choiceFigures?.[i] ?? {}));
+              <details className={styles.choiceFigureEditor}><summary>객관식 선지별 그림 편집 (①~⑤)</summary>{Array.from({ length: 5 }, (_, index) => <div key={index}><strong>{choiceLabels[index]} 선지 그림</strong><TypingFigureEditor problem={{ ...p, number: p.number + "-" + choiceLabels[index], figureDiagram: p.choiceFigures?.[index]?.figureDiagram, figure: p.choiceFigures?.[index]?.figure, figureBox: p.choiceFigures?.[index]?.figureBox, figureSourceId: p.choiceFigures?.[index]?.figureSourceId }} sources={sources} onSources={pages => setSources(prev => [...prev, ...pages].slice(-30))} onChange={patch => {
+                const choiceFigures = Array.from({ length: Math.max(p.choices.length, index + 1) }, (_, i) => i === index ? { figureDiagram: patch.figureDiagram, figure: patch.figure, figureBox: patch.figureBox, figureSourceId: patch.figureSourceId } : (p.choiceFigures?.[i] ?? {}));
                 update(p.id, { choiceFigures, choices: Array.from({ length: Math.max(p.choices.length, index + 1) }, (_, i) => p.choices[i] ?? "") });
               }} onError={setError}/></div>)}</details>
             </section>)}

@@ -16,8 +16,25 @@ function load(relative) {
   return compiled.exports;
 }
 const model = load("../src/lib/typing-model.ts");
-const { buildDocx, buildHwpx, latexToHancom, prepareExportDocument, exportPages, hwpxChoiceColumns } = load("../src/lib/typing-export.ts");
+const { buildDocx, buildHwpx, latexToHancom, prepareExportDocument, exportPages, hwpxChoiceColumns, normalizeHwpxLineTypes } = load("../src/lib/typing-export.ts");
 const doc = { title: "수학 <시험> & 복습", perPage: 4, problems: model.sampleProblems.map((p, i) => ({ ...p, id: String(i) })) };
+
+test('OWPML line enums disable strikeout and preserve only intended table borders', async () => {
+  assert.equal(normalizeHwpxLineTypes('<hh:strikeout shape="None" color="#000000"/>'), '<hh:strikeout shape="NONE" color="#000000"/>');
+  assert.equal(normalizeHwpxLineTypes('<hh:topBorder type="DashDot"/>'), '<hh:topBorder type="DASH_DOT"/>');
+  assert.equal(normalizeHwpxLineTypes('<hc:winBrush faceColor="none"/>'), '<hc:winBrush faceColor="none"/>');
+  const template = fs.readFileSync(path.resolve(__dirname, '../public/typing/blank.hwpx'));
+  const zip = await zipBlob(await buildHwpx(doc, template));
+  const raw = await zip.file('Contents/header.xml').async('string');
+  assert.doesNotMatch(raw, /(?:shape|type)="(?:None|Solid|DashDot)"/);
+  const header = parse(raw);
+  for (const node of header.getElementsByTagName('hh:strikeout')) assert.equal(node.getAttribute('shape'), 'NONE');
+  const fills = Array.from(header.getElementsByTagName('hh:borderFill'));
+  for (const edge of ['leftBorder', 'rightBorder', 'topBorder', 'bottomBorder']) {
+    assert.equal(fills.find(n => n.getAttribute('id') === '1').getElementsByTagName('hh:' + edge)[0].getAttribute('type'), 'NONE');
+    assert.equal(fills.find(n => n.getAttribute('id') === '5').getElementsByTagName('hh:' + edge)[0].getAttribute('type'), 'SOLID');
+  }
+});
 
 test('Hancom choice cells fit coordinates and keep labels on the same line', async () => {
   const problem = { ...doc.problems[0], choices: ['(-10, 4/5)', '(-4, 2)', '(6, -3/4)', '(16, -1/2)', '(20, -2/5)'] };

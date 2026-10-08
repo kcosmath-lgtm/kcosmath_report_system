@@ -229,6 +229,15 @@ export function hwpxChoiceColumns(problem: ExamProblem, preferred?: number): num
   return candidates.find(columns => maximum + 2000 <= Math.floor(23000 / columns)) ?? 1;
 }
 
+// ownhwpx 0.2.x writes legacy HWPML spellings (None/Solid/DashDot).
+// OWPML line enums are case-sensitive: NONE/SOLID/DASH_DOT. In particular,
+// an unrecognised strikeout value can draw lines through every character.
+export function normalizeHwpxLineTypes(source: string): string {
+  const values: Record<string, string> = { None: 'NONE', Solid: 'SOLID', Dot: 'DOT', Dash: 'DASH', DashDot: 'DASH_DOT', DashDotDot: 'DASH_DOT_DOT', LongDash: 'LONG_DASH', Circle: 'CIRCLE', DoubleSlim: 'DOUBLE_SLIM', SlimThick: 'SLIM_THICK', ThickSlim: 'THICK_SLIM', SlimThickSlim: 'SLIM_THICK_SLIM' };
+  return source.replace(/(<(?:hh|hp):(?:leftBorder|rightBorder|topBorder|bottomBorder|diagonal|strikeout|noteLine|colLine)\b[^>]*\b(?:type|shape)=")([^"]+)(")/g,
+    (_, start, value, end) => start + (values[value] ?? value) + end);
+}
+
 export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promise<Blob> {
   const zip = await JSZip.loadAsync(template);
   let id = 1000, imageId = 0;
@@ -277,7 +286,7 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
     }
     return text;
   };
-  const original = await zip.file("Contents/section0.xml")!.async("string");
+  const original = normalizeHwpxLineTypes(await zip.file("Contents/section0.xml")!.async("string"));
   const opening = original.slice(0, original.indexOf(">", original.indexOf("<hs:sec")) + 1);
   let sectionPr = original.match(/<hp:secPr[\s\S]*?<\/hp:secPr>/)![0];
   // Hancom interprets WIDELY as portrait, NARROWLY as landscape.
@@ -295,11 +304,11 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
     return header + `<hp:p id="${++id}" paraPrIDRef="18" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:tbl id="${++id}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="CELL" repeatHeader="0" rowCnt="${rowCount}" colCnt="2" cellSpacing="0" borderFillIDRef="1" noAdjust="0"><hp:sz width="51024" height="60000" widthRelTo="ABSOLUTE" heightRelTo="ABSOLUTE" protect="0"/><hp:pos treatAsChar="1" affectLSpacing="1" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/><hp:outMargin left="0" right="0" top="0" bottom="0"/><hp:inMargin left="0" right="0" top="0" bottom="0"/>${rows}</hp:tbl></hp:run></hp:p>`;
   }).join("");
   zip.file("Contents/section0.xml", `${opening}${content.replace(/(<hp:run[^>]*>)/, (_, run) => run + sectionPr + '<hp:ctrl><hp:colPr id="" type="NEWSPAPER" layout="LEFT" colCount="1" sameSz="1" sameGap="0"/></hp:ctrl>')}</hs:sec>`);
-  let header = await zip.file("Contents/header.xml")!.async("string");
+  let header = normalizeHwpxLineTypes(await zip.file("Contents/header.xml")!.async("string"));
   const border = header.match(/<hh:borderFill id="1"[\s\S]*?<\/hh:borderFill>/)![0];
-  const centerBorder = border.replace('id="1"', 'id="3"').replace('<hh:rightBorder type="None"', '<hh:rightBorder type="Solid"');
-  const topBorder = border.replace('id="1"', 'id="4"').replace('<hh:bottomBorder type="None"', '<hh:bottomBorder type="Solid"');
-  const tableBorder = border.replace('id="1"', 'id="5"').replace(/Border type="None"/g, 'Border type="Solid"');
+  const centerBorder = border.replace('id="1"', 'id="3"').replace('<hh:rightBorder type="NONE"', '<hh:rightBorder type="SOLID"');
+  const topBorder = border.replace('id="1"', 'id="4"').replace('<hh:bottomBorder type="NONE"', '<hh:bottomBorder type="SOLID"');
+  const tableBorder = border.replace('id="1"', 'id="5"').replace(/Border type="NONE"/g, 'Border type="SOLID"');
   header = header.replace('<hh:borderFills itemCnt="2">', '<hh:borderFills itemCnt="5">').replace('</hh:borderFills>', `${centerBorder}${topBorder}${tableBorder}</hh:borderFills>`);
   const pr = header.match(/<hh:paraPr id="3"[\s\S]*?<\/hh:paraPr>/)![0].replace('id="3"', 'id="16"').replace(/borderFillIDRef="2"/, 'borderFillIDRef="4"');
   const centerPr = pr.replace('id="16"', 'id="17"').replace(/horizontal="[^"]+"/, 'horizontal="CENTER"').replace('borderFillIDRef="4"', 'borderFillIDRef="2"');

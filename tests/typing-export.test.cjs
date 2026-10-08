@@ -16,8 +16,41 @@ function load(relative) {
   return compiled.exports;
 }
 const model = load("../src/lib/typing-model.ts");
-const { buildDocx, buildHwpx, latexToHancom, prepareExportDocument } = load("../src/lib/typing-export.ts");
+const { buildDocx, buildHwpx, latexToHancom, prepareExportDocument, exportPages } = load("../src/lib/typing-export.ts");
 const doc = { title: "수학 <시험> & 복습", perPage: 4, problems: model.sampleProblems.map((p, i) => ({ ...p, id: String(i) })) };
+
+test('condition box fractions retain full size beside linear equations in screen and exports', async () => {
+  const box = '㉠ $y=-2x$   ㉡ $y=-\\frac{4}{x}$   ㉢ $y=\\tfrac{10}{3}x$\n㉣ $y=\\textstyle\\frac{2}{x}$';
+  const formatted = model.formatBoxContent(box);
+  assert.equal((formatted.match(/\\displaystyle/g) ?? []).length, 3);
+  assert.doesNotMatch(formatted, /\\(?:tfrac|textstyle)\b/);
+  assert.equal(model.formatBoxContent(formatted), formatted);
+  assert.ok(formatted.includes('$y=-2x$'));
+  const input = { ...doc, problems: [{ ...doc.problems[0], boxContent: box }] };
+  const word = parse(await (await zipBlob(await buildDocx(input))).file('word/document.xml').async('string'));
+  assert.equal(word.getElementsByTagName('m:f').length, 4); // includes question exponent
+  const template = fs.readFileSync(path.resolve(__dirname, '../public/typing/blank.hwpx'));
+  const section = parse(await (await zipBlob(await buildHwpx(input, template))).file('Contents/section0.xml').async('string'));
+  assert.equal(Array.from(section.getElementsByTagName('hp:script')).filter(n => n.textContent.includes('over')).length, 4);
+});
+
+test('office pagination reserves native table and equation space without browser measurements', async () => {
+  const input = { ...doc, problems: doc.problems.map(p => ({ ...p,
+    boxContent: 'ㄱ. 조건을 만족하는 수를 구하고 계산 과정을 설명한다. '.repeat(8),
+    tables: [{ caption: '', rows: Array.from({ length: 5 }, () => ['1/2', '15/2']) }],
+  })) };
+  assert.ok(exportPages(input).every(page => page.capacity === 2));
+  const word = parse(await (await zipBlob(await buildDocx(input))).file('word/document.xml').async('string'));
+  assert.equal(word.getElementsByTagName('w:pageBreakBefore').length, 1);
+  assert.ok(Array.from(word.getElementsByTagName('w:br')).every(node => node.getAttribute('w:type') !== 'page'));
+  const template = fs.readFileSync(path.resolve(__dirname, '../public/typing/blank.hwpx'));
+  const hwpx = await zipBlob(await buildHwpx(input, template));
+  const section = parse(await hwpx.file('Contents/section0.xml').async('string'));
+  assert.equal(section.getElementsByTagName('hp:secPr').length, 1);
+  const firstParagraph = section.documentElement.firstChild;
+  assert.ok(firstParagraph.getElementsByTagName('hp:tbl').length > 0);
+  assert.ok(firstParagraph.getElementsByTagName('hp:secPr').length > 0);
+});
 test('Korean statement combinations force three plus two cells in both native exports', async () => {
   const choices = ['ㄱ','ㄱ, ㄷ','ㄴ, ㄷ','ㄴ, ㄹ','ㄱ, ㄷ, ㄹ'];
   assert.equal(model.hasStatementChoices(choices), true);
@@ -176,7 +209,7 @@ test('long questions get a full column in preview and editable exports', async (
   assert.equal(pages[0].capacity, 2);
   assert.deepEqual(pages.flatMap(p => [...p.left, ...p.right]).map(p => p.number), ['1','2','3','4']);
   const zip = await zipBlob(await buildDocx({ ...doc, problemHeights }));
-  assert.match(await zip.file('word/document.xml').async('string'), /w:val="12500"/);
+  assert.match(await zip.file('word/document.xml').async('string'), /w:val="11500"/);
 });
 
 

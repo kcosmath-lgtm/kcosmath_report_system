@@ -2,6 +2,55 @@ import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import JSZip from "jszip";
 
+test('preview eraser supports undo, comparison, cancellation and persistent PNG export without AI', async ({ page }) => {
+  let aiCalls = 0;
+  await page.route('**/api/typing/clean-figure', route => { aiCalls++; return route.abort(); });
+  await page.goto('/typing');
+  await page.getByRole('button', { name: '예시 시험지 4문항으로 시작' }).click();
+  const image = await page.evaluate(() => {
+    const canvas = document.createElement('canvas'); canvas.width = 100; canvas.height = 80;
+    const ctx = canvas.getContext('2d'); ctx.fillStyle = 'black'; ctx.fillRect(0, 0, 100, 80);
+    return canvas.toDataURL('image/png').split(',')[1];
+  });
+  await page.getByLabel('그림 별도 첨부').first().setInputFiles({ name: 'ink.png', mimeType: 'image/png', buffer: Buffer.from(image, 'base64') });
+  const problem = page.locator('[data-problem]').first();
+  const open = async () => {
+    await problem.getByRole('button', { name: '문항 1 그림 편집', exact: true }).click();
+    await page.getByRole('button', { name: '손글씨 지우기', exact: true }).click();
+    await expect(page.getByRole('button', { name: '지우기 적용', exact: true })).toBeEnabled();
+  };
+  await open();
+  const canvas = page.getByLabel('손글씨 지우기 캔버스');
+  const pixel = () => canvas.evaluate(node => [...node.getContext('2d').getImageData(50, 40, 1, 1).data]);
+  await expect.poll(pixel).toEqual([0, 0, 0, 255]);
+  await canvas.click(); await expect.poll(pixel).toEqual([255, 255, 255, 255]);
+  await page.getByRole('button', { name: '실행 취소', exact: true }).click();
+  await expect.poll(pixel).toEqual([0, 0, 0, 255]);
+  await page.getByLabel('그림 확대').selectOption('2');
+  await page.getByLabel('브러시 크기').fill('20');
+  await canvas.click(); await expect.poll(pixel).toEqual([255, 255, 255, 255]);
+  await page.getByLabel('원본 비교', { exact: true }).check();
+  await expect(page.getByAltText('지우기 전 원본')).toBeVisible();
+  await page.getByLabel('원본 비교', { exact: true }).uncheck();
+  await page.getByRole('button', { name: '원본 복원', exact: true }).click();
+  await expect.poll(pixel).toEqual([0, 0, 0, 255]);
+  await canvas.click();
+  await page.getByRole('button', { name: '지우기 취소', exact: true }).click();
+  await page.getByRole('button', { name: '취소', exact: true }).click();
+  await open(); await expect.poll(pixel).toEqual([0, 0, 0, 255]);
+  await canvas.click(); await page.getByRole('button', { name: '지우기 적용', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const saved = await problem.locator('img').getAttribute('src');
+  expect(saved).not.toBe('data:image/png;base64,' + image);
+  await page.waitForTimeout(800); await page.reload();
+  await expect(problem.locator('img')).toHaveAttribute('src', saved);
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Word', exact: true }).click()]);
+  const zip = await JSZip.loadAsync(readFileSync(await download.path()));
+  const media = Object.values(zip.files).filter(file => file.name.startsWith('word/media/') && !file.dir);
+  expect(await Promise.all(media.map(file => file.async('base64')))).toContain(saved.split(',')[1]);
+  expect(aiCalls).toBe(0);
+});
+
 const user = { id: "10000000-0000-4000-8000-000000000001", aud: "authenticated", role: "authenticated", email: "teacher@example.test", user_metadata: {}, app_metadata: {}, created_at: "2026-01-01T00:00:00Z" };
 test.beforeEach(async ({ page }) => {
   const host = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder-url-for-build.supabase.co").hostname;

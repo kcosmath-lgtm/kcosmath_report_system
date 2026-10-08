@@ -121,10 +121,31 @@ function imageBytes(data: string) {
   if (!width || !height) throw new Error("첨부 그림의 크기를 읽지 못했습니다. PNG 또는 JPG로 다시 첨부해 주세요.");
   return { data: encoded, ext, width, height };
 }
+// Browser and office applications use different font and equation metrics.
+// Reserve room for native equations, cell padding and table anchor paragraphs.
+export function exportPages(doc: ExamDocument) {
+  const heights: Record<string, number> = {};
+  const textHeight = (text: string) => splitMath(text).reduce((height, part) => {
+    if (part.display) return height + 80;
+    const lines = part.value.split('\n').reduce((count, line) => count + Math.max(1, Math.ceil(line.length / 27)), 0);
+    return height + (part.math ? 24 : lines * 22);
+  }, 0);
+  for (const p of doc.problems) {
+    const choices = p.choices.map(formatChoiceContent);
+    const columns = choiceRowsEnabled(p) ? 1 : hasStatementChoices(choices) ? 3 : p.choiceFigures?.some(f => f.figure) ? 2 : doc.choiceColumns?.[p.id] ?? 3;
+    let estimate = textHeight(p.question) + 24;
+    if (p.boxContent) estimate += textHeight(formatBoxContent(p.boxContent)) + 40;
+    for (const table of p.tables ?? []) estimate += table.rows.reduce((height, row) => height + Math.max(...row.map(textHeight)) + 20, 0) + 24;
+    if (p.figure) { const image = imageBytes(p.figure); estimate += Math.min(160, 245 * image.height / image.width) + 24; }
+    for (let i = 0; i < choices.length; i += columns) estimate += Math.max(...choices.slice(i, i + columns).map(textHeight), 0) + (p.choiceFigures?.slice(i, i + columns).some(f => f.figure) ? 100 : 12);
+    heights[p.id] = Math.max(estimate * 1.15, (doc.problemHeights?.[p.id] ?? 0) * 1.25);
+  }
+  return examPages(doc.problems, doc.perPage, heights);
+}
 function wordTable(cells: string[][], totalWidth = 4600, raw = false, header = false): string {
   const widths = header ? [1700,6800,1700] : cells[0].map(() => Math.floor(totalWidth / cells[0].length));
   const borders = ["top","left","bottom","right","insideH","insideV"].map(edge => '<w:' + edge + ' w:val="' + (header && edge === 'bottom' ? 'single' : 'nil') + '" w:sz="6"/>').join('');
-  return '<w:tbl><w:tblPr><w:tblW w:w="' + totalWidth + '" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders>' + borders + '</w:tblBorders></w:tblPr><w:tblGrid>' + widths.map(w => '<w:gridCol w:w="' + w + '"/>').join('') + '</w:tblGrid>' + cells.map(row => '<w:tr><w:trPr><w:cantSplit/></w:trPr>' + row.map((cell, ci) => '<w:tc><w:tcPr><w:tcW w:w="' + widths[ci] + '" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>' + (raw ? cell : wordParagraph(cell).replace('w:after="160"','w:after="0"')) + '</w:tc>').join('') + '</w:tr>').join('') + '</w:tbl><w:p><w:pPr><w:spacing w:after="0" w:line="20" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:sz w:val="2"/></w:rPr><w:t/></w:r></w:p>';
+  return '<w:tbl><w:tblPr><w:tblW w:w="' + totalWidth + '" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblCellMar><w:top w:w="40" w:type="dxa"/><w:left w:w="0" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tblCellMar><w:tblBorders>' + borders + '</w:tblBorders></w:tblPr><w:tblGrid>' + widths.map(w => '<w:gridCol w:w="' + w + '"/>').join('') + '</w:tblGrid>' + cells.map(row => '<w:tr><w:trPr><w:cantSplit/></w:trPr>' + row.map((cell, ci) => '<w:tc><w:tcPr><w:tcW w:w="' + widths[ci] + '" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>' + (raw ? cell : wordParagraph(cell).replace('w:after="160"','w:after="0"')) + '</w:tc>').join('') + '</w:tr>').join('') + '</w:tbl><w:p><w:pPr><w:spacing w:after="0" w:line="20" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:sz w:val="2"/></w:rPr><w:t/></w:r></w:p>';
 }
 export async function buildDocx(doc: ExamDocument): Promise<Blob> {
   const zip = new JSZip();
@@ -135,17 +156,21 @@ export async function buildDocx(doc: ExamDocument): Promise<Blob> {
       const scale = Math.min((logo ? 950000 : choice ? 1100000 : 2300000) / img.width, (logo ? 280000 : choice ? 850000 : 1500000) / img.height), width = Math.round(img.width * scale), height = Math.round(img.height * scale);
       zip.file(`word/media/${name}`, img.data, { base64: true });
       rels.push(`<Relationship Id="img${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${name}"/>`);
-      return `<w:p><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${width}" cy="${height}"/><wp:docPr id="${id}" name="문항 그림 ${id}"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${id}" name="${name}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="img${id}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${width}" cy="${height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
+      return `<w:p><w:pPr><w:spacing w:before="0" w:after="80" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${width}" cy="${height}"/><wp:docPr id="${id}" name="문항 그림 ${id}"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${id}" name="${name}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="img${id}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${width}" cy="${height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
     };
   const problem = (p?: ExamProblem) => {
     if (!p) return "<w:p/>";
     let result = wordParagraph(`${p.number}. ${p.question}${p.points ? `  [${p.points}]` : ""}`);
-    if (p.boxContent) result += formatBoxContent(p.boxContent).split('\n').map(line => wordParagraph(line, '<w:pBdr><w:top w:val="single" w:sz="4"/><w:left w:val="single" w:sz="4"/><w:bottom w:val="single" w:sz="4"/><w:right w:val="single" w:sz="4"/></w:pBdr>' + (/^(?:[ㄱㄴㄷㄹㅁ][.)]|[㉠-㉤])/.test(line) ? '<w:ind w:left="300" w:hanging="300"/>' : ''))).join('');
+    if (p.boxContent) {
+      const paragraphs = formatBoxContent(p.boxContent).split('\n').map(line => wordParagraph(line,
+        /^(?:[ㄱㄴㄷㄹㅁㅂ][.)]|[㉠-㉭])/.test(line) ? '<w:ind w:left="300" w:hanging="300"/>' : '')).join('');
+      result += wordTable([[paragraphs]], 4600, true).replace(/<w:(top|left|bottom|right) w:val="nil"/g, '<w:$1 w:val="single"');
+    }
     for (const table of p.tables ?? []) {
       if (table.caption) result += wordParagraph(table.caption, '<w:jc w:val="center"/>');
       const width = Math.floor(4600 / table.rows[0].length);
       const borders = ["top", "left", "bottom", "right", "insideH", "insideV"].map(edge => `<w:${edge} w:val="single" w:sz="4" w:color="000000"/>`).join("");
-      result += `<w:tbl><w:tblPr><w:tblW w:w="4600" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders>${borders}</w:tblBorders></w:tblPr><w:tblGrid>${table.rows[0].map(() => `<w:gridCol w:w="${width}"/>`).join("")}</w:tblGrid>${table.rows.map(row => `<w:tr>${row.map(cell => `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/></w:tcPr>${wordParagraph(formatTableCell(cell), '<w:jc w:val="center"/>')}</w:tc>`).join("")}</w:tr>`).join("")}</w:tbl><w:p/>`;
+      result += `<w:tbl><w:tblPr><w:tblW w:w="4600" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblCellMar><w:top w:w="40" w:type="dxa"/><w:left w:w="0" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tblCellMar><w:tblBorders>${borders}</w:tblBorders></w:tblPr><w:tblGrid>${table.rows[0].map(() => `<w:gridCol w:w="${width}"/>`).join("")}</w:tblGrid>${table.rows.map(row => `<w:tr>${row.map(cell => `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/></w:tcPr>${wordParagraph(formatTableCell(cell), '<w:jc w:val="center"/>')}</w:tc>`).join("")}</w:tr>`).join("")}</w:tbl><w:p/>`;
     }
     if (p.figure) result += picture(p.figure);
     if (p.choices.length) {
@@ -156,9 +181,9 @@ export async function buildDocx(doc: ExamDocument): Promise<Blob> {
     }
     return result;
   };
-  const pages = examPages(doc.problems, doc.perPage, doc.problemHeights).map((page, index) => {
-    const logoRuns = doc.brandImage ? picture(doc.brandImage, true).replace(/^<w:p>|<\/w:p>$/g, "") : "";
-    const rows = Array.from({ length: page.capacity / 2 }, (_, i) => `<w:tr><w:trPr><w:cantSplit/><w:trHeight w:val="${Math.floor(12500 / (page.capacity / 2))}" w:hRule="atLeast"/></w:trPr>${[page.left[i], page.right[i]].map((p, col) => `<w:tc><w:tcPr><w:tcW w:w="5100" w:type="dxa"/><w:vAlign w:val="top"/><w:tcMar><w:top w:w="160" w:type="dxa"/><w:left w:w="${col ? 360 : 0}" w:type="dxa"/><w:right w:w="${col ? 0 : 360}" w:type="dxa"/></w:tcMar><w:tcBorders>${col === 0 ? '<w:right w:val="single" w:sz="5" w:color="000000"/>' : ""}</w:tcBorders></w:tcPr>${problem(p)}</w:tc>`).join("")}</w:tr>`).join("");
+  const pages = exportPages(doc).map((page, index) => {
+    const logoRuns = doc.brandImage ? picture(doc.brandImage, true).replace(/^<w:p>(?:<w:pPr>[\s\S]*?<\/w:pPr>)?|<\/w:p>$/g, "") : "";
+    const rows = Array.from({ length: page.capacity / 2 }, (_, i) => `<w:tr><w:trPr><w:trHeight w:val="${Math.floor(11500 / (page.capacity / 2))}" w:hRule="atLeast"/></w:trPr>${[page.left[i], page.right[i]].map((p, col) => `<w:tc><w:tcPr><w:tcW w:w="5100" w:type="dxa"/><w:vAlign w:val="top"/><w:tcMar><w:top w:w="160" w:type="dxa"/><w:left w:w="${col ? 360 : 0}" w:type="dxa"/><w:right w:w="${col ? 0 : 360}" w:type="dxa"/></w:tcMar><w:tcBorders>${col === 0 ? '<w:right w:val="single" w:sz="5" w:color="000000"/>' : ""}</w:tcBorders></w:tcPr>${problem(p)}</w:tc>`).join("")}</w:tr>`).join("");
     const title = doc.title === "MATHTYPING" ? "" : doc.title;
     const titleSize = Math.max(14, Math.min(28, Math.floor(1600 / Math.max(1, title.length))));
     const titleRuns = '<w:r><w:rPr><w:b/><w:sz w:val="' + titleSize + '"/></w:rPr><w:t>' + xml(title) + '</w:t></w:r>';
@@ -167,7 +192,7 @@ export async function buildDocx(doc: ExamDocument): Promise<Blob> {
       '<w:p><w:pPr><w:jc w:val="center"/><w:keepNext/></w:pPr>' + titleRuns + '</w:p>',
       wordParagraph(String(index + 1), '<w:jc w:val="right"/><w:keepNext/>'),
     ]], 10200, true, true);
-    return `${index ? '<w:p><w:r><w:br w:type="page"/></w:r></w:p>' : ""}${pageHeader}<w:tbl><w:tblPr><w:tblW w:w="10200" w:type="dxa"/><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid><w:gridCol w:w="5100"/><w:gridCol w:w="5100"/></w:tblGrid>${rows}</w:tbl>`;
+    return `${index ? pageHeader.replace('<w:pPr>', '<w:pPr><w:pageBreakBefore/>') : pageHeader}<w:tbl><w:tblPr><w:tblW w:w="10200" w:type="dxa"/><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid><w:gridCol w:w="5100"/><w:gridCol w:w="5100"/></w:tblGrid>${rows}</w:tbl>`;
   }).join("");
   zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="jpeg" ContentType="image/jpeg"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>`);
   zip.file("_rels/.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
@@ -229,18 +254,18 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
   const opening = original.slice(0, original.indexOf(">", original.indexOf("<hs:sec")) + 1);
   let sectionPr = original.match(/<hp:secPr[\s\S]*?<\/hp:secPr>/)![0];
   sectionPr = sectionPr.replace(/landscape="[^"]+"/, 'landscape="NARROWLY"').replace(/header="\d+" footer="\d+"/, 'header="0" footer="0"').replace('<hp:pagePr ', '<hp:pagePr width="59528" height="84186" ').replace(/left="8504" right="8504" top="5668" bottom="4252"/, 'left="4252" right="4252" top="4252" bottom="4252"');
-  const content = examPages(doc.problems, doc.perPage, doc.problemHeights).map((page, pi) => {
+  const content = exportPages(doc).map((page, pi) => {
     const logoRuns = doc.brandImage ? picture(doc.brandImage, true).replace(/^<hp:p[^>]*>|<\/hp:p>$/g, "") : "";
-    const rowCount = page.capacity / 2, height = Math.floor(66000 / rowCount);
+    const rowCount = page.capacity / 2, height = Math.floor(60000 / rowCount);
     const rows = Array.from({ length: rowCount }, (_, ri) => `<hp:tr>${[page.left[ri], page.right[ri]].map((p, ci) => `<hp:tc name="" header="0" hasMargin="1" protect="0" editable="1" dirty="0" borderFillIDRef="${ci === 0 ? 3 : 1}"><hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="TOP" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">${problem(p)}</hp:subList><hp:cellAddr colAddr="${ci}" rowAddr="${ri}"/><hp:cellSpan colSpan="1" rowSpan="1"/><hp:cellSz width="25512" height="${height}"/><hp:cellMargin left="${ci ? 1700 : 0}" right="${ci ? 0 : 1700}" top="700" bottom="700"/></hp:tc>`).join("")}</hp:tr>`).join("");
     const titleParagraph = para(doc.title === "MATHTYPING" ? "" : doc.title, false, "17").replaceAll('charPrIDRef="0"', 'charPrIDRef="7"');
     const pageParagraph = para(String(pi + 1), false, "19").replaceAll('charPrIDRef="0"', 'charPrIDRef="8"');
     const logoParagraph = logoRuns ? '<hp:p id="' + (++id) + '" paraPrIDRef="18" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">' + logoRuns + '</hp:p>' : para("COSMATH");
     const header = nativeTable([[logoParagraph, titleParagraph, pageParagraph]], 4, false, 2800, 51024, true).replace('pageBreak="0"', 'pageBreak="' + (pi > 0 ? 1 : 0) + '"').replace('paraPrIDRef="18"', 'paraPrIDRef="20"');
 
-    return header + `<hp:p id="${++id}" paraPrIDRef="18" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:tbl id="${++id}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="CELL" repeatHeader="0" rowCnt="${rowCount}" colCnt="2" cellSpacing="0" borderFillIDRef="1" noAdjust="0"><hp:sz width="51024" height="66000" widthRelTo="ABSOLUTE" heightRelTo="ABSOLUTE" protect="0"/><hp:pos treatAsChar="1" affectLSpacing="1" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/><hp:outMargin left="0" right="0" top="0" bottom="0"/><hp:inMargin left="0" right="0" top="0" bottom="0"/>${rows}</hp:tbl></hp:run></hp:p>`;
+    return header + `<hp:p id="${++id}" paraPrIDRef="18" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:tbl id="${++id}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="CELL" repeatHeader="0" rowCnt="${rowCount}" colCnt="2" cellSpacing="0" borderFillIDRef="1" noAdjust="0"><hp:sz width="51024" height="60000" widthRelTo="ABSOLUTE" heightRelTo="ABSOLUTE" protect="0"/><hp:pos treatAsChar="1" affectLSpacing="1" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/><hp:outMargin left="0" right="0" top="0" bottom="0"/><hp:inMargin left="0" right="0" top="0" bottom="0"/>${rows}</hp:tbl></hp:run></hp:p>`;
   }).join("");
-  zip.file("Contents/section0.xml", `${opening}<hp:p id="1" paraPrIDRef="3" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0">${sectionPr}<hp:ctrl><hp:colPr id="" type="NEWSPAPER" layout="LEFT" colCount="1" sameSz="1" sameGap="0"/></hp:ctrl><hp:t/></hp:run></hp:p>${content}</hs:sec>`);
+  zip.file("Contents/section0.xml", `${opening}${content.replace(/(<hp:run[^>]*>)/, (_, run) => run + sectionPr + '<hp:ctrl><hp:colPr id="" type="NEWSPAPER" layout="LEFT" colCount="1" sameSz="1" sameGap="0"/></hp:ctrl>')}</hs:sec>`);
   let header = await zip.file("Contents/header.xml")!.async("string");
   const border = header.match(/<hh:borderFill id="1"[\s\S]*?<\/hh:borderFill>/)![0];
   const centerBorder = border.replace('id="1"', 'id="3"').replace('<hh:rightBorder type="None"', '<hh:rightBorder type="Solid"');
@@ -250,7 +275,7 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
   const pr = header.match(/<hh:paraPr id="3"[\s\S]*?<\/hh:paraPr>/)![0].replace('id="3"', 'id="16"').replace(/borderFillIDRef="2"/, 'borderFillIDRef="4"');
   const centerPr = pr.replace('id="16"', 'id="17"').replace(/horizontal="[^"]+"/, 'horizontal="CENTER"').replace('borderFillIDRef="4"', 'borderFillIDRef="2"');
   const anchorPr = pr.replace('id="16"', 'id="18"').replace(/value="160"/g, 'value="100"').replace('borderFillIDRef="4"', 'borderFillIDRef="2"');
-  const headerAnchorPr = anchorPr.replace('id="18"', 'id="20"').replace('keepWithNext="0"', 'keepWithNext="1"');
+  const headerAnchorPr = anchorPr.replace('id="18"', 'id="20"').replace('keepWithNext="1"', 'keepWithNext="0"');
   const statementPr = anchorPr.replace('id="18"', 'id="21"').replace(/<hc:intent value="0"/g, '<hc:intent value="-1500"').replace(/<hc:left value="0"/g, '<hc:left value="1500"');
   const rightPr = centerPr.replace('id="17"', 'id="19"').replace('horizontal="CENTER"', 'horizontal="RIGHT"');
   const charPr = header.match(/<hh:charPr id="0"[\s\S]*?<\/hh:charPr>/)![0];

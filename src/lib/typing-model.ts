@@ -76,7 +76,19 @@ export function formatChoiceContent(text: string): string {
 }
 // OCR may promote a variable inside Korean prose to a display equation.
 export function formatBoxContent(text: string): string {
-  const inline = repairMath(text).replace(/\s*\$\$\s*([a-zA-Z](?:_[a-zA-Z0-9]+)?|\\[a-zA-Z]+)\s*\$\$\s*/g, (_, math) => " $" + math + "$ ");
+  // Inline fractions otherwise shrink their numerator and denominator relative
+  // to neighbouring formulas in the same list of conditions.
+  const sized = splitMath(repairMath(text)).map(part => {
+    if (!part.math) return part.value;
+    let value = part.value;
+    if (/\\(?:d|t)?frac\b/.test(value)) {
+      value = value.replace(/\\tfrac\b/g, "\\frac").replace(/\\(?:text|script|scriptscript)style\b/g, "\\displaystyle");
+      if (!/\\displaystyle\b/.test(value)) value = "\\displaystyle " + value;
+    }
+    const delimiter = part.display ? "$$" : "$";
+    return delimiter + value + delimiter;
+  }).join("");
+  const inline = sized.replace(/\s*\$\$\s*([a-zA-Z](?:_[a-zA-Z0-9]+)?|\\[a-zA-Z]+)\s*\$\$\s*/g, (_, math) => " $" + math + "$ ");
   return inline.replace(/\r\n?/g, "\n").replace(/([^\n])\s+([ㄱㄴㄷㄹㅁ])[.)]\s*/g, "$1\n$2. ").split("\n").reduce<string[]>((lines, line) => {
     const value = line.trim();
     if (!value) return lines;

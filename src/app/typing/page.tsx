@@ -111,9 +111,9 @@ function TypingWorkspace() {
     if (problem) {
       const [kind, a, b, c] = previewEdit.field.split(":");
       if (kind === "question" || kind === "boxContent") update(problem.id, { [kind]: value });
-      else if (kind === "figure") update(problem.id, { figureDiagram: undefined, figure: undefined, figureBox: undefined, figureSourceId: undefined });
+      else if (kind === "figure") update(problem.id, value ? { figureDiagram: undefined, figure: value } : { figureDiagram: undefined, figure: undefined, figureBox: undefined, figureSourceId: undefined });
       else if (kind === "choice") update(problem.id, { choices: problem.choices.map((choice, i) => i === Number(a) ? value : choice) });
-      else if (kind === "choiceFigure") update(problem.id, { choiceFigures: problem.choiceFigures?.map((figure, i) => i === Number(a) ? {} : figure) });
+      else if (kind === "choiceFigure") update(problem.id, { choiceFigures: problem.choiceFigures?.map((figure, i) => i === Number(a) ? value ? { ...figure, figure: value, figureDiagram: undefined } : {} : figure) });
       else if (kind === "table") update(problem.id, { tables: problem.tables?.map((table, ti) => ti === Number(a) ? { ...table, rows: table.rows.map((row, ri) => ri === Number(b) ? row.map((cell, ci) => ci === Number(c) ? value.slice(0,2000) : cell) : row) } : table) });
     }
     setPreviewEdit(null);

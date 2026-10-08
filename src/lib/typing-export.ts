@@ -202,6 +202,33 @@ export async function buildDocx(doc: ExamDocument): Promise<Blob> {
   return zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", compression: "DEFLATE" });
 }
 
+export function hwpxChoiceColumns(problem: ExamProblem, preferred?: number): number {
+  if (choiceRowsEnabled(problem) || preferred === 1) return 1;
+  if (problem.choiceFigures?.some(figure => figure.figure)) return 2;
+  // Measure native 10pt equations conservatively, in HWPUNIT (100 per pt).
+  // Browser widths cannot be reused: Hancom equation and label fonts differ.
+  const width = (text: string) => Array.from(text).reduce((sum, char) => sum + (/[^\x00-\x7f]/.test(char) ? 1000 : 550), 0);
+  const mathWidth = (element: Element): number => {
+    const children = Array.from(element.childNodes).filter(node => node.nodeType === 1) as Element[];
+    const sizes = children.map(mathWidth);
+    if (element.localName === 'annotation') return 0;
+    if (element.localName === 'semantics') return sizes[0] ?? 0;
+    if (!children.length) return width(element.textContent ?? '');
+    if (element.localName === 'mfrac') return Math.max(...sizes) + 500;
+    if (['msub', 'msup', 'msubsup'].includes(element.localName)) return sizes[0] + Math.max(...sizes.slice(1)) * 0.75;
+    if (element.localName === 'msqrt') return sizes.reduce((sum, size) => sum + size, 0) + 700;
+    return sizes.reduce((sum, size) => sum + size, 0);
+  };
+  const maximum = Math.max(0, ...problem.choices.map(choice => splitMath(formatChoiceContent(choice)).reduce((sum, part) => {
+    if (!part.math) return sum + width(part.value);
+    const root = new DOMParser().parseFromString(mathML(part.value), 'application/xml').documentElement;
+    return sum + mathWidth(root);
+  }, 0)));
+  const candidates = hasStatementChoices(problem.choices) || preferred !== 5 ? [3, 1] : [5, 3, 1];
+  // Include circled label, inter-word gap and the two native cell margins.
+  return candidates.find(columns => maximum + 2000 <= Math.floor(23000 / columns)) ?? 1;
+}
+
 export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promise<Blob> {
   const zip = await JSZip.loadAsync(template);
   let id = 1000, imageId = 0;
@@ -242,7 +269,7 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
     }
     if (p.figure) text += picture(p.figure);
     if (p.choices.length) {
-      const columns = choiceRowsEnabled(p) ? 1 : hasStatementChoices(p.choices) ? (doc.choiceColumns?.[p.id] === 1 ? 1 : 3) : p.choiceFigures?.some(f => f.figure) ? 2 : ([1,3,5].includes(doc.choiceColumns?.[p.id] ?? 0) ? doc.choiceColumns![p.id] : p.choices.some(c => c.length > 20) ? 1 : 3);
+      const columns = hwpxChoiceColumns(p, doc.choiceColumns?.[p.id]);
       const rows = Array.from({ length: Math.ceil(p.choices.length / columns) }, (_, ri) => Array.from({ length: columns }, (_, ci) => {
         const i = ri * columns + ci; return p.choices[i] === undefined ? para("") : para(choiceLabels[i] + " " + formatChoiceContent(p.choices[i])) + (p.choiceFigures?.[i]?.figure ? picture(p.choiceFigures[i].figure!, false, true) : "");
       }));
@@ -253,7 +280,9 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
   const original = await zip.file("Contents/section0.xml")!.async("string");
   const opening = original.slice(0, original.indexOf(">", original.indexOf("<hs:sec")) + 1);
   let sectionPr = original.match(/<hp:secPr[\s\S]*?<\/hp:secPr>/)![0];
-  sectionPr = sectionPr.replace(/landscape="[^"]+"/, 'landscape="NARROWLY"').replace(/header="\d+" footer="\d+"/, 'header="0" footer="0"').replace('<hp:pagePr ', '<hp:pagePr width="59528" height="84186" ').replace(/left="8504" right="8504" top="5668" bottom="4252"/, 'left="4252" right="4252" top="4252" bottom="4252"');
+  // Hancom interprets WIDELY as portrait, NARROWLY as landscape.
+  // Width/height alone do not override this flag in the native application.
+  sectionPr = sectionPr.replace(/landscape="[^"]+"/, 'landscape="WIDELY"').replace(/header="\d+" footer="\d+"/, 'header="0" footer="0"').replace('<hp:pagePr ', '<hp:pagePr width="59528" height="84186" ').replace(/left="8504" right="8504" top="5668" bottom="4252"/, 'left="4252" right="4252" top="4252" bottom="4252"');
   const content = exportPages(doc).map((page, pi) => {
     const logoRuns = doc.brandImage ? picture(doc.brandImage, true).replace(/^<hp:p[^>]*>|<\/hp:p>$/g, "") : "";
     const rowCount = page.capacity / 2, height = Math.floor(60000 / rowCount);

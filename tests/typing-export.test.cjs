@@ -16,8 +16,26 @@ function load(relative) {
   return compiled.exports;
 }
 const model = load("../src/lib/typing-model.ts");
-const { buildDocx, buildHwpx, latexToHancom, prepareExportDocument, exportPages } = load("../src/lib/typing-export.ts");
+const { buildDocx, buildHwpx, latexToHancom, prepareExportDocument, exportPages, hwpxChoiceColumns } = load("../src/lib/typing-export.ts");
 const doc = { title: "수학 <시험> & 복습", perPage: 4, problems: model.sampleProblems.map((p, i) => ({ ...p, id: String(i) })) };
+
+test('Hancom choice cells fit coordinates and keep labels on the same line', async () => {
+  const problem = { ...doc.problems[0], choices: ['(-10, 4/5)', '(-4, 2)', '(6, -3/4)', '(16, -1/2)', '(20, -2/5)'] };
+  assert.equal(hwpxChoiceColumns(problem, 5), 3);
+  assert.equal(hwpxChoiceColumns({ ...problem, choices: ['1', '2', '3', '4', '5'] }, 5), 5);
+  assert.equal(hwpxChoiceColumns({ ...problem, choices: Array(5).fill('123456789012345678901234567890/12345') }, 5), 1);
+  const template = fs.readFileSync(path.resolve(__dirname, '../public/typing/blank.hwpx'));
+  const zip = await zipBlob(await buildHwpx({ ...doc, problems: [problem], choiceColumns: { '0': 5 } }, template));
+  const section = parse(await zip.file('Contents/section0.xml').async('string'));
+  const choices = Array.from(section.getElementsByTagName('hp:tbl')).find(table => table.getAttribute('colCnt') === '3' && table.getAttribute('rowCnt') === '2');
+  assert.ok(choices);
+  const page = section.getElementsByTagName('hp:pagePr')[0];
+  // Real Hancom interprets NARROWLY as landscape even when width < height.
+  assert.equal(page.getAttribute('landscape'), 'WIDELY');
+  const margin = page.getElementsByTagName('hp:margin')[0];
+  const usableHeight = Number(page.getAttribute('height')) - Number(margin.getAttribute('top')) - Number(margin.getAttribute('bottom'));
+  assert.ok(usableHeight > 70000, 'portrait body must accommodate the 60000-unit exam table and header');
+});
 
 test('condition box fractions retain full size beside linear equations in screen and exports', async () => {
   const box = '㉠ $y=-2x$   ㉡ $y=-\\frac{4}{x}$   ㉢ $y=\\tfrac{10}{3}x$\n㉣ $y=\\textstyle\\frac{2}{x}$';
@@ -255,7 +273,7 @@ test('HWPX uses portrait A4, automatic equation metrics, compact anchors and ali
   const zip = await zipBlob(await buildHwpx(withLayout, template.buffer.slice(template.byteOffset, template.byteOffset + template.byteLength)));
   const section = parse(await zip.file('Contents/section0.xml').async('string'));
   const page = section.getElementsByTagName('hp:pagePr')[0];
-  assert.equal(page.getAttribute('landscape'), 'NARROWLY');
+  assert.equal(page.getAttribute('landscape'), 'WIDELY');
   assert.equal(page.getAttribute('width'), '59528'); assert.equal(page.getAttribute('height'), '84186');
   for (const equation of section.getElementsByTagName('hp:equation')) {
     assert.equal(equation.getAttribute('baseLine'), '0');

@@ -5,3 +5,4 @@
 .toolbar>button{background:#fff;color:#2864a9;border:1px solid #bfd3e6;border-radius:6px;font-weight:400}.toolbar>button:hover:not(:disabled){background:#edf5fd}.toolbar>button:disabled{opacity:.5}
 .toolbar>button{color:#205b98;border-color:#7fa6cf;font-weight:600}
 .toolbar>button{background:#245f9e;color:#fff;border:1px solid #1b4e84;font-weight:700;box-shadow:0 2px 5px #174b7f30}.toolbar>button:hover:not(:disabled){background:#1c4e85;border-color:#163e6a;box-shadow:0 3px 8px #174b7f40}.toolbar>button:disabled{background:#e0eaf4;color:#607b97;border-color:#b6c9dc;box-shadow:none;opacity:1}
+.importConfirm{display:flex;align-items:center;gap:12px;margin:14px 0;font-size:12px;color:#607b97}.importConfirm>button{background:#245f9e;color:white;border:1px solid #1b4e84;font-weight:700;padding:11px 16px;white-space:nowrap}.message[data-error=true]{background:#fff0ed;color:#a33c30;border:1px solid #efc6bc}

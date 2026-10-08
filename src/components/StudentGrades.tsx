@@ -6,7 +6,7 @@ import { loadStudentDaily, loadWrongAnswers, saveStudentDaily } from '../lib/rep
 import { parseGradeRows, type ImportedGrade } from '../lib/grade-import';
 import styles from './student-daily.module.css';
 
-export default function StudentGrades({ groups, history, onSaved, blocked, show, setShow, onBusyChange }: { groups: StudentGroup[]; history: StudentDailySave[]; onSaved: () => void; blocked: boolean; show: boolean; setShow: (show: boolean) => void; onBusyChange: (busy: boolean) => void }) {
+export default function StudentGrades({ groups, history, onSaved, blocked, show, setShow, onBusyChange }: { groups: StudentGroup[]; history: StudentDailySave[]; onSaved: (date: string) => void; blocked: boolean; show: boolean; setShow: (show: boolean) => void; onBusyChange: (busy: boolean) => void }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState<ImportedGrade[]>([]);
   const [message, setMessage] = useState('');
@@ -53,7 +53,7 @@ export default function StudentGrades({ groups, history, onSaved, blocked, show,
       }
       if (updates.size > 500) throw new Error('한 번에 500개 날짜별 기록까지 가져올 수 있습니다. 파일을 나눠 주세요.');
       if (updates.size) await saveStudentDaily([...updates.values()]);
-      setPending([]); setMessage(`성적을 저장했습니다. 중복 ${duplicates}건은 제외했습니다.`); setShow(true); onSaved();
+      setPending([]); setMessage(`성적을 저장했습니다. 중복 ${duplicates}건은 제외했습니다.`); setShow(true); onSaved(chosen[0].date);
     } catch(e) { setMessage(e instanceof Error ? e.message : '성적을 저장하지 못했습니다.'); }
     finally { setBusy(false); onBusyChange(false); }
   }
@@ -63,7 +63,7 @@ export default function StudentGrades({ groups, history, onSaved, blocked, show,
       <button aria-pressed={show} disabled={busy} onClick={() => setShow(!show)}>{show ? '수업 기록 보기' : '성적 보기'}</button>
     </div>
     {message && <p className={styles.message} role="status">{message}</p>}
-    {!!pending.length && <section className={styles.importPreview}><h3>가져올 성적 확인</h3><div className={styles.tableWrap}><table><thead><tr><th>선택</th><th>파일 학생</th><th>연결할 학생</th><th>시험 날짜</th><th>시험명</th><th>점수</th></tr></thead><tbody>{pending.map((r,i) => <tr key={`${r.key}:${i}`}>
+    {!!pending.length && <section className={styles.importPreview}><h3>가져올 성적 확인 · 아직 저장되지 않았습니다</h3><p>학생 연결을 확인하고 아래 ‘확인한 성적 저장’을 눌러 주세요. 선택한 {pending.filter(r => r.enabled).length}건 중 학생 미연결 {pending.filter(r => r.enabled && !r.studentId).length}건</p><div className={styles.tableWrap}><table><thead><tr><th>선택</th><th>파일 학생</th><th>연결할 학생</th><th>시험 날짜</th><th>시험명</th><th>점수</th></tr></thead><tbody>{pending.map((r,i) => <tr key={`${r.key}:${i}`}>
       <td><input className={styles.check} type="checkbox" aria-label={`${r.name} 성적 가져오기`} checked={r.enabled} disabled={busy} onChange={e => setPending(rows => rows.map((row,j) => i === j ? { ...row, enabled: e.target.checked } : row))} /></td><td>{r.name}<small>{r.group} · {r.grade}</small></td>
       <td><select aria-label={`${r.name} 연결 학생`} value={r.studentId} disabled={busy} onChange={e => setPending(rows => rows.map((row,j) => i === j ? { ...row, studentId: e.target.value } : row))}><option value="">학생 선택 필요</option>{students.map(s => <option key={s.id} value={s.id}>{s.name} · {s.grade} · {s.group}</option>)}</select></td>
       <td><input type="date" aria-label={`${r.name} 시험 날짜`} value={r.date} disabled={busy} onChange={e => setPending(rows => rows.map((row,j) => i === j ? { ...row, date: e.target.value } : row))} /></td><td>{r.title}</td><td>{r.score} / {r.max}</td>

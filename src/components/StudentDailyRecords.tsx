@@ -86,7 +86,7 @@ export default function StudentDailyRecords({ rosterRevision = 0, onDirtyChange,
       {!studentIds && <label>반<select value={groupId} disabled={busy || loading} onChange={e => { setGroupId(e.target.value); setSelected(''); }}>{groups.map(g => <option key={g.id} value={g.id}>{g.group}</option>)}</select></label>}
       <button disabled={busy || loading || failed || (!dirty.length && !unsavedDefaults)} onClick={() => void save()}>{busy ? '저장 중…' : '수업 기록 저장'}</button>
     </div>
-    <StudentGrades groups={groups} history={history.filter(r => !studentIds || !studentIds.length || studentIds.includes(r.daily.student_id))} blocked={busy || loading || failed || dirty.length > 0} show={showGrades} setShow={setShowGrades} onBusyChange={setBusy} onSaved={() => { setLoading(true); setReload(v => v + 1); }} />
+    <StudentGrades groups={groups} history={history.filter(r => !studentIds || !studentIds.length || studentIds.includes(r.daily.student_id))} blocked={busy || loading || failed || dirty.length > 0} show={showGrades} setShow={setShowGrades} onBusyChange={setBusy} onSaved={importDate => { setLoading(true); setDate(importDate); setReload(v => v + 1); }} />
     {message && <p role="status" className={styles.message}>{message}{failed && <button onClick={() => { setLoading(true); setReload(v => v + 1); }}>다시 불러오기</button>}</p>}
     {!showGrades && (loading ? <p>기록을 불러오는 중…</p> : <fieldset disabled={busy || failed} className={styles.layout}>
       {students.some(s => checked.includes(s.id)) && <div className={styles.bulk}><strong>{students.filter(s => checked.includes(s.id)).length}명 일괄 편집</strong>

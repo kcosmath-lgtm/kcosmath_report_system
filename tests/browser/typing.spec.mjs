@@ -326,3 +326,20 @@ test('AI cleanup keeps the original until accepted, preserves it on failure, and
   await page.waitForTimeout(800);await page.reload();await expect.poll(()=>figure.evaluate(img=>img.naturalWidth)).toBe(100);
   expect(calls).toBe(3);
 });
+
+
+test('preview edits text and deletes an image while statement choices keep three plus two alignment', async ({ page }) => {
+  await page.goto('/typing');await page.getByRole('button',{name:'예시 시험지 4문항으로 시작'}).click();
+  const problem=page.locator('[data-problem]').first();
+  await problem.getByRole('button',{name:'문항 1 본문 편집',exact:true}).click();
+  await page.getByRole('textbox',{name:'미리보기 편집 내용'}).fill('미리보기에서 수정한 $x^2$ 문제');
+  await page.getByRole('button',{name:'적용',exact:true}).click();
+  await expect(page.getByRole('textbox',{name:'문제 본문',exact:true}).first()).toHaveValue('미리보기에서 수정한 $x^2$ 문제');
+  await page.getByRole('textbox',{name:'선택지 · 한 줄에 하나씩, 최대 5개'}).first().fill(['ㄱ','ㄱ, ㄷ','ㄴ, ㄷ','ㄴ, ㄹ','ㄱ, ㄷ, ㄹ'].join('\n'));
+  await expect.poll(()=>problem.locator('[data-prose] > div').evaluateAll(nodes=>{const r=nodes.map(n=>n.getBoundingClientRect());return r.length===5&&Math.abs(r[0].top-r[2].top)<1&&Math.abs(r[3].top-r[4].top)<1&&Math.abs(r[0].left-r[3].left)<1&&Math.abs(r[1].left-r[4].left)<1&&r[3].top>r[0].top;})).toBe(true);
+  await problem.getByRole('button',{name:'① 선지 편집',exact:true}).click();await page.getByRole('textbox',{name:'미리보기 편집 내용'}).fill('ㄱ, ㄴ');await page.getByRole('button',{name:'적용',exact:true}).click();
+  const image=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=50;c.height=50;return c.toDataURL('image/png').split(',')[1];});
+  await page.getByLabel('그림 별도 첨부').first().setInputFiles({name:'test.png',mimeType:'image/png',buffer:Buffer.from(image,'base64')});
+  await problem.getByRole('button',{name:'문항 1 그림 편집',exact:true}).click();await page.getByRole('button',{name:'이미지 삭제',exact:true}).click();await expect(problem.locator('img')).toHaveCount(0);
+  await page.waitForTimeout(800);await page.reload();await expect(problem).toContainText('미리보기에서 수정한');await expect(problem).toContainText('ㄱ, ㄴ');await expect(problem.locator('img')).toHaveCount(0);
+});

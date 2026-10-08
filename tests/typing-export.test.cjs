@@ -18,6 +18,19 @@ function load(relative) {
 const model = load("../src/lib/typing-model.ts");
 const { buildDocx, buildHwpx, latexToHancom, prepareExportDocument } = load("../src/lib/typing-export.ts");
 const doc = { title: "수학 <시험> & 복습", perPage: 4, problems: model.sampleProblems.map((p, i) => ({ ...p, id: String(i) })) };
+test('Korean statement combinations force three plus two cells in both native exports', async () => {
+  const choices = ['ㄱ','ㄱ, ㄷ','ㄴ, ㄷ','ㄴ, ㄹ','ㄱ, ㄷ, ㄹ'];
+  assert.equal(model.hasStatementChoices(choices), true);
+  assert.equal(model.hasStatementChoices(['ㄱ의 값은 1이다.']), false);
+  const input = { ...doc, problems: [{ ...doc.problems[0], choices }], choiceColumns: { '0': 5 } };
+  const word = await zipBlob(await buildDocx(input));
+  const wordXml = parse(await word.file('word/document.xml').async('string'));
+  assert.ok(Array.from(wordXml.getElementsByTagName('w:tbl')).some(t => t.getElementsByTagName('w:gridCol').length === 3 && t.getElementsByTagName('w:tc').length === 6 && t.textContent.includes('⑤')));
+  const template = fs.readFileSync(path.resolve(__dirname, '../public/typing/blank.hwpx'));
+  const hangul = await zipBlob(await buildHwpx(input, template));
+  const section = parse(await hangul.file('Contents/section0.xml').async('string'));
+  assert.ok(Array.from(section.getElementsByTagName('hp:tbl')).some(t => t.getAttribute('colCnt') === '3' && t.getAttribute('rowCnt') === '2' && t.textContent.includes('⑤')));
+});
 test('choice numbers, mixed prose, decimals and degrees render as native math without nesting delimiters', async () => {
   assert.equal(model.formatChoiceContent('15/2'), '$\\frac{15}{2}$');
   assert.equal(model.formatChoiceContent('각 A의 크기는 130°이다.'), '각 A의 크기는 $130^{\\circ}$이다.');

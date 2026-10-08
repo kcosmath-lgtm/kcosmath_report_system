@@ -35,6 +35,10 @@ export function hasProseChoices(choices: string[]): boolean {
 export function choiceRowsEnabled(problem: Pick<ExamProblem, "choices" | "choiceLayout">): boolean {
   return problem.choiceLayout === "rows" || (problem.choiceLayout !== "grid" && hasProseChoices(problem.choices));
 }
+export function hasStatementChoices(choices: string[]): boolean {
+  const values = choices.map(choice => choice.replace(/\$/g, "").trim()).filter(Boolean);
+  return values.length > 0 && values.every(choice => /^[ㄱㄴㄷㄹㅁ\s,·ㆍ、.]+$/.test(choice));
+}
 export function repairMath(text: string): string {
   const repaired = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => '$' + math + '$').replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => '$$' + math + '$$');
   return !repaired.includes('$') && /\\[a-zA-Z]+/.test(repaired) && !/[가-힣]/.test(repaired) ? '$' + repaired.trim() + '$' : repaired;

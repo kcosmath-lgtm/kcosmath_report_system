@@ -1,7 +1,7 @@
 import JSZip from "jszip";
 import katex from "katex";
 import { mml2omml } from "mathml2omml";
-import { choiceLabels, formatTableCell, formatChoiceContent, choiceRowsEnabled, formatBoxContent, examPages, splitMath, type ExamDocument, type ExamProblem } from "./typing-model";
+import { choiceLabels, hasStatementChoices, formatTableCell, formatChoiceContent, choiceRowsEnabled, formatBoxContent, examPages, splitMath, type ExamDocument, type ExamProblem } from "./typing-model";
 
 export const xml = (s: string) => s.replace(/[<>&"']/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" }[c]!));
 function mathML(latex: string, display = false) {
@@ -149,7 +149,7 @@ export async function buildDocx(doc: ExamDocument): Promise<Blob> {
     }
     if (p.figure) result += picture(p.figure);
     if (p.choices.length) {
-      const columns = choiceRowsEnabled(p) ? 1 : p.choiceFigures?.some(f => f.figure) ? 2 : Math.max(1, Math.min(5, doc.choiceColumns?.[p.id] ?? (p.choices.some(c => c.length > 20) ? 1 : 3)));
+      const columns = choiceRowsEnabled(p) ? 1 : hasStatementChoices(p.choices) ? 3 : p.choiceFigures?.some(f => f.figure) ? 2 : Math.max(1, Math.min(5, doc.choiceColumns?.[p.id] ?? (p.choices.some(c => c.length > 20) ? 1 : 3)));
       result += wordTable(Array.from({ length: Math.ceil(p.choices.length / columns) }, (_, ri) => Array.from({ length: columns }, (_, ci) => {
         const i = ri * columns + ci; return p.choices[i] === undefined ? "<w:p/>" : wordParagraph(choiceLabels[i] + " " + formatChoiceContent(p.choices[i])) + (p.choiceFigures?.[i]?.figure ? picture(p.choiceFigures[i].figure!, false, true) : "");
       })), 4600, true);
@@ -217,7 +217,7 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
     }
     if (p.figure) text += picture(p.figure);
     if (p.choices.length) {
-      const columns = choiceRowsEnabled(p) ? 1 : p.choiceFigures?.some(f => f.figure) ? 2 : Math.max(1, Math.min(5, doc.choiceColumns?.[p.id] ?? (p.choices.some(c => c.length > 20) ? 1 : 3)));
+      const columns = choiceRowsEnabled(p) ? 1 : hasStatementChoices(p.choices) ? 3 : p.choiceFigures?.some(f => f.figure) ? 2 : Math.max(1, Math.min(5, doc.choiceColumns?.[p.id] ?? (p.choices.some(c => c.length > 20) ? 1 : 3)));
       const rows = Array.from({ length: Math.ceil(p.choices.length / columns) }, (_, ri) => Array.from({ length: columns }, (_, ci) => {
         const i = ri * columns + ci; return p.choices[i] === undefined ? para("") : para(choiceLabels[i] + " " + formatChoiceContent(p.choices[i])) + (p.choiceFigures?.[i]?.figure ? picture(p.choiceFigures[i].figure!, false, true) : "");
       }));

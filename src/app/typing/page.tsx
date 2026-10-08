@@ -9,11 +9,12 @@ import "katex/dist/katex.min.css";
 import LandingMenu from "../../components/LandingMenu";
 import TypingAccessGate from "../../components/TypingAccessGate";
 import TypingFigureEditor from "../../components/TypingFigureEditor";
+import TypingPreviewEditor from "../../components/TypingPreviewEditor";
 import TypingMath from "../../components/TypingMath";
 import { useAuth } from "../../components/AuthProvider";
 import { supabase } from "../../lib/supabase";
 import { storageError } from "../../lib/supabase-report-storage";
-import { COLUMN_HEIGHT, formatTableCell, formatChoiceContent, choiceRowsEnabled, formatBoxContent, choiceLabels, examPages, normalizeProblems, sampleProblems, type ExamDocument, type ExamProblem, type ExamTable } from "../../lib/typing-model";
+import { COLUMN_HEIGHT, hasStatementChoices, formatTableCell, formatChoiceContent, choiceRowsEnabled, formatBoxContent, choiceLabels, examPages, normalizeProblems, sampleProblems, type ExamDocument, type ExamProblem, type ExamTable } from "../../lib/typing-model";
 import { cropFigure, imageData, readSource, type SourcePage } from "../../lib/typing-upload";
 import { buildDocx, buildHwpx, downloadBlob, prepareExportDocument } from "../../lib/typing-export";
 import styles from "./typing.module.css";
@@ -33,7 +34,7 @@ function PaperTitle({ text }: { text: string }) {
   }, [text]);
   return <div className={styles.paperTitle}><span ref={ref}>{text}</span></div>;
 }
-function Choices({ choices, choiceLayout, choiceFigures }: Pick<ExamProblem, "choices" | "choiceLayout" | "choiceFigures">) {
+function Choices({ choices, choiceLayout, choiceFigures, measure = false }: Pick<ExamProblem, "choices" | "choiceLayout" | "choiceFigures"> & { measure?: boolean }) {
   const rows = choiceRowsEnabled({ choices, choiceLayout });
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -46,16 +47,27 @@ function Choices({ choices, choiceLayout, choiceFigures }: Pick<ExamProblem, "ch
         const content = item.lastElementChild as HTMLElement;
         return label.offsetWidth + 5 + content.scrollWidth;
       }));
-      const columns = rows ? 1 : choiceFigures?.some(f => f.figure) ? 2 : Math.max(1, Math.min(5, Math.floor((node.clientWidth + 16) / (width + 16))));
+      const columns = rows ? 1 : hasStatementChoices(choices) ? 3 : choiceFigures?.some(f => f.figure) ? 2 : Math.max(1, Math.min(5, Math.floor((node.clientWidth + 16) / (width + 16))));
       node.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
     };
     const observer = new ResizeObserver(fit); observer.observe(node);
     fit(); void document.fonts.ready.then(fit);
     return () => { cancelled = true; observer.disconnect(); };
   }, [choices, rows, choiceFigures]);
-  return <div className={styles.choices} data-prose={rows} ref={ref}>{choices.map((c, n) => <div key={n}><span>{choiceLabels[n]}</span><div className={styles.choiceContent}><TypingMath text={formatChoiceContent(c)}/>{choiceFigures?.[n]?.figure && <img className={styles.choiceFigure} src={choiceFigures[n].figure} alt={`${choiceLabels[n]} 선지 그림`}/>}</div></div>)}</div>;
+  return <div className={styles.choices} data-prose={rows} ref={ref}>{choices.map((c, n) => <div key={n}><span>{choiceLabels[n]}</span><div className={styles.choiceContent}><span {...previewField(`choice:${n}`, `${choiceLabels[n]} 선지`, measure)}><TypingMath text={formatChoiceContent(c)}/></span>{choiceFigures?.[n]?.figure && <img {...previewField(`choiceFigure:${n}`, `${choiceLabels[n]} 선지 그림`, measure)} className={styles.choiceFigure} src={choiceFigures[n].figure} alt={`${choiceLabels[n]} 선지 그림`}/>}</div></div>)}</div>;
 }
-function ProblemView({ p, measure = false }: { p: ExamProblem; measure?: boolean }) { return <section className={styles.problem} data-problem={measure ? undefined : true} data-problem-id={measure ? undefined : p.id}><div className={styles.question}><strong>{p.number}.</strong><div><TypingMath text={p.question}/>{p.points && <small> [{p.points}]</small>}</div></div>{p.boxContent && <div className={styles.box}><div className={styles.boxLabel}>〈보기〉</div><TypingMath text={formatBoxContent(p.boxContent)}/></div>}{p.tables?.map((table, ti) => <table className={styles.examTable} key={ti}>{table.caption && <caption>{table.caption}</caption>}<tbody>{table.rows.map((row, ri) => <tr key={ri}>{row.map((cell, ci) => <td key={ci}><TypingMath text={formatTableCell(cell)}/></td>)}</tr>)}</tbody></table>)}{p.figure && <img className={styles.figure} src={p.figure} alt={`${p.number}번 문항 그림`}/>}<Choices choices={p.choices} choiceLayout={p.choiceLayout} choiceFigures={p.choiceFigures}/></section>; }
+function previewField(field: string, label: string, measure: boolean) {
+  return measure ? {} : { "data-preview-field": field, "data-preview-label": label, role: "button", tabIndex: 0, "aria-label": label + " 편집", title: "클릭하여 편집" };
+}
+function ProblemView({ p, measure = false }: { p: ExamProblem; measure?: boolean }) {
+  return <section className={styles.problem} data-problem={measure ? undefined : true} data-problem-id={measure ? undefined : p.id}>
+    <div className={styles.question}><strong>{p.number}.</strong><div><span {...previewField("question", "문항 " + p.number + " 본문", measure)}><TypingMath text={p.question}/></span>{p.points && <small> [{p.points}]</small>}</div></div>
+    {p.boxContent && <div className={styles.box}><div className={styles.boxLabel}>〈보기〉</div><span {...previewField("boxContent", "보기 및 조건", measure)}><TypingMath text={formatBoxContent(p.boxContent)}/></span></div>}
+    {p.tables?.map((table, ti) => <table className={styles.examTable} key={ti}>{table.caption && <caption>{table.caption}</caption>}<tbody>{table.rows.map((row, ri) => <tr key={ri}>{row.map((cell, ci) => <td key={ci} {...previewField("table:" + ti + ":" + ri + ":" + ci, "표 " + (ti+1) + " " + (ri+1) + "행 " + (ci+1) + "열", measure)}><TypingMath text={formatTableCell(cell)}/></td>)}</tr>)}</tbody></table>)}
+    {p.figure && <img {...previewField("figure", "문항 " + p.number + " 그림", measure)} className={styles.figure} src={p.figure} alt={p.number + "번 문항 그림"}/>}
+    <Choices choices={p.choices} choiceLayout={p.choiceLayout} choiceFigures={p.choiceFigures} measure={measure}/>
+  </section>;
+}
 function cleanDocument(doc: ExamDocument): ExamDocument {
   return { ...doc, problems: normalizeProblems(doc.problems).map((p, i) => ({ ...p, id: doc.problems[i].id || p.id, figure: doc.problems[i].figure, sourcePage: doc.problems[i].sourcePage })) };
 }
@@ -64,6 +76,7 @@ const empty = (): ExamDocument => ({ title: "MATHTYPING", perPage: 4, problems: 
 function TypingWorkspace() {
   const { user, workspace } = useAuth();
   const [doc, setDoc] = useState<ExamDocument>(empty);
+  const [previewEdit, setPreviewEdit] = useState<{ id: string; field: string; label: string; value: string; image: boolean } | null>(null);
   const [sources, setSources] = useState<SourcePage[]>([]), [sourceId, setSourceId] = useState("");
   const [tab, setTab] = useState<"edit" | "source">("source");
   const [busy, setBusy] = useState(""), [message, setMessage] = useState(""), [error, setError] = useState("");
@@ -76,6 +89,30 @@ function TypingWorkspace() {
   const currentSource = sources.find(s => s.id === sourceId) ?? sources[0];
   function change(fn: (current: ExamDocument) => ExamDocument) { setDoc(fn); setDirty(true); setError(""); }
   function update(id: string, patch: Partial<ExamProblem>) { change(d => ({ ...d, problems: d.problems.map(p => p.id === id ? { ...p, ...patch } : p) })); }
+  function openPreviewEdit(target: HTMLElement) {
+    if (busy) return;
+    const node = target.closest<HTMLElement>("[data-preview-field]");
+    const id = node?.closest<HTMLElement>("[data-problem-id]")?.dataset.problemId;
+    const problem = doc.problems.find(p => p.id === id), field = node?.dataset.previewField;
+    if (!problem || !field) return;
+    const [kind, a, b, c] = field.split(":");
+    const value = kind === "question" ? problem.question : kind === "boxContent" ? problem.boxContent : kind === "figure" ? problem.figure : kind === "choice" ? problem.choices[Number(a)] : kind === "choiceFigure" ? problem.choiceFigures?.[Number(a)]?.figure : problem.tables?.[Number(a)]?.rows[Number(b)]?.[Number(c)];
+    setPreviewEdit({ id: problem.id, field, label: node!.dataset.previewLabel ?? "내용", value: value ?? "", image: kind === "figure" || kind === "choiceFigure" });
+  }
+  function savePreviewEdit(value: string) {
+    if (!previewEdit) return;
+    const problem = doc.problems.find(p => p.id === previewEdit.id);
+    if (problem) {
+      const [kind, a, b, c] = previewEdit.field.split(":");
+      if (kind === "question" || kind === "boxContent") update(problem.id, { [kind]: value });
+      else if (kind === "figure") update(problem.id, { figure: undefined, figureBox: undefined, figureSourceId: undefined });
+      else if (kind === "choice") update(problem.id, { choices: problem.choices.map((choice, i) => i === Number(a) ? value : choice) });
+      else if (kind === "choiceFigure") update(problem.id, { choiceFigures: problem.choiceFigures?.map((figure, i) => i === Number(a) ? {} : figure) });
+      else if (kind === "table") update(problem.id, { tables: problem.tables?.map((table, ti) => ti === Number(a) ? { ...table, rows: table.rows.map((row, ri) => ri === Number(b) ? row.map((cell, ci) => ci === Number(c) ? value.slice(0,2000) : cell) : row) } : table) });
+    }
+    setPreviewEdit(null);
+  }
+
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; stop.current = true; }; }, []);
   useEffect(() => {
     const node = preview.current; if (!node) return;
@@ -288,13 +325,15 @@ function TypingWorkspace() {
         <div className={styles.documentBar}><label>시험지 제목<input aria-label="시험지 제목" value={doc.title} maxLength={150} disabled={!!busy} onChange={e => change(d => ({ ...d, title: e.target.value }))}/></label><select aria-label="저장된 시험지 열기" disabled={!!busy} value="" onChange={e => void load(e.target.value)}><option value="">저장된 시험지 열기</option>{saved.map(s => <option value={s.id} key={s.id}>{s.title}</option>)}</select><button disabled={!!busy} onClick={() => { if (dirty && !confirm("저장하지 않은 내용을 비우고 새 시험지를 만들까요?")) return; setActive(null); setDoc(empty()); setSources([]); setDirty(false); }}>새 시험지</button></div>
         <div className={styles.measurement} ref={measurement} aria-hidden="true">{doc.problems.map(p => <ProblemView key={p.id} p={p} measure/>)}</div>
         {!!oversized.length && <p className={styles.layoutWarning}>문항 {oversized.map(p => p.number).join(", ")}: 한 단보다 긴 내용입니다. 본문을 나누거나 그림을 줄여 주세요.</p>}
-        <div className={styles.paperScroll} ref={preview}>
+        <p className={styles.previewHint}>본문·선지·표 셀을 누르면 수정할 수 있고, 그림을 누르면 삭제할 수 있습니다.</p>
+        <div className={styles.paperScroll} ref={preview} onClick={e => openPreviewEdit(e.target as HTMLElement)} onKeyDown={e => { if ((e.key === "Enter" || e.key === " ") && (e.target as HTMLElement).matches("[data-preview-field]")) { e.preventDefault(); openPreviewEdit(e.target as HTMLElement); } }}>
           {!doc.problems.length && <div className={styles.emptyPaper}><FileText size={42}/><h2>첫 시험지를 만들어 보세요</h2><p>파일을 올리면 문항과 수식을 인식해<br/>여백이 넉넉한 시험지로 정리합니다.</p></div>}
           {examPages(doc.problems, doc.perPage, heights).map((page, index) => <article key={index} className={styles.paper}><div className={styles.paperHeader}><div className={styles.paperBrand}><Image src={logo} alt="COSMATH"/></div><PaperTitle text={doc.title === "MATHTYPING" ? "" : doc.title}/><strong>{index + 1}</strong></div><div className={styles.columns}>{[page.left, page.right].map((col, ci) => <div key={ci} className={styles.column} style={{ gridTemplateRows: `repeat(${page.capacity / 2}, minmax(0, 1fr))` }}>{col.map(p => <ProblemView key={p.id} p={p}/>)}</div>)}</div></article>)}
         </div>
         <div className={styles.footer}><span>{dirty ? "작성 중 · 이 브라우저에 임시 저장" : active ? "학원에 저장됨" : "새 시험지"}</span><div><button disabled={!!busy || !doc.problems.length} onClick={() => void exportFile("json")}>편집본 JSON 다운로드</button><label>편집본 열기<input type="file" accept="application/json,.json" disabled={!!busy} onChange={e => { const file = e.target.files?.[0]; if (file) void importJson(file); e.target.value = ""; }}/></label></div></div>
       </section>
     </div>
+    {previewEdit && <TypingPreviewEditor key={previewEdit.id + previewEdit.field} label={previewEdit.label} value={previewEdit.value} image={previewEdit.image} required={previewEdit.field === "question"} onSave={savePreviewEdit} onClose={() => setPreviewEdit(null)}/>}
   </main>;
 }
 

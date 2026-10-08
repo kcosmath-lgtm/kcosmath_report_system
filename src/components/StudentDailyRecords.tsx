@@ -11,6 +11,18 @@ import StudentGrades from './StudentGrades';
 const attendance: Attendance[] = ['', '출석', '지각', '결석', '조퇴'];
 export default function StudentDailyRecords({ rosterRevision = 0, onDirtyChange, studentIds }: { rosterRevision?: number; onDirtyChange?: (dirty: boolean) => void; studentIds?: string[] }) {
   const [date, setDate] = useState(dayjs().format('YYYY-MM-DD'));
+  const [dateReady, setDateReady] = useState(false);
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem('cosmath-student-record-date');
+      if (saved && /^\d{4}-\d{2}-\d{2}$/.test(saved)) setDate(saved);
+    } catch { /* Date selection still works when browser storage is unavailable. */ }
+    setDateReady(true);
+  }, []);
+  useEffect(() => {
+    if (!dateReady) return;
+    try { sessionStorage.setItem('cosmath-student-record-date', date); } catch { /* Optional UI state. */ }
+  }, [date, dateReady]);
   const [groups, setGroups] = useState<StudentGroup[]>([]);
   const [groupId, setGroupId] = useState('');
   const [rows, setRows] = useState<Record<string, StudentDailySave>>({});
@@ -32,6 +44,7 @@ export default function StudentDailyRecords({ rosterRevision = 0, onDirtyChange,
     onDirtyChange?.(dirty.length > 0 || busy);
   }, [dirty.length, busy, onDirtyChange]);
   useEffect(() => {
+    if (!dateReady) return;
     let cancelled = false;
     Promise.all([loadStudents(), loadStudentDaily(date.slice(0, 7)), loadWrongAnswers(date.slice(0, 7))]).then(([roster, daily, wrong]) => {
       if (cancelled) return;
@@ -45,7 +58,7 @@ export default function StudentDailyRecords({ rosterRevision = 0, onDirtyChange,
       setDirty([]); setFailed(false);
     }).catch(e => { if (!cancelled) { setMessage(e.message); setFailed(true); } }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [date, reload, rosterRevision]);
+  }, [date, reload, rosterRevision, dateReady]);
   useEffect(() => {
     if (!dirty.length) return;
     const guard = (e: BeforeUnloadEvent) => { e.preventDefault(); };

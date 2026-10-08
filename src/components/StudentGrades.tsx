@@ -77,8 +77,7 @@ export default function StudentGrades({ groups, history, onSaved, blocked, show,
     finally { setBusy(false); onBusyChange(false); }
   }
   return <>
-    <div className={styles.gradeActions}><input ref={fileInput} hidden type="file" accept=".xls,.html,.htm" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void read(file); else onBusyChange(false); }} />
-      <button type="button" disabled={blocked || busy} title={blocked ? '수업 기록을 먼저 저장해 주세요.' : undefined} onClick={() => { console.info('[grade-import] picker_open v2'); onBusyChange(true); fileInput.current?.click(); }}>성적 엑셀 가져오기</button>
+    <div className={styles.gradeActions}><label className={styles.filePicker} data-disabled={blocked || busy}>성적 엑셀 가져오기<input ref={fileInput} aria-label="성적 엑셀 가져오기" type="file" disabled={blocked || busy} accept=".xls,.html,.htm" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void read(file); else onBusyChange(false); }} /></label>
       <button aria-pressed={show} disabled={busy} onClick={() => setShow(!show)}>{show ? '수업 기록 보기' : '성적 보기'}</button>
     </div>
     {message && <p className={styles.message} role={error ? 'alert' : 'status'} data-error={error}>{message}</p>}

@@ -36,6 +36,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const activeUserId = useRef<string | null>(null);
+  const workspaceUserId = useRef<string | null>(null);
 
   const requestSequence = useRef(0);
   const loadWorkspace = useCallback(async (nextSession: Session | null, force = false) => {
@@ -44,13 +45,16 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     if (!force && nextUserId && activeUserId.current === nextUserId) return;
     activeUserId.current = nextUserId;
     const sequence = ++requestSequence.current;
-    setLoading(true); setError(""); setWorkspace(null);
+    const backgroundRefresh = nextUserId !== null && workspaceUserId.current === nextUserId;
+    setError("");
+    if (!backgroundRefresh) { setLoading(true); setWorkspace(null); workspaceUserId.current = null; }
     if (!nextSession) { setLoading(false); return; }
     try {
       const { data, error: requestError } = await supabase.rpc("cosmath_get_my_workspace");
       if (sequence !== requestSequence.current) return;
       if (requestError) throw requestError;
       setWorkspace(data as Workspace | null);
+      workspaceUserId.current = data ? nextUserId : null;
     } catch (e) {
       if (sequence !== requestSequence.current) return;
       activeUserId.current = null;

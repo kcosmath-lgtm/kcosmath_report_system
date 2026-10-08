@@ -17,7 +17,7 @@ test('file chooser focus preserves date, parses grades and persists them', async
  await page.getByLabel('기록 날짜').fill('2026-10-07');
  await expect(page.getByLabel('기록 날짜')).toHaveValue('2026-10-07');
  const chooserPromise=page.waitForEvent('filechooser');
- await page.getByRole('button',{name:'성적 엑셀 가져오기'}).click();
+ await page.locator('input[type=file]').click();
  const chooser=await chooserPromise;
  await page.evaluate(()=>{window.dispatchEvent(new Event('focus'));document.dispatchEvent(new Event('visibilitychange'));});
  const cells=['학생명','학년','점수','생성일','문제지명','문제지ID','문항수','정/오'];
@@ -30,6 +30,7 @@ test('file chooser focus preserves date, parses grades and persists them', async
  await expect(page.getByRole('status')).toContainText('성적 1건 저장 완료');
  await expect(page.getByRole('cell',{name:'93 / 100'})).toBeVisible();
  await page.reload();
+ await expect(page.getByLabel('기록 날짜')).toHaveValue('2026-10-07');
  await page.getByRole('button',{name:'테스트 반 1',exact:false}).click();
  await page.getByLabel('기록 날짜').fill('2026-10-07');
  await page.getByRole('button',{name:'성적 보기',exact:true}).click();

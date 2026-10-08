@@ -47,7 +47,9 @@ export default function StudentManagerModal({ open, onClose, onChanged, mode = "
     } catch (e) { setError(e instanceof Error ? e.message : "학생 목록을 불러오지 못했습니다."); }
     finally { if (sequence === refreshSequence.current) setLoading(false); }
   }, []);
-  useRosterRefresh(refresh, busy || recordsDirty || !open);
+  // Native file pickers change window focus. Keep the record editor mounted
+  // and refresh only on actual roster changes or the explicit refresh button.
+  useRosterRefresh(refresh, busy || recordsDirty || !open, false);
 
   useEffect(() => { if (open) void refresh(); }, [open, refresh]);
   useEffect(() => {

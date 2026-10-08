@@ -12,7 +12,7 @@ import TypingMath from "../../components/TypingMath";
 import { useAuth } from "../../components/AuthProvider";
 import { supabase } from "../../lib/supabase";
 import { storageError } from "../../lib/supabase-report-storage";
-import { COLUMN_HEIGHT, choiceLabels, examPages, normalizeProblems, sampleProblems, type ExamDocument, type ExamProblem, type ExamTable } from "../../lib/typing-model";
+import { COLUMN_HEIGHT, formatBoxContent, choiceLabels, examPages, normalizeProblems, sampleProblems, type ExamDocument, type ExamProblem, type ExamTable } from "../../lib/typing-model";
 import { imageData, readSource, type SourcePage } from "../../lib/typing-upload";
 import styles from "./typing.module.css";
 
@@ -31,7 +31,7 @@ function PaperTitle({ text }: { text: string }) {
   }, [text]);
   return <div className={styles.paperTitle}><span ref={ref}>{text}</span></div>;
 }
-function ProblemView({ p, measure = false }: { p: ExamProblem; measure?: boolean }) { return <section className={styles.problem} data-problem={measure ? undefined : true}><div className={styles.question}><strong>{p.number}.</strong><div><TypingMath text={p.question}/>{p.points && <small> [{p.points}]</small>}</div></div>{p.boxContent && <div className={styles.box}><span>〈보기〉</span><TypingMath text={p.boxContent}/></div>}{p.tables?.map((table, ti) => <table className={styles.examTable} key={ti}>{table.caption && <caption>{table.caption}</caption>}<tbody>{table.rows.map((row, ri) => <tr key={ri}>{row.map((cell, ci) => <td key={ci}><TypingMath text={cell}/></td>)}</tr>)}</tbody></table>)}{p.figure && <img className={styles.figure} src={p.figure} alt={`${p.number}번 문항 그림`}/>}<div className={styles.choices} data-wide={p.choices.some(c => c.length > 12)}>{p.choices.map((c, n) => <div key={n}><span>{choiceLabels[n]}</span><TypingMath text={c}/></div>)}</div></section>; }
+function ProblemView({ p, measure = false }: { p: ExamProblem; measure?: boolean }) { return <section className={styles.problem} data-problem={measure ? undefined : true}><div className={styles.question}><strong>{p.number}.</strong><div><TypingMath text={p.question}/>{p.points && <small> [{p.points}]</small>}</div></div>{p.boxContent && <div className={styles.box}><div className={styles.boxLabel}>〈보기〉</div><TypingMath text={formatBoxContent(p.boxContent)}/></div>}{p.tables?.map((table, ti) => <table className={styles.examTable} key={ti}>{table.caption && <caption>{table.caption}</caption>}<tbody>{table.rows.map((row, ri) => <tr key={ri}>{row.map((cell, ci) => <td key={ci}><TypingMath text={cell}/></td>)}</tr>)}</tbody></table>)}{p.figure && <img className={styles.figure} src={p.figure} alt={`${p.number}번 문항 그림`}/>}<div className={styles.choices}>{p.choices.map((c, n) => <div key={n}><span>{choiceLabels[n]}</span><div className={styles.choiceContent}><TypingMath text={c}/></div></div>)}</div></section>; }
 function cleanDocument(doc: ExamDocument): ExamDocument {
   return { ...doc, problems: normalizeProblems(doc.problems).map((p, i) => ({ ...p, id: doc.problems[i].id || p.id, figure: doc.problems[i].figure, sourcePage: doc.problems[i].sourcePage })) };
 }

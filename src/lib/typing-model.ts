@@ -26,6 +26,17 @@ export function repairMath(text: string): string {
   const repaired = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => '$' + math + '$').replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => '$$' + math + '$$');
   return !repaired.includes('$') && /\\[a-zA-Z]+/.test(repaired) && !/[가-힣]/.test(repaired) ? '$' + repaired.trim() + '$' : repaired;
 }
+// OCR may promote a variable inside Korean prose to a display equation.
+export function formatBoxContent(text: string): string {
+  const inline = repairMath(text).replace(/\s*\$\$\s*([a-zA-Z](?:_[a-zA-Z0-9]+)?|\\[a-zA-Z]+)\s*\$\$\s*/g, (_, math) => " $" + math + "$ ");
+  return inline.replace(/\r\n?/g, "\n").replace(/([^\n])\s+([ㄱㄴㄷㄹㅁ])[.)]\s*/g, "$1\n$2. ").split("\n").reduce<string[]>((lines, line) => {
+    const value = line.trim();
+    if (!value) return lines;
+    if (!lines.length || /^(?:[ㄱㄴㄷㄹㅁ][.)]|[①-⑳]|\d+[.)]|조건\s*\d+[.:])/.test(value) || value.includes("$$") || lines[lines.length - 1].includes("$$")) lines.push(value);
+    else lines[lines.length - 1] += " " + value;
+    return lines;
+  }, []).join("\n");
+}
 export function normalizeTables(value: unknown): ExamTable[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > 6) throw new Error("문항의 표는 최대 6개까지 지원합니다.");

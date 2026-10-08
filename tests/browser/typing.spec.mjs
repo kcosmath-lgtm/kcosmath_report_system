@@ -184,3 +184,29 @@ test('JBIG2 scanned PDF renders its printed body instead of only annotations', a
   expect(ink).toBeGreaterThan(1000);
   await page.getByRole('img', { name: 'scanned.pdf · 1쪽' }).screenshot({ path: testInfo.outputPath('jbig2-fixed.png') });
 });
+
+
+test('coordinate choices never overlap and Korean box statements keep variables inline', async ({ page }, testInfo) => {
+  await page.route('**/api/typing/extract', route => route.fulfill({ json: { problems: [{
+    number: '3', question: '그림은 반비례 관계의 그래프이다. 이 그래프 위의 점이 아닌 것은?', points: '4점',
+    boxContent: 'ㄱ.\n$$x$$\n쪽의 책을 하루에 10장씩\n$$y$$\n일 동안 읽었다. ㄴ. 200g에 1000원인 소고기를\n$x$\ng 샀을 때의 가격은\n$y$\n원이다.\nㄷ. 두 사람의 일의 양은 같다.',
+    choices: ['$(-10,4/5)$', '$(-4,2)$', '$(6,-3/4)$', '$(16,-1/2)$', '$(20,-2/5)$'],
+  }] } }));
+  await page.goto('/typing');
+  await page.locator('input[type="file"][accept*="application/pdf"]').setInputFiles({ name: 'layout.png', mimeType: 'image/png', buffer: await page.getByRole('heading', { name: /시험지 타이핑/ }).screenshot() });
+  await page.getByRole('button', { name: '선택 페이지 인식' }).click();
+  const problem = page.locator('[data-problem]'); await expect(problem).toHaveCount(1);
+  const box = problem.locator('[class*="box"]:not([class*="boxLabel"])');
+  await expect(box.locator('.katex-display')).toHaveCount(0);
+  expect(await box.locator(':scope > span').evaluateAll(nodes => nodes.every(n => getComputedStyle(n).display === 'inline'))).toBe(true);
+  const check = async () => {
+    const valid = await problem.locator('[class*="choices"] > div').evaluateAll(nodes => {
+      const rects = nodes.map(n => n.getBoundingClientRect());
+      return rects.every((r, i) => rects.slice(i + 1).every(s => r.right <= s.left + 1 || s.right <= r.left + 1 || r.bottom <= s.top + 1 || s.bottom <= r.top + 1));
+    }); expect(valid).toBe(true);
+  };
+  await check();
+  await page.screenshot({ path: testInfo.outputPath('choices-box-fixed.png'), fullPage: true });
+  await page.emulateMedia({ media: 'print' }); await check();
+  await page.emulateMedia({ media: 'screen' }); await page.setViewportSize({ width: 390, height: 844 }); await check();
+});

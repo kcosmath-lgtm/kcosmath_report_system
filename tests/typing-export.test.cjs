@@ -133,3 +133,14 @@ test('Word and Hangul exports contain native editable table cells and native mat
   assert.ok(Array.from(header.getElementsByTagName('hh:borderFill')).some(n => n.getAttribute('id') === '5'));
   assert.ok(Array.from(section.getElementsByTagName('hp:script')).some(n => n.textContent.includes('15') && n.textContent.includes('over')));
 });
+
+
+test('box prose joins OCR line fragments but preserves Korean statement boundaries and display formulas', () => {
+  const text = 'ㄱ.\n$$x$$\n쪽의 책을 하루에 10장씩\n$$y$$\n일 동안 읽었다. ㄴ.\n200g에 1000원인 소고기를\n$x$\ng 샀을 때의 가격은\n$y$\n원이다.\nㄷ. 두 사람의 일의 양은 같다.';
+  const fixed = model.formatBoxContent(text);
+  assert.equal(fixed.split('\n').length, 3);
+  assert.match(fixed, /ㄱ\. \$x\$ 쪽의 책을 하루에 10장씩 \$y\$ 일 동안 읽었다\./);
+  assert.match(fixed, /ㄴ\. 200g에 1000원인 소고기를 \$x\$ g 샀을 때의 가격은 \$y\$ 원이다\./);
+  assert.equal(model.splitMath(fixed).filter(p => p.display).length, 0);
+  assert.ok(model.splitMath(model.formatBoxContent('조건\n$$x^2+y^2=1$$\n을 만족한다.')).some(p => p.display));
+});

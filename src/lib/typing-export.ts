@@ -1,7 +1,7 @@
 import JSZip from "jszip";
 import katex from "katex";
 import { mml2omml } from "mathml2omml";
-import { choiceLabels, examPages, splitMath, type ExamDocument, type ExamProblem } from "./typing-model";
+import { choiceLabels, formatBoxContent, examPages, splitMath, type ExamDocument, type ExamProblem } from "./typing-model";
 
 export const xml = (s: string) => s.replace(/[<>&"']/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" }[c]!));
 function mathML(latex: string, display = false) {
@@ -114,7 +114,7 @@ export async function buildDocx(doc: ExamDocument): Promise<Blob> {
   const problem = (p?: ExamProblem) => {
     if (!p) return "<w:p/>";
     let result = wordParagraph(`${p.number}. ${p.question}${p.points ? `  [${p.points}]` : ""}`);
-    if (p.boxContent) result += wordParagraph(p.boxContent, '<w:pBdr><w:top w:val="single" w:sz="4"/><w:left w:val="single" w:sz="4"/><w:bottom w:val="single" w:sz="4"/><w:right w:val="single" w:sz="4"/></w:pBdr>');
+    if (p.boxContent) result += wordParagraph(formatBoxContent(p.boxContent), '<w:pBdr><w:top w:val="single" w:sz="4"/><w:left w:val="single" w:sz="4"/><w:bottom w:val="single" w:sz="4"/><w:right w:val="single" w:sz="4"/></w:pBdr>');
     for (const table of p.tables ?? []) {
       if (table.caption) result += wordParagraph(table.caption, '<w:jc w:val="center"/>');
       const width = Math.floor(4600 / table.rows[0].length);
@@ -122,7 +122,7 @@ export async function buildDocx(doc: ExamDocument): Promise<Blob> {
       result += `<w:tbl><w:tblPr><w:tblW w:w="4600" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders>${borders}</w:tblBorders></w:tblPr><w:tblGrid>${table.rows[0].map(() => `<w:gridCol w:w="${width}"/>`).join("")}</w:tblGrid>${table.rows.map(row => `<w:tr>${row.map(cell => `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/></w:tcPr>${wordParagraph(cell, '<w:jc w:val="center"/>')}</w:tc>`).join("")}</w:tr>`).join("")}</w:tbl><w:p/>`;
     }
     if (p.figure) result += picture(p.figure);
-    if (p.choices.length) result += wordParagraph(p.choices.map((c, i) => `${choiceLabels[i]} ${c}`).join("     "));
+    if (p.choices.length) result += p.choices.map((c, i) => wordParagraph(`${choiceLabels[i]} ${c}`)).join("");
     return result;
   };
   const pages = examPages(doc.problems, doc.perPage, doc.problemHeights).map((page, index) => {
@@ -165,7 +165,7 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
   const problem = (p?: ExamProblem) => {
     if (!p) return para("");
     let text = para(`${p.number}. ${p.question}${p.points ? `  [${p.points}]` : ""}`);
-    if (p.boxContent) text += para(`〈보기〉\n${p.boxContent}`);
+    if (p.boxContent) text += para(`〈보기〉\n${formatBoxContent(p.boxContent)}`);
     for (const table of p.tables ?? []) {
       if (table.caption) text += para(table.caption, false, "17");
       const width = Math.floor(23000 / table.rows[0].length);
@@ -173,7 +173,7 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
       text += `<hp:p id="${++id}" paraPrIDRef="3" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:tbl id="${++id}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="CELL" repeatHeader="0" rowCnt="${table.rows.length}" colCnt="${table.rows[0].length}" cellSpacing="0" borderFillIDRef="5" noAdjust="0"><hp:sz width="23000" height="${table.rows.length * 1800}" widthRelTo="ABSOLUTE" heightRelTo="ABSOLUTE" protect="0"/><hp:pos treatAsChar="1" affectLSpacing="1" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/><hp:outMargin left="0" right="0" top="500" bottom="500"/><hp:inMargin left="0" right="0" top="0" bottom="0"/>${rows}</hp:tbl></hp:run></hp:p>`;
     }
     if (p.figure) text += picture(p.figure);
-    if (p.choices.length) text += para(p.choices.map((c, i) => `${choiceLabels[i]} ${c}`).join("    "));
+    if (p.choices.length) text += p.choices.map((c, i) => para(`${choiceLabels[i]} ${c}`)).join("");
     return text;
   };
   const original = await zip.file("Contents/section0.xml")!.async("string");

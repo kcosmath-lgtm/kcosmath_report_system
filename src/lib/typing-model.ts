@@ -5,6 +5,7 @@ export type ExamTable = { caption: string; rows: string[][] };
 export type ChoiceFigure = { figureDiagram?: FigureDiagram; figure?: string; figureBox?: FigureBox; figureSourceId?: string };
 export type ExamProblem = {
   id: string; number: string; points: string; question: string;
+  sourceYear?: string; sourceSchool?: string;
   boxContent: string; choices: string[]; sourcePage?: number;
   boxLayout?: "box" | "inline";
   figureDiagram?: FigureDiagram; figure?: string; figureBox?: FigureBox; figureSourceId?: string; review?: string; tables?: ExamTable[];
@@ -151,7 +152,7 @@ export function normalizeProblems(value: unknown, sourcePage?: number): ExamProb
     const figureWarning = Array.isArray(item.figureBox) && item.figureBox.length && !figureBox ? "그림 위치를 확인하지 못했습니다. 원본에서 영역을 직접 선택해 주세요." : "";
     const warning = '본문이 매우 짧습니다. 문장 조각을 문항으로 인식했는지 원본과 확인해 주세요.';
     const review = [text(item.review, 1000), figureWarning, question.trim().length < 12 && !item.choices?.length && !item.tables?.length && !text(item.review).includes(warning) ? warning : ''].filter(Boolean).join(' / ');
-    return { id: crypto.randomUUID(), figureDiagram: item.figureDiagram, number, points: text(item.points, 30), question,
+    return { id: crypto.randomUUID(), figureDiagram: item.figureDiagram, number, sourceYear: text(item.sourceYear, 20), sourceSchool: text(item.sourceSchool, 80), points: text(item.points, 30), question,
       boxContent, boxLayout: item.boxLayout === "box" || item.boxLayout === "inline" ? item.boxLayout : undefined,
       choices: Array.from({ length: choiceFigures.length }, (_, index) => repairMath(text(item.choices?.[index]).replace(/^\s*[①②③④⑤]\s*/, ''))), choiceFigures, choiceLayout: item.choiceLayout === "rows" || item.choiceLayout === "grid" ? item.choiceLayout : "auto", sourcePage, review, figureBox, figureSourceId: text(item.figureSourceId, 100) || undefined, tables };
   });

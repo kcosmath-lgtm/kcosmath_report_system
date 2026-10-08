@@ -15,6 +15,9 @@ async function storage() {
 }
 
 export async function loadStudents() { return (await storage()).loadStudents(); }
+export async function updateStudent(id: string, name: string, grade: string, version: number) { const value = await (await storage()).updateStudent(id, name, grade, version); rosterChanged(); return value; }
+export async function loadStudentDaily(month: string) { return (await storage()).loadStudentDaily(month); }
+export async function saveStudentDaily(items: import('../types/student-daily').StudentDailySave[]) { return (await storage()).saveStudentDaily(items); }
 export async function addClass(name: string) { return (await storage()).addClass(name); }
 export async function addStudent(classId: string, name: string, grade: string) { return (await storage()).addStudent(classId, name, grade); }
 export async function archiveStudent(id: string, version: number) { const value = await (await storage()).archiveStudent(id, version); rosterChanged(); return value; }

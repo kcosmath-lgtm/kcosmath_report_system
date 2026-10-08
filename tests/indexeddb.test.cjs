@@ -33,6 +33,33 @@ async function fixture() {
   return { group, a, b, lesson, report };
 }
 
+test('daily records accumulate by date, share homework records, and reject stale batches atomically', async () => {
+  const { a } = await fixture();
+  const entry = date => ({ daily: { id: crypto.randomUUID(), student_id: a.id, record_date: date, attendance: '지각', reason: '교통', exams: [{ id: crypto.randomUUID(), name: '단원평가', score: 8, max_score: 10, scope: '방정식', memo: '' }], version: 0 }, wrong: { id: crypto.randomUUID(), student_id: a.id, record_date: date, total_wrong: 3, corrected_count: 2, homework_status: '△', completed: false, memo: '복습', version: 0 } });
+  const first = entry('2026-10-09'), next = entry('2026-10-10');
+  const [saved] = await storage.saveStudentDaily([first]);
+  await storage.saveStudentDaily([next]);
+  assert.equal((await storage.loadStudentDaily('2026-10')).length, 2);
+  assert.equal((await storage.loadWrongAnswers('2026-10'))[0].homework_status, '△');
+  const third = entry('2026-10-11');
+  await assert.rejects(storage.saveStudentDaily([third, first]));
+  assert.equal((await storage.loadStudentDaily('2026-10')).length, 2);
+  await storage.saveStudentDaily([{ ...saved, daily: { ...saved.daily, attendance: '출석' } }]);
+  assert.equal((await storage.loadStudentDaily('2026-10')).find(r => r.record_date === '2026-10-10').exams[0].score, 8);
+  await assert.rejects(storage.saveStudentDaily([{ ...third, daily: { ...third.daily, exams: [{ name: '시험', score: 11, max_score: 10 }] } }]));
+  await storage.deleteStudent(a.id);
+  assert.deepEqual(await storage.loadStudentDaily('2026-10'), []);
+});
+
+test('student editing preserves records and rejects stale versions', async () => {
+  const { a } = await fixture();
+  const edited = await storage.updateStudent(a.id, '새 이름', '중3', a.version);
+  assert.equal(edited.name, '새 이름');
+  assert.equal(edited.grade, '중3');
+  await assert.rejects(storage.updateStudent(a.id, '이전 이름', '중2', a.version));
+  await assert.rejects(storage.updateStudent(a.id, '', '중3', edited.version));
+});
+
 test('development routes every operation to IndexedDB without importing Supabase', async () => {
   assert.deepEqual(await storage.loadStudents(), []);
   const { a } = await fixture();

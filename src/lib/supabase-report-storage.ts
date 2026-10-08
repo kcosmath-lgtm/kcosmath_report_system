@@ -3,6 +3,26 @@ import type { StudentGroup } from "../types/student";
 import type { LessonRecord, ReportRecord } from "../types/report";
 import type { WrongAnswerRecord } from "../types/wrong-answer";
 import type { HandoffRecord } from "../types/handoff";
+import { validateDailySave, type StudentDailyRecord, type StudentDailySave } from '../types/student-daily';
+
+export async function loadStudentDaily(month: string): Promise<StudentDailyRecord[]> {
+  const start = `${month}-01`, endDate = new Date(`${start}T00:00:00Z`);
+  endDate.setUTCMonth(endDate.getUTCMonth() + 1);
+  const rows: StudentDailyRecord[] = [];
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await supabase.from('cosmath_student_daily_records').select('*')
+      .gte('record_date', start).lt('record_date', endDate.toISOString().slice(0, 10)).order('id').range(offset, offset + 999);
+    if (error) throw storageError(error);
+    rows.push(...(data ?? []) as StudentDailyRecord[]);
+    if ((data?.length ?? 0) < 1000) return rows;
+  }
+}
+export async function saveStudentDaily(items: StudentDailySave[]): Promise<StudentDailySave[]> {
+  items.forEach(validateDailySave);
+  const { data, error } = await supabase.rpc('cosmath_save_student_daily', { p_items: items });
+  if (error) throw storageError(error);
+  return data as StudentDailySave[];
+}
 
 export function storageError(error: { message: string; code?: string }): Error {
   if (error.code === "PT409" || error.code === "40001" || error.code === "23505") {
@@ -23,6 +43,12 @@ export async function loadStudents(): Promise<StudentGroup[]> {
       .map(({ id, name, grade, version }) => ({ id, name, grade, version }))
       .sort((a, b) => a.name.localeCompare(b.name, "ko")),
   }));
+}
+
+export async function updateStudent(id: string, name: string, grade: string, version: number) {
+  const { data, error } = await supabase.rpc('cosmath_edit_student', { p_id: id, p_name: name, p_grade: grade, p_expected_version: version });
+  if (error) throw storageError(error);
+  return data as StudentGroup['students'][number];
 }
 
 export async function addClass(name: string) {

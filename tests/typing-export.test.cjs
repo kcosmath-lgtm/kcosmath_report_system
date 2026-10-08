@@ -19,6 +19,20 @@ const model = load("../src/lib/typing-model.ts");
 const { buildDocx, buildHwpx, latexToHancom, prepareExportDocument, exportPages, hwpxChoiceColumns, normalizeHwpxLineTypes } = load("../src/lib/typing-export.ts");
 const doc = { title: "수학 <시험> & 복습", perPage: 4, problems: model.sampleProblems.map((p, i) => ({ ...p, id: String(i) })) };
 
+test('problem source survives normalization and appears above the question once in editable exports', async () => {
+  const [problem] = model.normalizeProblems([{ ...doc.problems[0], sourceYear: '2026', sourceSchool: '양정고 1학년' }]);
+  assert.equal(problem.sourceYear, '2026'); assert.equal(problem.sourceSchool, '양정고 1학년');
+  const input = { ...doc, problems: [problem] };
+  const template = fs.readFileSync(path.resolve(__dirname, '../public/typing/blank.hwpx'));
+  for (const [blob, filename] of [[await buildDocx(input), 'word/document.xml'], [await buildHwpx(input, template), 'Contents/section0.xml']]) {
+    const zip = await zipBlob(blob), text = await zip.file(filename).async('string');
+    assert.ok(text.includes('2026')); assert.ok(text.includes('양정고 1학년'));
+    assert.ok(text.indexOf('양정고 1학년') < text.indexOf('1. '));
+    assert.equal((text.match(/양정고 1학년/g) || []).length, 1);
+    assert.ok(!text.includes(`[${problem.points}]`));
+  }
+});
+
 test('Hancom embeds whole image coordinates and scales them to the display box', async () => {
   const canvas = require('@napi-rs/canvas').createCanvas(600, 400);
   const ctx = canvas.getContext('2d'); ctx.fillStyle = 'blue'; ctx.fillRect(0,0,600,400);

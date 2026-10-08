@@ -65,7 +65,8 @@ function previewField(field: string, label: string, measure: boolean) {
 }
 function ProblemView({ p, measure = false }: { p: ExamProblem; measure?: boolean }) {
   return <section className={styles.problem} data-problem={measure ? undefined : true} data-problem-id={measure ? undefined : p.id}>
-    <div className={styles.question}><strong>{p.number}.</strong><div><span {...previewField("question", "문항 " + p.number + " 본문", measure)}><TypingMath text={p.question}/></span>{p.points && <small> [{p.points}]</small>}</div></div>
+    {(p.sourceYear || p.sourceSchool) && <div className={styles.problemSource}><span {...previewField('sourceYear', '출제 연도', measure)} className={!p.sourceYear ? styles.sourcePlaceholder : ''}>{p.sourceYear || '연도'}</span><span {...previewField('sourceSchool', '학교명', measure)} className={!p.sourceSchool ? styles.sourcePlaceholder : ''}>{p.sourceSchool || '학교명'}</span>{p.points && <span {...previewField('points', '배점', measure)}>{p.points}</span>}</div>}
+    <div className={styles.question}><strong>{p.number}.</strong><div><span {...previewField("question", "문항 " + p.number + " 본문", measure)}><TypingMath text={p.question}/></span>{p.points && !p.sourceYear && !p.sourceSchool && <small> [{p.points}]</small>}</div></div>
     {p.boxContent && <div className={styles.box}><div className={styles.boxLabel}>〈보기〉</div><span {...previewField("boxContent", "보기 및 조건", measure)}><span className={styles.boxParagraphs}>{formatBoxContent(p.boxContent).split("\n").map((line, i) => <span key={i} className={/^(?:[ㄱㄴㄷㄹㅁ][.)]|[㉠-㉤])/.test(line) ? styles.boxStatement : styles.boxParagraph}><TypingMath text={line}/></span>)}</span></span></div>}
     {p.tables?.map((table, ti) => <table className={styles.examTable} key={ti}>{table.caption && <caption>{table.caption}</caption>}<tbody>{table.rows.map((row, ri) => <tr key={ri}>{row.map((cell, ci) => <td key={ci} {...previewField("table:" + ti + ":" + ri + ":" + ci, "표 " + (ti+1) + " " + (ri+1) + "행 " + (ci+1) + "열", measure)}><TypingMath text={formatTableCell(cell)}/></td>)}</tr>)}</tbody></table>)}
     {p.figure && <img {...previewField("figure", "문항 " + p.number + " 그림", measure)} className={styles.figure} src={p.figure} alt={p.number + "번 문항 그림"}/>}
@@ -80,6 +81,8 @@ const empty = (): ExamDocument => ({ title: "MATHTYPING", perPage: 4, problems: 
 function TypingWorkspace() {
   const { user, workspace } = useAuth();
   const [doc, setDoc] = useState<ExamDocument>(empty);
+  const [sourceYear, setSourceYear] = useState('');
+  const [sourceSchool, setSourceSchool] = useState('');
   const [previewEdit, setPreviewEdit] = useState<{ id: string; field: string; label: string; value: string; image: boolean } | null>(null);
   const [sources, setSources] = useState<SourcePage[]>([]), [sourceId, setSourceId] = useState("");
   const [tab, setTab] = useState<"edit" | "source">("source");
@@ -100,7 +103,7 @@ function TypingWorkspace() {
     const problem = doc.problems.find(p => p.id === id), field = node?.dataset.previewField;
     if (!problem || !field) return;
     const [kind, a, b, c] = field.split(":");
-    const value = kind === "question" ? problem.question : kind === "boxContent" ? problem.boxContent : kind === "figure" ? problem.figure : kind === "choice" ? problem.choices[Number(a)] : kind === "choiceFigure" ? problem.choiceFigures?.[Number(a)]?.figure : problem.tables?.[Number(a)]?.rows[Number(b)]?.[Number(c)];
+    const value = kind === 'sourceYear' || kind === 'sourceSchool' || kind === 'points' ? problem[kind] : kind === "question" ? problem.question : kind === "boxContent" ? problem.boxContent : kind === "figure" ? problem.figure : kind === "choice" ? problem.choices[Number(a)] : kind === "choiceFigure" ? problem.choiceFigures?.[Number(a)]?.figure : problem.tables?.[Number(a)]?.rows[Number(b)]?.[Number(c)];
     setPreviewEdit({ id: problem.id, field, label: node!.dataset.previewLabel ?? "내용", value: value ?? "", image: kind === "figure" || kind === "choiceFigure" });
   }
   function savePreviewEdit(value: string) {
@@ -109,6 +112,7 @@ function TypingWorkspace() {
     if (problem) {
       const [kind, a, b, c] = previewEdit.field.split(":");
       if (kind === "question" || kind === "boxContent") update(problem.id, { [kind]: value });
+      else if (kind === 'sourceYear' || kind === 'sourceSchool' || kind === 'points') update(problem.id, { [kind]: value.trim().slice(0, kind === 'sourceSchool' ? 80 : kind === 'sourceYear' ? 20 : 30) });
       else if (kind === "figure") update(problem.id, value ? { figureDiagram: undefined, figure: value } : { figureDiagram: undefined, figure: undefined, figureBox: undefined, figureSourceId: undefined });
       else if (kind === "choice") update(problem.id, { choices: problem.choices.map((choice, i) => i === Number(a) ? value : choice) });
       else if (kind === "choiceFigure") update(problem.id, { choiceFigures: problem.choiceFigures?.map((figure, i) => i === Number(a) ? value ? { ...figure, figure: value, figureDiagram: undefined } : {} : figure) });
@@ -307,6 +311,7 @@ function TypingWorkspace() {
             <div className={styles.editTools}><button onClick={() => change(d => ({ ...d, problems: [...d.problems, { id: crypto.randomUUID(), number: String(d.problems.length + 1), points: "", question: "문제 내용을 입력하세요.", boxContent: "", choices: [] }] }))}><Plus size={15}/>문항 추가</button><button onClick={() => change(d => ({ ...d, problems: d.problems.map((p, i) => ({ ...p, number: String(i + 1) })) }))}>번호 정리</button></div>
             <p className={styles.help}>수식은 $x^2$처럼 입력하고, 독립 수식은 $$…$$로 감싸세요. 노란 수식은 문법 확인이 필요합니다.</p>
             {!doc.problems.length && <p className={styles.emptyEditor}>원본을 인식하거나 문항을 직접 추가해 주세요.</p>}
+            <section className={styles.sourceBulk}><strong>문항 출처 일괄 편집</strong><div className={styles.row}><label>연도<input value={sourceYear} maxLength={20} placeholder="2026" onChange={e => setSourceYear(e.target.value)}/></label><label>학교명<input value={sourceSchool} maxLength={80} placeholder="예: ○○고 1학년" onChange={e => setSourceSchool(e.target.value)}/></label></div><button disabled={!doc.problems.length} onClick={() => { if (doc.problems.some(p => p.sourceYear || p.sourceSchool) && !confirm('모든 문항의 연도·학교명을 입력한 값으로 바꿀까요? 개별 수정한 출처도 변경됩니다.')) return; change(d => ({ ...d, problems: d.problems.map(p => ({ ...p, sourceYear: sourceYear.trim(), sourceSchool: sourceSchool.trim() })) })); }}>모든 문항에 적용</button><p>배점은 인식된 값을 유지합니다. 미리보기에서 연도·학교명·배점을 눌러 개별 수정할 수 있습니다.</p></section>
             {doc.problems.map((p, i) => <section className={styles.editor} key={p.id}><div className={styles.editorTitle}><strong>문항 {p.number}</strong><div><button aria-label="문항 위로" disabled={i === 0} onClick={() => move(i, -1)}><ArrowUp size={14}/></button><button aria-label="문항 아래로" disabled={i === doc.problems.length - 1} onClick={() => move(i, 1)}><ArrowDown size={14}/></button><button aria-label="문항 삭제" onClick={() => { if (confirm(`${p.number}번 문항을 삭제할까요?`)) change(d => ({ ...d, problems: d.problems.filter(q => q.id !== p.id) })); }}><Trash2 size={14}/></button></div></div>
               {p.review && <p className={styles.review}>확인 필요: {p.review}</p>}
               <div className={styles.row}><label>번호<input value={p.number} maxLength={30} onChange={e => update(p.id, { number: e.target.value })}/></label><label>배점<input value={p.points} maxLength={30} onChange={e => update(p.id, { points: e.target.value })} placeholder="3점"/></label></div>

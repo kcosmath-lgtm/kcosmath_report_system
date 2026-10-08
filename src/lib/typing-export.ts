@@ -135,7 +135,7 @@ export function exportPages(doc: ExamDocument) {
   for (const p of doc.problems) {
     const choices = p.choices.map(formatChoiceContent);
     const columns = choiceRowsEnabled(p) ? 1 : hasStatementChoices(choices) ? 3 : p.choiceFigures?.some(f => f.figure) ? 2 : doc.choiceColumns?.[p.id] ?? 3;
-    let estimate = textHeight(p.question) + 24;
+    let estimate = textHeight(p.question) + 24 + (p.sourceYear || p.sourceSchool ? 24 : 0);
     if (p.boxContent) estimate += textHeight(formatBoxContent(p.boxContent)) + 40;
     for (const table of p.tables ?? []) estimate += table.rows.reduce((height, row) => height + Math.max(...row.map(textHeight)) + 20, 0) + 24;
     if (p.figure) { const image = imageBytes(p.figure); estimate += Math.min(160, 245 * image.height / image.width) + 24; }
@@ -162,7 +162,9 @@ export async function buildDocx(doc: ExamDocument): Promise<Blob> {
     };
   const problem = (p?: ExamProblem) => {
     if (!p) return "<w:p/>";
-    let result = wordParagraph(`${p.number}. ${p.question}${p.points ? `  [${p.points}]` : ""}`);
+    const hasSource = Boolean(p.sourceYear || p.sourceSchool);
+    let result = hasSource ? wordParagraph([p.sourceYear, p.sourceSchool, p.points].filter(Boolean).join('   '), '<w:jc w:val="right"/><w:keepNext/><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="3" w:color="A6B4C2"/></w:pBdr>') : '';
+    result += wordParagraph(`${p.number}. ${p.question}${p.points && !hasSource ? `  [${p.points}]` : ""}`);
     if (p.boxContent) {
       const paragraphs = formatBoxContent(p.boxContent).split('\n').map(line => wordParagraph(line,
         /^(?:[ㄱㄴㄷㄹㅁㅂ][.)]|[㉠-㉭])/.test(line) ? '<w:ind w:left="300" w:hanging="300"/>' : '')).join('');
@@ -274,7 +276,9 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
   };
   const problem = (p?: ExamProblem) => {
     if (!p) return para("");
-    let text = para(`${p.number}. ${p.question}${p.points ? `  [${p.points}]` : ""}`);
+    const hasSource = Boolean(p.sourceYear || p.sourceSchool);
+    let text = hasSource ? para([p.sourceYear, p.sourceSchool, p.points].filter(Boolean).join('   '), false, '19') : '';
+    text += para(`${p.number}. ${p.question}${p.points && !hasSource ? `  [${p.points}]` : ""}`);
     if (p.boxContent) text += nativeTable([[para("〈보기〉", false, "17") + formatBoxContent(p.boxContent).split("\n").map(line => para(line, false, /^(?:[ㄱㄴㄷㄹㅁ][.)]|[㉠-㉤])/.test(line) ? "21" : "22")).join("")]], 5, false, 1800, 23000, true);
     for (const table of p.tables ?? []) {
       if (table.caption) text += para(table.caption, false, "17");

@@ -3,9 +3,34 @@ import type { LessonRecord, ReportRecord } from "../types/report";
 import type { ReportSaveBatch } from "./report-storage";
 import type { WrongAnswerRecord } from "../types/wrong-answer";
 import type { HandoffRecord } from "../types/handoff";
+import { validateDailySave, type StudentDailyRecord, type StudentDailySave } from '../types/student-daily';
+
+export async function loadStudentDaily(month: string): Promise<StudentDailyRecord[]> {
+  return transaction('readonly', async tx => (await result<StudentDailyRecord[]>(tx.objectStore('studentDaily').getAll())).filter(r => r.record_date.startsWith(month)));
+}
+export async function saveStudentDaily(items: StudentDailySave[]): Promise<StudentDailySave[]> {
+  items.forEach(validateDailySave);
+  return transaction('readwrite', async tx => {
+    const output: StudentDailySave[] = [];
+    for (const { daily, wrong } of items) {
+      const ds = tx.objectStore('studentDaily'), ws = tx.objectStore('wrongAnswers');
+      const old = await result<StudentDailyRecord | undefined>(ds.get(daily.id));
+      const ow = await result<WrongAnswerRecord | undefined>(ws.get(wrong.id));
+      const student = await result<StudentRow | undefined>(tx.objectStore('students').get(daily.student_id));
+      if (!student?.active || (old?.version ?? 0) !== daily.version || (ow?.version ?? 0) !== wrong.version ||
+        (old && (old.student_id !== daily.student_id || old.record_date !== daily.record_date)) ||
+        (ow && (ow.student_id !== wrong.student_id || ow.record_date !== wrong.record_date))) throw conflict();
+      const saved = { daily: { ...daily, version: daily.version + 1 }, wrong: { ...wrong, version: wrong.version + 1 } };
+      await result(old ? ds.put(saved.daily) : ds.add(saved.daily));
+      await result(ow ? ws.put(saved.wrong) : ws.add(saved.wrong));
+      output.push(saved);
+    }
+    return output;
+  });
+}
 
 const DB_NAME = "cosmath-local-v1";
-const STORES = ["classes", "students", "lessons", "reports", "wrongAnswers", "handoffs"];
+const STORES = ["classes", "students", "lessons", "reports", "wrongAnswers", "handoffs", "studentDaily"];
 interface ClassRow { id: string; name: string }
 interface StudentRow extends Student { class_id: string; active: boolean }
 const conflict = () => new Error("다른 창에서 데이터가 변경되었거나 이미 등록되어 있습니다. 작성 내용을 보관한 뒤 다시 불러와 주세요.");
@@ -13,9 +38,10 @@ const conflict = () => new Error("다른 창에서 데이터가 변경되었거�
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === "undefined") { reject(new Error("이 브라우저에서 IndexedDB를 사용할 수 없습니다. 브라우저 저장소 설정을 확인해 주세요.")); return; }
-    const request = indexedDB.open(DB_NAME, 3);
+    const request = indexedDB.open(DB_NAME, 4);
     request.onupgradeneeded = () => {
       const db = request.result;
+      if (!db.objectStoreNames.contains("studentDaily")) db.createObjectStore("studentDaily", { keyPath: "id" }).createIndex("student_date", ["student_id", "record_date"], { unique: true });
       if (!db.objectStoreNames.contains("classes")) db.createObjectStore("classes", { keyPath: "id" }).createIndex("name", "name", { unique: true });
       if (!db.objectStoreNames.contains("students")) db.createObjectStore("students", { keyPath: "id" });
       if (!db.objectStoreNames.contains("lessons")) db.createObjectStore("lessons", { keyPath: "id" }).createIndex("class_date", ["class_id", "report_date"], { unique: true });
@@ -71,6 +97,17 @@ export async function loadStudents(): Promise<StudentGroup[]> {
   });
 }
 
+export async function updateStudent(id: string, name: string, grade: string, version: number) {
+  if (!name.trim() || name.trim().length > 100 || !grade.trim() || grade.trim().length > 30) throw new Error('학생 이름과 학년을 확인해 주세요.');
+  return transaction('readwrite', async tx => {
+    const store = tx.objectStore('students');
+    const old = await result<StudentRow | undefined>(store.get(id));
+    if (!old?.active || old.version !== version) throw conflict();
+    const saved = { ...old, name: name.trim(), grade: grade.trim(), version: version + 1 };
+    await result(store.put(saved)); return saved;
+  });
+}
+
 export async function addClass(name: string): Promise<StudentGroup> {
   if (!name.trim()) throw new Error("반 이름을 입력해 주세요.");
   const row = { id: crypto.randomUUID(), name: name.trim() };
@@ -105,6 +142,7 @@ export async function deleteStudent(id: string) {
     const wrongAnswers = await result<WrongAnswerRecord[]>(tx.objectStore("wrongAnswers").getAll());
     for (const report of reports.filter(item => item.student_id === id)) await result(tx.objectStore("reports").delete(report.id));
     for (const record of wrongAnswers.filter(item => item.student_id === id)) await result(tx.objectStore("wrongAnswers").delete(record.id));
+    for (const record of await result<StudentDailyRecord[]>(tx.objectStore('studentDaily').getAll())) if (record.student_id === id) await result(tx.objectStore('studentDaily').delete(record.id));
     await result(students.delete(id));
   });
 }
@@ -123,6 +161,7 @@ export async function deleteClass(id: string) {
     for (const record of wrongAnswers.filter(item => studentIds.has(item.student_id))) await result(tx.objectStore("wrongAnswers").delete(record.id));
     for (const lesson of lessons) await result(tx.objectStore("lessons").delete(lesson.id));
     for (const student of students) await result(tx.objectStore("students").delete(student.id));
+    for (const record of await result<StudentDailyRecord[]>(tx.objectStore('studentDaily').getAll())) if (studentIds.has(record.student_id)) await result(tx.objectStore('studentDaily').delete(record.id));
     await result(classes.delete(id));
   });
 }

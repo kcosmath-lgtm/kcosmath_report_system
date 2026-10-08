@@ -21,3 +21,7 @@
 .choiceContent{overflow:visible;padding:4px 0}.choices>div{align-items:baseline}.choices[data-prose=true] .choiceContent{overflow-wrap:anywhere}
 
 .boxParagraphs,.boxParagraph,.boxStatement{display:block}.boxStatement{padding-left:1.5em;text-indent:-1.5em;margin:3px 0}.boxStatement>span{text-indent:0}
+
+/* Shared navigation dimensions, including compact viewports. */
+.header{box-sizing:border-box;height:var(--workspace-header-height);min-height:var(--workspace-header-height);flex-shrink:0;padding:0 var(--workspace-header-gutter)}
+.brand img{display:block;width:var(--workspace-logo-width);height:auto;max-height:44px;object-fit:contain}

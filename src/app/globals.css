@@ -8,10 +8,20 @@
 @import "tailwindcss";
 
 :root {
+  --workspace-header-height: 72px;
+  --workspace-header-gutter: 28px;
+  --workspace-logo-width: 168px;
   --background: #ffffff;
   --foreground: #171717;
   /* 함초롬돋움을 CSS 변수로 등록 */
   --font-hamchorom: 'Hamchorom Dotum', sans-serif;
+}
+
+@media (max-width: 760px) {
+  :root {
+    --workspace-header-gutter: 16px;
+    --workspace-logo-width: 140px;
+  }
 }
 
 @theme inline {

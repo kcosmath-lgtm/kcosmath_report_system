@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import LandingMenu from "../../components/LandingMenu";
 import StudentSidebar from "../../components/layout/Sidebar";
 import { Menu, Download, ChevronLeft, ChevronRight, Users, User, Loader2, Save, HelpCircle, AlertTriangle, Wifi, X } from "lucide-react";
 import { flushSync } from "react-dom";
@@ -102,6 +103,9 @@ export default function ReportPage() {
             }}><Image src={logo} alt="COSMATH MATH ACADEMY" className={styles.logo} priority /></Link>
             <div className={styles.title}><h1>수업 보고서</h1><p>STUDENT REPORT</p></div>
           </div>
+          <LandingMenu />
+        </header>
+        <div className={styles.toolbar}>
           <div className={styles.actions}>
             <label title="최근 저장한 내용을 이어 쓰며, 작성일만 선택합니다.">보고서 작성일 <input type="date" value={reportDate}
               disabled={isLoading || isSaving || isGeneratingImage}
@@ -124,7 +128,7 @@ export default function ReportPage() {
               {isGeneratingImage ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}{isGeneratingImage ? "이미지 만드는 중…" : "이미지 저장"}
             </button>
           </div>
-        </header>
+        </div>
 
         {error && <div role="alert" className="p-4 bg-rose-50 text-rose-800 text-sm">{error}</div>}
         <main className={styles.canvas}>

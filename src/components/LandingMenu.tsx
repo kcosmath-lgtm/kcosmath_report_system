@@ -7,7 +7,7 @@ import { Building2, CalendarCheck, ClipboardPenLine, FileText, LogOut, Menu, Sca
 import styles from "./landing-menu.module.css";
 import { useAuth } from "./AuthProvider";
 
-export default function LandingMenu({ profile = false }: { profile?: boolean }) {
+export default function LandingMenu({ profile = true }: { profile?: boolean }) {
   const { user, workspace, signOut } = useAuth();
   const avatarUrl = user?.user_metadata?.avatar_url as string | undefined;
   const [open, setOpen] = useState(false);

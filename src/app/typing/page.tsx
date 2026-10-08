@@ -287,7 +287,7 @@ function TypingWorkspace() {
     change(d => { const next = [...d.problems]; const other = index + direction; if (other >= 0 && other < next.length) [next[index], next[other]] = [next[other], next[index]]; return { ...d, problems: next }; });
   }
   return <main className={styles.app}>
-    <header className={styles.header}><Link href="/" className={styles.brand}><Image src={logo} alt="COSMATH MATH ACADEMY" priority/><span>WORKSPACE</span></Link><div className={styles.headerRight}><Link href="/errors/report" className={styles.reportLink}><FileText size={16}/>오답·숙제 보고서</Link><LandingMenu/></div></header>
+    <header className={styles.header}><Link href="/" className={styles.brand}><Image src={logo} alt="COSMATH MATH ACADEMY" priority/><span>WORKSPACE</span></Link><div className={styles.headerRight}><LandingMenu/></div></header>
     <section className={styles.top}><div><p>EXAM STUDIO</p><h1>시험지 타이핑 <span>수학을 선명하게, 준비는 간편하게.</span></h1><small>PDF·이미지를 문항으로 옮기고, 편집 가능한 시험지로 완성하세요.</small></div><div className={styles.exports}>
       <button disabled={!!busy || !doc.problems.length} onClick={() => void save()}><Save size={16}/>학원 저장</button>
       <button disabled={!!busy || !doc.problems.length} onClick={() => void exportFile("docx")}><FileDown size={16}/>Word</button>

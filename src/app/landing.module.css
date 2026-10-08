@@ -46,3 +46,7 @@
 .previewLogo { width: 130px; height: auto; display: block; }
 .footerLogo { width: 170px; height: auto; display: inline-block; vertical-align: middle; mix-blend-mode: multiply; }
 @media (max-width: 680px) { .logo { width: 160px; } .footerLogo { width: 145px; } }
+
+/* Shared navigation dimensions, including compact viewports. */
+.header{box-sizing:border-box;height:var(--workspace-header-height);min-height:var(--workspace-header-height);flex-shrink:0;padding:0 var(--workspace-header-gutter)}
+.logo{display:block;width:var(--workspace-logo-width);height:auto;max-height:44px;object-fit:contain}

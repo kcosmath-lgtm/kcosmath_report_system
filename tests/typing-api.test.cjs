@@ -21,6 +21,27 @@ const { POST } = compile("../src/app/api/typing/extract/route.ts", apiMocks);
 const { POST: cleanFigure } = compile("../src/app/api/typing/clean-figure/route.ts", apiMocks);
 function request(body, token = "valid") { return new Request("http://localhost/api/typing/extract", { method: "POST", headers: { "Content-Type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) }); }
 const payload = { image: "aGVsbG8=", mimeType: "image/jpeg", apiKey: "test-key", model: "another-model" };
+
+test('OCR requests source bounds only and discards generated images from provider responses', async () => {
+  const previous = global.fetch;
+  global.fetch = async (_url, options) => {
+    const schema = JSON.parse(options.body).generationConfig.responseSchema.properties.problems.items;
+    assert.equal(schema.properties.figureDiagram, undefined);
+    assert.equal(schema.properties.choiceDiagrams, undefined);
+    return new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ problems: [{
+      question: '그래프를 보고 값을 구하시오.', choices: ['', ''], figureBox: [100,100,600,600], choiceFigureBoxes: [[600,100,800,300], []],
+      figureDiagram: { width: 10, height: 10, elements: [] }, choiceDiagrams: [{}], figure: 'generated', choiceFigures: [{ figure: 'generated' }],
+    }] }) }] } }] }));
+  };
+  try {
+    const response = await POST(request(payload)); assert.equal(response.status, 200);
+    const problem = (await response.json()).problems[0];
+    assert.equal(problem.figureDiagram, undefined); assert.equal(problem.figure, undefined);
+    assert.equal(problem.choiceFigures[0].figureDiagram, undefined); assert.equal(problem.choiceFigures[0].figure, undefined);
+    assert.deepEqual(problem.figureBox, [100,100,600,600]);
+    assert.deepEqual(problem.choiceFigures[0].figureBox, [600,100,800,300]);
+  } finally { global.fetch = previous; }
+});
 test("OCR rejects anonymous users, invalid sessions and users outside an academy before inference", async () => {
   assert.equal((await POST(request(payload, ""))).status, 401);
   assert.equal((await POST(request(payload, "invalid"))).status, 401);
@@ -106,39 +127,6 @@ test('Gemini 400 errors distinguish schema, billing and image failures without l
 });
 
 
-test('figure cleanup enforces access and server key before any paid request', async () => {
-  const oldFetch=global.fetch;let calls=0;global.fetch=async()=>{calls++;throw new Error('must not call');};
-  try {
-    assert.equal((await cleanFigure(request(payload,''))).status,401);
-    assert.equal((await cleanFigure(request(payload,'invalid'))).status,401);
-    member=false;assert.equal((await cleanFigure(request(payload))).status,403);member=true;
-    access=false;assert.equal((await cleanFigure(request(payload))).status,403);access=true;
-    accessError={message:'unavailable'};assert.equal((await cleanFigure(request(payload))).status,403);accessError=null;
-    assert.equal((await cleanFigure(request({...payload,image:'',mimeType:'text/html'}))).status,400);
-    delete process.env.GEMINI_API_KEY;assert.equal((await cleanFigure(request(payload))).status,503);
-    assert.equal(calls,0);
-  } finally { global.fetch=oldFetch;member=true;access=true;accessError=null; }
-});
-test('figure cleanup sends one authenticated image edit and rejects missing images without retry', async () => {
-  const oldFetch=global.fetch,oldLog=console.error;let calls=0;
-  global.fetch=async(url,options)=>{
-    calls++;assert.match(url,/models\/gemini-3\.1-flash-lite:generateContent$/);
-    assert.equal(options.headers['x-goog-api-key'],'server-test-key');
-    const body=JSON.parse(options.body);assert.equal(body.generationConfig.responseMimeType,'application/json');assert.equal(body.generationConfig.responseModalities,undefined);
-    assert.equal(body.contents[0].parts[1].inlineData.data,payload.image);
-    return new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify({supported:true,width:100,height:100,elements:[{kind:'polyline',points:[[0,0],[100,100]],x:0,y:0,rx:0,ry:0,text:''}]})}]}}]}));
-  };
-  console.error=()=>{};
-  try {
-    const response=await cleanFigure(request(payload));assert.equal(response.status,200);assert.equal((await response.json()).diagram.elements.length,1);assert.equal(calls,1);
-    global.fetch=async()=>new Response(JSON.stringify({candidates:[{content:{parts:[{text:'no image'}]}}]}));
-    assert.equal((await (await cleanFigure(request(payload))).json()).code,'FIGURE_INVALID_JSON');
-    global.fetch=async()=>new Response('',{status:429});assert.equal((await cleanFigure(request(payload))).status,429);
-    global.fetch=async()=>{throw new DOMException('private data','TimeoutError');};assert.equal((await cleanFigure(request(payload))).status,504);
-  } finally {global.fetch=oldFetch;console.error=oldLog;}
-});
-
-
 test('diagram SVG escapes labels and rejects invalid coordinates and excessive primitives', () => {
   const {normalizeDiagram,diagramSvg}=compile('../src/lib/typing-diagram.ts');
   const element={kind:'text',points:[],x:5,y:20,rx:0,ry:0,text:'<script>alert(1)</script>'};
@@ -149,8 +137,5 @@ test('diagram SVG escapes labels and rejects invalid coordinates and excessive p
 });
 
 
-test('first OCR returns validated common and choice diagrams and keeps bad diagrams as crop fallbacks',async()=>{
- const oldFetch=global.fetch;let calls=0;const d={width:100,height:80,elements:[{kind:'polyline',points:[[0,0],[100,80]],x:0,y:0,rx:0,ry:0,text:''}]};
- global.fetch=async(url,options)=>{calls++;const body=JSON.parse(options.body);assert.ok(body.generationConfig.responseSchema.properties.problems.items.properties.figureDiagram);return new Response(JSON.stringify({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify({problems:[{question:'그래프 문제',choices:['',''],figureDiagram:d,choiceDiagrams:[d,{...d,width:-1}],figureBox:[0,0,100,100],choiceFigureBoxes:[[0,0,100,100],[100,100,200,200]]}]})}]}}]}));};
- try {const result=await(await POST(request(payload))).json();assert.equal(calls,1);assert.equal(result.problems[0].figureDiagram.width,100);assert.equal(result.problems[0].choiceFigures[0].figureDiagram.width,100);assert.equal(result.problems[0].choiceFigures[1].figureDiagram,undefined);assert.ok(result.problems[0].review.includes('원본'));}finally{global.fetch=oldFetch;}
-});
+
+test('retired image API cannot incur paid requests', async()=>{const old=global.fetch;let calls=0;global.fetch=async()=>{calls++;throw Error('must not call');};try{assert.equal((await cleanFigure()).status,410);assert.equal(calls,0);}finally{global.fetch=old;}});

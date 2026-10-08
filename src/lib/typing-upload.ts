@@ -34,6 +34,10 @@ export async function readSource(file: File): Promise<SourcePage[]> {
   } finally { await task.destroy(); }
 }
 
+export function paddedFigureBox(box: FigureBox): FigureBox {
+  return [Math.max(0, box[0] - 12), Math.max(0, box[1] - 12), Math.min(1000, box[2] + 12), Math.min(1000, box[3] + 12)];
+}
+
 export async function cropFigure(image: string, box: FigureBox): Promise<string> {
   const bounds = normalizeFigureBox(box);
   if (!bounds) throw new Error("그림 영역의 위·아래·좌·우 범위를 확인해 주세요.");
@@ -42,8 +46,8 @@ export async function cropFigure(image: string, box: FigureBox): Promise<string>
   try {
     const [top,left,bottom,right] = bounds;
     const x = Math.floor(bitmap.width * left / 1000), y = Math.floor(bitmap.height * top / 1000);
-    const width = Math.min(bitmap.width - x, Math.ceil(bitmap.width * (right-left) / 1000));
-    const height = Math.min(bitmap.height - y, Math.ceil(bitmap.height * (bottom-top) / 1000));
+    const width = Math.min(bitmap.width, Math.ceil(bitmap.width * right / 1000)) - x;
+    const height = Math.min(bitmap.height, Math.ceil(bitmap.height * bottom / 1000)) - y;
     if (width < 4 || height < 4) throw new Error("그림 영역이 너무 작습니다. 범위를 넓혀 주세요.");
     const scale = Math.min(1, 1200 / width, 1600 / height);
     const canvas = document.createElement("canvas"); canvas.width = Math.max(1, Math.round(width * scale)); canvas.height = Math.max(1, Math.round(height * scale));

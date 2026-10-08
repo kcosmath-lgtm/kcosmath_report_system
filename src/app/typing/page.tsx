@@ -1,5 +1,4 @@
 "use client";
-import { diagramPng } from "../../lib/typing-diagram";
 /* eslint-disable @next/next/no-img-element */
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -10,14 +9,13 @@ import "katex/dist/katex.min.css";
 import LandingMenu from "../../components/LandingMenu";
 import TypingAccessGate from "../../components/TypingAccessGate";
 import TypingFigureEditor from "../../components/TypingFigureEditor";
-import { requestFigure } from "../../lib/typing-figure-client";
 import TypingPreviewEditor from "../../components/TypingPreviewEditor";
 import TypingMath from "../../components/TypingMath";
 import { useAuth } from "../../components/AuthProvider";
 import { supabase } from "../../lib/supabase";
 import { storageError } from "../../lib/supabase-report-storage";
 import { COLUMN_HEIGHT, hasStatementChoices, formatTableCell, formatChoiceContent, choiceRowsEnabled, formatBoxContent, choiceLabels, examPages, normalizeProblems, sampleProblems, type ExamDocument, type ExamProblem, type ExamTable } from "../../lib/typing-model";
-import { cropFigure, imageData, readSource, type SourcePage } from "../../lib/typing-upload";
+import { cropFigure, paddedFigureBox, imageData, readSource, type SourcePage } from "../../lib/typing-upload";
 import { buildDocx, buildHwpx, downloadBlob, prepareExportDocument } from "../../lib/typing-export";
 import styles from "./typing.module.css";
 
@@ -220,13 +218,15 @@ function TypingWorkspace() {
           const problems = normalizeProblems(result.problems, pageNumber);
           for (const problem of problems) {
             for (const figure of problem.choiceFigures ?? []) {
-              if (figure.figureDiagram) { try { figure.figure = await diagramPng(figure.figureDiagram); figure.figureSourceId = source.id; } catch { figure.figureDiagram = undefined; } }
-              if (figure.figure || !figure.figureBox) continue;
+              figure.figureDiagram = undefined;
+              if (!figure.figureBox) continue;
+              figure.figureBox = paddedFigureBox(figure.figureBox);
               try { figure.figure = await cropFigure(source.image, figure.figureBox); figure.figureSourceId = source.id; }
               catch { problem.review = [problem.review, "선지 그림 자르기에 실패했습니다. 선지별 그림 영역을 직접 선택해 주세요."].filter(Boolean).join(" / "); }
             }
-            if (problem.figureDiagram) { try { problem.figure = await diagramPng(problem.figureDiagram); problem.figureSourceId = source.id; } catch { problem.figureDiagram = undefined; } }
-            if (problem.figure || !problem.figureBox) continue;
+            problem.figureDiagram = undefined;
+            if (!problem.figureBox) continue;
+            problem.figureBox = paddedFigureBox(problem.figureBox);
             try { problem.figure = await cropFigure(source.image, problem.figureBox); problem.figureSourceId = source.id; }
             catch { problem.review = [problem.review, "그림 자동 자르기에 실패했습니다. 원본에서 영역을 직접 선택해 주세요."].filter(Boolean).join(" / "); }
           }
@@ -341,12 +341,7 @@ function TypingWorkspace() {
         <div className={styles.footer}><span>{dirty ? "작성 중 · 이 브라우저에 임시 저장" : active ? "학원에 저장됨" : "새 시험지"}</span><div><button disabled={!!busy || !doc.problems.length} onClick={() => void exportFile("json")}>편집본 JSON 다운로드</button><label>편집본 열기<input type="file" accept="application/json,.json" disabled={!!busy} onChange={e => { const file = e.target.files?.[0]; if (file) void importJson(file); e.target.value = ""; }}/></label></div></div>
       </section>
     </div>
-    {previewEdit && <TypingPreviewEditor key={previewEdit.id + previewEdit.field} label={previewEdit.label} value={previewEdit.value} image={previewEdit.image} required={previewEdit.field === "question"} onSave={savePreviewEdit} onClose={() => setPreviewEdit(null)} onAi={previewEdit.image ? async () => { const p = doc.problems.find(p => p.id === previewEdit.id)!; return requestFigure({ ...p, figure: previewEdit.value, number: p.number + (previewEdit.field.startsWith("choiceFigure:") ? "-" + choiceLabels[Number(previewEdit.field.split(":")[1])] : "") }); } : undefined} onApplyImage={result => {
-      const p = doc.problems.find(p => p.id === previewEdit.id); if (!p) return;
-      if (previewEdit.field === "figure") update(p.id, { figure: result.image, figureDiagram: result.diagram });
-      else { const index = Number(previewEdit.field.split(":")[1]); update(p.id, { choiceFigures: p.choiceFigures?.map((f,i) => i === index ? { ...f, figure: result.image, figureDiagram: result.diagram } : f) }); }
-      setPreviewEdit(null);
-    }}/>}
+    {previewEdit && <TypingPreviewEditor key={previewEdit.id + previewEdit.field} label={previewEdit.label} value={previewEdit.value} image={previewEdit.image} required={previewEdit.field === "question"} onSave={savePreviewEdit} onClose={() => setPreviewEdit(null)}/>}
   </main>;
 }
 

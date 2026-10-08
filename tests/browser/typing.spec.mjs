@@ -24,7 +24,11 @@ test('preview eraser supports undo, comparison, cancellation and persistent PNG 
   const pixel = () => canvas.evaluate(node => [...node.getContext('2d').getImageData(50, 40, 1, 1).data]);
   await expect.poll(pixel).toEqual([0, 0, 0, 255]);
   await canvas.click(); await expect.poll(pixel).toEqual([255, 255, 255, 255]);
-  await page.getByRole('button', { name: '실행 취소', exact: true }).click();
+  await page.keyboard.press('Control+z');
+  await expect.poll(pixel).toEqual([0, 0, 0, 255]);
+  await expect(page.getByRole('button', { name: '되돌리기', exact: true })).toBeDisabled();
+  await canvas.click();
+  await page.getByRole('button', { name: '되돌리기', exact: true }).click();
   await expect.poll(pixel).toEqual([0, 0, 0, 255]);
   await page.getByLabel('그림 확대').selectOption('2');
   await page.getByLabel('브러시 크기').fill('20');
@@ -289,7 +293,7 @@ test('OCR crops a figure locally, supports replacing its region and file, and pr
   await page.locator('input[type="file"][accept*="application/pdf"]').setInputFiles(original);
   await page.getByRole('button', { name: '선택 페이지 인식' }).click();
   const figure = page.locator('[data-problem] img'); await expect(figure).toHaveCount(1);
-  await expect.poll(() => figure.evaluate(img => [img.naturalWidth,img.naturalHeight])).toEqual([240,400]);
+  await expect.poll(() => figure.evaluate(img => [img.naturalWidth,img.naturalHeight])).toEqual([256,420]);
   await page.getByRole('button', { name: '원본에서 그림 영역 다시 선택' }).click();
   await page.getByRole('spinbutton', { name: '1번 그림 상단 (%)' }).fill('0');
   await page.getByRole('spinbutton', { name: '1번 그림 왼쪽 (%)' }).fill('0');
@@ -352,31 +356,6 @@ test('picture choices crop independently, keep 2+2+1 alignment, export and persi
 });
 
 
-test('AI cleanup keeps the original until accepted, preserves it on failure, and saves the applied result', async ({ page }) => {
-  let calls=0, fail=false;
-  await page.route('**/api/typing/clean-figure', route=>{
-    calls++;const body=route.request().postDataJSON();expect(body.apiKey).toBeUndefined();expect(route.request().headers().authorization).toMatch(/^Bearer /);
-    return route.fulfill(fail?{status:502,json:{error:'그림 정리 실패 테스트'}}:{json:{diagram:{width:100,height:80,elements:[{kind:'polyline',points:[[0,0],[100,80]],x:0,y:0,rx:0,ry:0,text:''}]}}});
-  });
-  await page.goto('/typing');await page.getByRole('button',{name:'예시 시험지 4문항으로 시작'}).click();
-  const makeImage=async width=>page.evaluate(w=>{const c=document.createElement('canvas');c.width=w;c.height=80;const ctx=c.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,w,80);return c.toDataURL('image/png');},width);
-  const original=await makeImage(200);
-  await page.getByLabel('그림 별도 첨부').first().setInputFiles({name:'marked.png',mimeType:'image/png',buffer:Buffer.from(original.split(',')[1],'base64')});
-  const figure=page.locator('[data-problem]').first().locator('img');await expect(figure).toHaveCount(1);
-  const before=await figure.getAttribute('src');
-  await expect(page.locator('[data-problem]').first().locator('[data-prose] .katex')).toHaveCount(5);
-  const clean=page.getByRole('button',{name:'AI로 그림 구조 추출',exact:true});
-  await clean.click();await expect(page.getByAltText('1번 AI 정리 결과',{exact:true})).toBeVisible();
-  expect(await figure.getAttribute('src')).toBe(before);
-  await page.getByRole('button',{name:'원본 유지',exact:true}).click();expect(await figure.getAttribute('src')).toBe(before);
-  fail=true;await clean.click();await expect(page.getByText('그림 정리 실패 테스트',{exact:true})).toBeVisible();expect(await figure.getAttribute('src')).toBe(before);
-  fail=false;await clean.click();await page.getByRole('button',{name:'정리된 그림 적용',exact:true}).click();
-  await expect.poll(()=>figure.evaluate(img=>img.naturalWidth)).toBe(100);
-  await page.waitForTimeout(800);await page.reload();await expect.poll(()=>figure.evaluate(img=>img.naturalWidth)).toBe(100);
-  expect(calls).toBe(3);
-});
-
-
 test('preview edits text and deletes an image while statement choices keep three plus two alignment', async ({ page }) => {
   await page.goto('/typing');await page.getByRole('button',{name:'예시 시험지 4문항으로 시작'}).click();
   const problem=page.locator('[data-problem]').first();
@@ -403,10 +382,10 @@ test('coordinate fractions keep a single math expression per choice and balanced
 });
 
 
-test('first OCR includes diagrams and choice layout uses only five, three or one column without scrollbars', async({page})=>{
+test('first OCR ignores generated diagrams and choice layout uses only five, three or one column without scrollbars', async({page})=>{
  let calls=0;
  const diagram={width:100,height:80,elements:[{kind:'polyline',points:[[0,40],[100,40]],x:0,y:0,rx:0,ry:0,text:''}]};
- await page.route('**/api/typing/extract',r=>{calls++;return r.fulfill({json:{problems:[{number:'1',question:'그래프에서 값을 구하시오.',choices:['14/3','16/3','6','20/3','22/3'],figureDiagram:diagram,figureBox:[]}]}});});
+ await page.route('**/api/typing/extract',r=>{calls++;return r.fulfill({json:{problems:[{number:'1',question:'그래프에서 값을 구하시오.',choices:['14/3','16/3','6','20/3','22/3'],figureDiagram:diagram,figureBox:[0,0,1000,1000]}]}});});
  await page.goto('/typing');const data=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=100;c.height=80;return c.toDataURL('image/png').split(',')[1];});
  await page.locator('input[type="file"][accept*="application/pdf"]').setInputFiles({name:'graph.png',mimeType:'image/png',buffer:Buffer.from(data,'base64')});await page.getByRole('button',{name:'선택 페이지 인식'}).click();
  const problem=page.locator('[data-problem]').first();await expect(problem.locator('img')).toHaveCount(1);expect(calls).toBe(1);
@@ -418,8 +397,7 @@ test('first OCR includes diagrams and choice layout uses only five, three or one
 });
 
 
-test('preview image offers AI output and Korean box statements indent wrapped lines',async({page})=>{
- await page.route('**/api/typing/clean-figure',r=>r.fulfill({json:{diagram:{width:100,height:80,elements:[{kind:'polyline',points:[[0,0],[100,80]],x:0,y:0,rx:0,ry:0,text:''}]}}}));
+test('preview image only offers local erasing and Korean box statements indent wrapped lines',async({page})=>{
  await page.goto('/typing');await page.getByRole('button',{name:'예시 시험지 4문항으로 시작'}).click();
  await page.getByRole('textbox',{name:'보기 / 조건 박스'}).first().fill('ㄱ. 책을 하루에 열 장씩 읽었으며 다음 날에도 같은 분량을 읽었다. '.repeat(2));
  const statement=page.locator('[data-problem]').first().locator('[class*="boxStatement"]').first();
@@ -428,6 +406,5 @@ test('preview image offers AI output and Korean box statements indent wrapped li
  const data=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=200;c.height=80;return c.toDataURL('image/png').split(',')[1];});
  await page.getByLabel('그림 별도 첨부').first().setInputFiles({name:'graph.png',mimeType:'image/png',buffer:Buffer.from(data,'base64')});
  const problem=page.locator('[data-problem]').first();await problem.getByRole('button',{name:'문항 1 그림 편집',exact:true}).click();
- const dialog=page.getByRole('dialog');await dialog.getByRole('button',{name:'AI로 출력하기',exact:true}).click();await expect(dialog.getByAltText('미리보기 AI 출력 결과',{exact:true})).toBeVisible();
- await dialog.getByRole('button',{name:'AI 출력 적용',exact:true}).click();await expect.poll(()=>problem.locator('img').evaluate(img=>img.naturalWidth)).toBe(100);
+ const dialog=page.getByRole('dialog');await expect(dialog.getByRole('button',{name:/AI/})).toHaveCount(0);await expect(dialog.getByRole('button',{name:'손글씨 지우기',exact:true})).toBeVisible();
 });

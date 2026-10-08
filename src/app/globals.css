@@ -8,7 +8,7 @@
 @import "tailwindcss";
 
 :root {
-  --workspace-header-height: 72px;
+  --workspace-header-height: 84px;
   --workspace-header-gutter: 28px;
   --workspace-logo-width: 168px;
   --background: #ffffff;

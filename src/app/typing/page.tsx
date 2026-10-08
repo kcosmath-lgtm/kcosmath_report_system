@@ -2,6 +2,8 @@
 /* eslint-disable @next/next/no-img-element */
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
+import logo from "../../../public/logo.png";
 import { ArrowDown, ArrowUp, FileDown, FileText, Loader2, Plus, Printer, Save, ScanText, Trash2, Upload } from "lucide-react";
 import "katex/dist/katex.min.css";
 import LandingMenu from "../../components/LandingMenu";
@@ -10,10 +12,29 @@ import TypingMath from "../../components/TypingMath";
 import { useAuth } from "../../components/AuthProvider";
 import { supabase } from "../../lib/supabase";
 import { storageError } from "../../lib/supabase-report-storage";
-import { choiceLabels, examPages, normalizeProblems, sampleProblems, type ExamDocument, type ExamProblem } from "../../lib/typing-model";
+import { COLUMN_HEIGHT, choiceLabels, examPages, normalizeProblems, sampleProblems, type ExamDocument, type ExamProblem } from "../../lib/typing-model";
 import { imageData, readSource, type SourcePage } from "../../lib/typing-upload";
 import styles from "./typing.module.css";
 
+function PaperTitle({ text }: { text: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const node = ref.current; if (!node) return;
+    const fit = () => {
+      let size = 20;
+      node.style.fontSize = size + "px";
+      while (size > 8 && (node.scrollHeight > 32 || node.scrollWidth > node.clientWidth + 1)) node.style.fontSize = --size + "px";
+    };
+    const observer = new ResizeObserver(fit);
+    observer.observe(node.parentElement!); fit(); void document.fonts.ready.then(fit);
+    return () => observer.disconnect();
+  }, [text]);
+  return <div className={styles.paperTitle}><span ref={ref}>{text}</span></div>;
+}
+function ProblemView({ p, measure = false }: { p: ExamProblem; measure?: boolean }) { return <section className={styles.problem} data-problem={measure ? undefined : true}><div className={styles.question}><strong>{p.number}.</strong><div><TypingMath text={p.question}/>{p.points && <small> [{p.points}]</small>}</div></div>{p.boxContent && <div className={styles.box}><span>〈보기〉</span><TypingMath text={p.boxContent}/></div>}{p.figure && <img className={styles.figure} src={p.figure} alt={`${p.number}번 문항 그림`}/>}<div className={styles.choices} data-wide={p.choices.some(c => c.length > 12)}>{p.choices.map((c, n) => <div key={n}><span>{choiceLabels[n]}</span><TypingMath text={c}/></div>)}</div></section>; }
+function cleanDocument(doc: ExamDocument): ExamDocument {
+  return { ...doc, problems: normalizeProblems(doc.problems).map((p, i) => ({ ...p, id: doc.problems[i].id || p.id, figure: doc.problems[i].figure, sourcePage: doc.problems[i].sourcePage })) };
+}
 type Saved = { id: string; title: string; version: number };
 const empty = (): ExamDocument => ({ title: "MATHTYPING", perPage: 4, problems: [] });
 function TypingWorkspace() {
@@ -24,6 +45,8 @@ function TypingWorkspace() {
   const [busy, setBusy] = useState(""), [message, setMessage] = useState(""), [error, setError] = useState("");
   const [saved, setSaved] = useState<Saved[]>([]), [active, setActive] = useState<Saved | null>(null);
   const [dirty, setDirty] = useState(false), [draftReady, setDraftReady] = useState(false);
+  const measurement = useRef<HTMLDivElement>(null);
+  const [heights, setHeights] = useState<Record<string, number>>({});
   const preview = useRef<HTMLDivElement>(null), stop = useRef(false), mounted = useRef(true);
   const draftKey = `cosmath:typing:${workspace?.id}:${user?.id}`;
   const currentSource = sources.find(s => s.id === sourceId) ?? sources[0];
@@ -40,7 +63,7 @@ function TypingWorkspace() {
       const text = localStorage.getItem(draftKey);
       if (text) {
         const draft = JSON.parse(text);
-        if (draft.doc && Array.isArray(draft.doc.problems)) { setDoc(draft.doc); setActive(draft.active ?? null); setDirty(true); setMessage("이 브라우저의 작성 중인 시험지를 복원했습니다."); }
+        if (draft.doc && Array.isArray(draft.doc.problems)) { setDoc(cleanDocument(draft.doc)); setActive(draft.active ?? null); setDirty(true); setMessage("이 브라우저의 작성 중인 시험지를 복원했습니다."); }
       }
     } catch { setError("임시 저장본을 복원하지 못했습니다. 저장된 시험지나 편집본 JSON을 열어 주세요."); }
     setDraftReady(true);
@@ -57,6 +80,20 @@ function TypingWorkspace() {
     const warn = (e: BeforeUnloadEvent) => { if (dirty) e.preventDefault(); };
     window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
+  useEffect(() => {
+    const node = measurement.current; if (!node) return;
+    let cancelled = false;
+    const measure = () => {
+      if (cancelled) return;
+      const next = Object.fromEntries(Array.from(node.children).map((child, i) => [doc.problems[i].id, Math.ceil(child.getBoundingClientRect().height)]));
+      setHeights(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
+    };
+    const observer = new ResizeObserver(measure);
+    Array.from(node.children).forEach(child => observer.observe(child));
+    measure(); void document.fonts.ready.then(measure);
+    return () => { cancelled = true; observer.disconnect(); };
+  }, [doc.problems]);
+  const oversized = doc.problems.filter(p => (heights[p.id] ?? 0) > COLUMN_HEIGHT);
   async function refreshSaved() {
     const { data, error } = await supabase.from("cosmath_typing_documents").select("id,title,version").order("updated_at", { ascending: false }).limit(100);
     if (error) throw storageError(error); setSaved(data ?? []);
@@ -82,7 +119,7 @@ function TypingWorkspace() {
     try {
       const { data, error } = await supabase.from("cosmath_typing_documents").select("id,title,version,document").eq("id", id).single();
       if (error) throw storageError(error);
-      setDoc(data.document as ExamDocument); setActive({ id: data.id, title: data.title, version: data.version }); setDirty(false); setSources([]); setMessage("시험지를 불러왔습니다. 원본 미리보기는 파일을 다시 올리면 볼 수 있습니다."); setTab("edit");
+      setDoc(cleanDocument(data.document as ExamDocument)); setActive({ id: data.id, title: data.title, version: data.version }); setDirty(false); setSources([]); setMessage("시험지를 불러왔습니다. 원본 미리보기는 파일을 다시 올리면 볼 수 있습니다."); setTab("edit");
     } catch (e) { setError(e instanceof Error ? e.message : "불러오지 못했습니다."); } finally { setBusy(""); }
   }
   async function upload(files: File[]) {
@@ -126,15 +163,17 @@ function TypingWorkspace() {
   }
   async function exportFile(format: "docx" | "hwpx" | "json") {
     if (!doc.problems.length) return;
+    if (format !== "json" && oversized.length) { setError("한 단보다 긴 문항이 있습니다. 본문이나 그림 크기를 줄인 후 다운로드해 주세요."); return; }
     setBusy("다운로드 준비 중"); setError("");
     try {
       const { buildDocx, buildHwpx, downloadBlob } = await import("../../lib/typing-export");
       let blob: Blob;
+      const brandImage = format === "json" ? undefined : await imageData(new File([await (await fetch(logo.src)).blob()], "logo.png", { type: "image/png" }), 400);
       if (format === "json") blob = new Blob([JSON.stringify(doc, null, 2)], { type: "application/json" });
-      else if (format === "docx") blob = await buildDocx(doc);
+      else if (format === "docx") blob = await buildDocx({ ...doc, brandImage, problemHeights: heights });
       else {
         const response = await fetch("/typing/blank.hwpx"); if (!response.ok) throw new Error("한글 문서 양식을 불러오지 못했습니다.");
-        blob = await buildHwpx(doc, await response.arrayBuffer());
+        blob = await buildHwpx({ ...doc, problemHeights: heights }, await response.arrayBuffer());
       }
       downloadBlob(blob, `${doc.title || "시험지"}.${format}`); setMessage(`${format.toUpperCase()} 편집본을 내려받았습니다.`);
     } catch (e) { setError(e instanceof Error ? e.message : "내보내기에 실패했습니다."); } finally { setBusy(""); }
@@ -151,6 +190,7 @@ function TypingWorkspace() {
   }
   async function print() {
     await document.fonts.ready;
+    if (oversized.length) { setError("한 단보다 긴 문항이 있습니다. 본문이나 그림 크기를 줄여 주세요."); return; }
     if (preview.current?.querySelector('[data-problem] mark')) { setError("수식 문법을 먼저 확인해 주세요. 노란색으로 표시한 수식을 수정한 뒤 PDF를 저장할 수 있습니다."); return; }
     if (preview.current && Array.from(preview.current.querySelectorAll('[data-problem]')).some(el => el.scrollHeight > el.clientHeight + 2)) {
       setError("문항이 풀이 공간을 넘습니다. 페이지당 문항 수를 줄이거나 긴 문항을 나눈 뒤 PDF를 저장해 주세요."); return;
@@ -161,7 +201,7 @@ function TypingWorkspace() {
     change(d => { const next = [...d.problems]; const other = index + direction; if (other >= 0 && other < next.length) [next[index], next[other]] = [next[other], next[index]]; return { ...d, problems: next }; });
   }
   return <main className={styles.app}>
-    <header className={styles.header}><Link href="/" className={styles.brand}>cosmath<span>WORKSPACE</span></Link><div className={styles.headerRight}><Link href="/errors/report" className={styles.reportLink}><FileText size={16}/>오답·숙제 보고서</Link><LandingMenu/></div></header>
+    <header className={styles.header}><Link href="/" className={styles.brand}><Image src={logo} alt="COSMATH MATH ACADEMY" priority/><span>WORKSPACE</span></Link><div className={styles.headerRight}><Link href="/errors/report" className={styles.reportLink}><FileText size={16}/>오답·숙제 보고서</Link><LandingMenu/></div></header>
     <section className={styles.top}><div><p>EXAM STUDIO</p><h1>시험지 타이핑 <span>수학을 선명하게, 준비는 간편하게.</span></h1><small>PDF·이미지를 문항으로 옮기고, 편집 가능한 시험지로 완성하세요.</small></div><div className={styles.exports}>
       <button disabled={!!busy || !doc.problems.length} onClick={() => void save()}><Save size={16}/>학원 저장</button>
       <button disabled={!!busy || !doc.problems.length} onClick={() => void exportFile("docx")}><FileDown size={16}/>Word</button>
@@ -187,16 +227,18 @@ function TypingWorkspace() {
               <label>문제 본문<textarea value={p.question} rows={5} onChange={e => update(p.id, { question: e.target.value })}/></label>
               <label>보기 / 조건 박스<textarea value={p.boxContent} rows={2} onChange={e => update(p.id, { boxContent: e.target.value })}/></label>
               <label>선택지 · 한 줄에 하나씩, 최대 5개<textarea value={p.choices.join("\n")} rows={3} onChange={e => update(p.id, { choices: e.target.value ? e.target.value.split("\n").slice(0, 5) : [] })}/></label>
-              <label className={styles.figureUpload}>도형 / 그래프 첨부<input type="file" accept="image/png,image/jpeg,image/webp" onChange={async e => { const file = e.target.files?.[0]; e.target.value = ""; if (!file) return; try { if (file.size > 10 * 1024 * 1024) throw new Error("그림은 10MB 이하로 올려 주세요."); update(p.id, { figure: await imageData(file, 800) }); } catch (e) { setError(e instanceof Error ? e.message : "그림을 읽지 못했습니다."); } }}/></label>{p.figure && <button onClick={() => update(p.id, { figure: undefined })}>첨부 그림 삭제</button>}
+              <label className={styles.figureUpload}><strong>그림 별도 첨부</strong><span>이 문항에 들어갈 도형·그래프 이미지를 선택하세요.</span><input type="file" accept="image/png,image/jpeg,image/webp" onChange={async e => { const file = e.target.files?.[0]; e.target.value = ""; if (!file) return; try { if (file.size > 10 * 1024 * 1024) throw new Error("그림은 10MB 이하로 올려 주세요."); update(p.id, { figure: await imageData(file, 800) }); } catch (e) { setError(e instanceof Error ? e.message : "그림을 읽지 못했습니다."); } }}/></label>{p.figure && <div className={styles.figureAttachment}><img src={p.figure} alt={`${p.number}번 첨부 그림 미리보기`}/><button onClick={() => update(p.id, { figure: undefined })}>첨부 그림 삭제</button></div>}
             </section>)}
           </>}
         </fieldset>
       </aside>
-      <section className={styles.previewArea}><div className={styles.previewControls}><div><span className={styles.liveDot}/>A4 시험지 미리보기 <small>2단 · {doc.problems.length}문항</small></div><label>페이지당 <select value={doc.perPage} disabled={!!busy} onChange={e => change(d => ({ ...d, perPage: Number(e.target.value) }))}>{[2, 4, 6].map(n => <option key={n} value={n}>{n}문항</option>)}</select></label></div>
+      <section className={styles.previewArea}><div className={styles.previewControls}><div><span className={styles.liveDot}/>A4 시험지 미리보기 <small>2단 · {doc.problems.length}문항 · 길이에 맞춰 자동 배치</small></div><label>페이지당 <select value={doc.perPage} disabled={!!busy} onChange={e => change(d => ({ ...d, perPage: Number(e.target.value) }))}>{[2, 4, 6].map(n => <option key={n} value={n}>{n}문항</option>)}</select></label></div>
         <div className={styles.documentBar}><label>시험지 제목<input aria-label="시험지 제목" value={doc.title} maxLength={150} disabled={!!busy} onChange={e => change(d => ({ ...d, title: e.target.value }))}/></label><select aria-label="저장된 시험지 열기" disabled={!!busy} value="" onChange={e => void load(e.target.value)}><option value="">저장된 시험지 열기</option>{saved.map(s => <option value={s.id} key={s.id}>{s.title}</option>)}</select><button disabled={!!busy} onClick={() => { if (dirty && !confirm("저장하지 않은 내용을 비우고 새 시험지를 만들까요?")) return; setActive(null); setDoc(empty()); setSources([]); setDirty(false); }}>새 시험지</button></div>
+        <div className={styles.measurement} ref={measurement} aria-hidden="true">{doc.problems.map(p => <ProblemView key={p.id} p={p} measure/>)}</div>
+        {!!oversized.length && <p className={styles.layoutWarning}>문항 {oversized.map(p => p.number).join(", ")}: 한 단보다 긴 내용입니다. 본문을 나누거나 그림을 줄여 주세요.</p>}
         <div className={styles.paperScroll} ref={preview}>
           {!doc.problems.length && <div className={styles.emptyPaper}><FileText size={42}/><h2>첫 시험지를 만들어 보세요</h2><p>파일을 올리면 문항과 수식을 인식해<br/>여백이 넉넉한 시험지로 정리합니다.</p></div>}
-          {examPages(doc.problems, doc.perPage).map((page, index) => <article key={index} className={styles.paper}><div className={styles.paperHeader}><span>{doc.title || "MATHTYPING"}</span><strong>{index + 1}</strong></div><div className={styles.columns}>{[page.left, page.right].map((col, ci) => <div key={ci} className={styles.column} style={{ gridTemplateRows: `repeat(${doc.perPage / 2}, minmax(0, 1fr))` }}>{col.map(p => <section key={p.id} className={styles.problem} data-problem><div className={styles.question}><strong>{p.number}.</strong><div><TypingMath text={p.question}/>{p.points && <small> [{p.points}]</small>}</div></div>{p.boxContent && <div className={styles.box}><span>〈보기〉</span><TypingMath text={p.boxContent}/></div>}{p.figure && <img className={styles.figure} src={p.figure} alt={`${p.number}번 문항 그림`}/>}<div className={styles.choices} data-wide={p.choices.some(c => c.length > 18)}>{p.choices.map((c, n) => <div key={n}><span>{choiceLabels[n]}</span><TypingMath text={c}/></div>)}</div></section>)}</div>)}</div></article>)}
+          {examPages(doc.problems, doc.perPage, heights).map((page, index) => <article key={index} className={styles.paper}><div className={styles.paperHeader}><div className={styles.paperBrand}><Image src={logo} alt="COSMATH"/></div><PaperTitle text={doc.title === "MATHTYPING" ? "" : doc.title}/><strong>{index + 1}</strong></div><div className={styles.columns}>{[page.left, page.right].map((col, ci) => <div key={ci} className={styles.column} style={{ gridTemplateRows: `repeat(${page.capacity / 2}, minmax(0, 1fr))` }}>{col.map(p => <ProblemView key={p.id} p={p}/>)}</div>)}</div></article>)}
         </div>
         <div className={styles.footer}><span>{dirty ? "작성 중 · 이 브라우저에 임시 저장" : active ? "학원에 저장됨" : "새 시험지"}</span><div><button disabled={!!busy || !doc.problems.length} onClick={() => void exportFile("json")}>편집본 JSON 다운로드</button><label>편집본 열기<input type="file" accept="application/json,.json" disabled={!!busy} onChange={e => { const file = e.target.files?.[0]; if (file) void importJson(file); e.target.value = ""; }}/></label></div></div>
       </section>

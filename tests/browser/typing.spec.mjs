@@ -121,3 +121,24 @@ test("designated managers can grant and revoke typing access from settings", asy
   await expect(page.getByRole("button", { name: "staff@example.test 사용 허용", exact: true })).toBeEnabled();
   expect(allowed).toBe(false);
 });
+
+
+test('long boxed questions paginate and separate figures appear in preview and exports', async ({ page }, testInfo) => {
+  await page.goto('/typing');
+  await expect(page.getByRole('img', { name: 'COSMATH MATH ACADEMY' })).toBeVisible();
+  await page.getByRole('button', { name: '예시 시험지 4문항으로 시작' }).click();
+  await page.getByRole('textbox', { name: '보기 / 조건 박스', exact: true }).first().fill(Array.from({length: 21}, (_, i) => '조건 ' + (i + 1) + '. 값을 확인하시오.').join('\n'));
+  await expect(page.locator('article')).toHaveCount(2);
+  const buffer = await page.getByRole('heading', { name: /시험지 타이핑/ }).screenshot();
+  await page.getByLabel('그림 별도 첨부').first().setInputFiles({ name: 'graph.png', mimeType: 'image/png', buffer });
+  await expect(page.getByRole('img', { name: '1번 첨부 그림 미리보기' })).toBeVisible();
+  await expect(page.locator('[data-problem] img')).toHaveCount(1);
+  const fits = await page.locator('[data-problem]').evaluateAll(nodes => nodes.every(n => n.getBoundingClientRect().bottom <= n.closest('article').getBoundingClientRect().bottom - 5));
+  expect(fits).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('long-question.png'), fullPage: true });
+  await page.emulateMedia({ media: 'print' });
+  const bytes = await page.pdf({ preferCSSPageSize: true });
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const task = pdfjs.getDocument({ data: new Uint8Array(bytes) });
+  const pdf = await task.promise; expect(pdf.numPages).toBe(2); await task.destroy();
+});

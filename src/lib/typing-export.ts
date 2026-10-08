@@ -104,23 +104,25 @@ export async function buildDocx(doc: ExamDocument): Promise<Blob> {
   const zip = new JSZip();
   let imageId = 0;
   const rels: string[] = [];
+  const picture = (data: string, logo = false) => {
+      const id = ++imageId, img = imageBytes(data), name = `image${id}.${img.ext}`;
+      const scale = Math.min((logo ? 950000 : 2300000) / img.width, (logo ? 280000 : 1500000) / img.height), width = Math.round(img.width * scale), height = Math.round(img.height * scale);
+      zip.file(`word/media/${name}`, img.data, { base64: true });
+      rels.push(`<Relationship Id="img${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${name}"/>`);
+      return `<w:p><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${width}" cy="${height}"/><wp:docPr id="${id}" name="문항 그림 ${id}"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${id}" name="${name}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="img${id}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${width}" cy="${height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
+    };
   const problem = (p?: ExamProblem) => {
     if (!p) return "<w:p/>";
     let result = wordParagraph(`${p.number}. ${p.question}${p.points ? `  [${p.points}]` : ""}`);
     if (p.boxContent) result += wordParagraph(p.boxContent, '<w:pBdr><w:top w:val="single" w:sz="4"/><w:left w:val="single" w:sz="4"/><w:bottom w:val="single" w:sz="4"/><w:right w:val="single" w:sz="4"/></w:pBdr>');
-    if (p.figure) {
-      const id = ++imageId, img = imageBytes(p.figure), name = `image${id}.${img.ext}`;
-      const scale = Math.min(2300000 / img.width, 1500000 / img.height), width = Math.round(img.width * scale), height = Math.round(img.height * scale);
-      zip.file(`word/media/${name}`, img.data, { base64: true });
-      rels.push(`<Relationship Id="img${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${name}"/>`);
-      result += `<w:p><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${width}" cy="${height}"/><wp:docPr id="${id}" name="문항 그림 ${id}"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${id}" name="${name}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="img${id}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${width}" cy="${height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
-    }
+    if (p.figure) result += picture(p.figure);
     if (p.choices.length) result += wordParagraph(p.choices.map((c, i) => `${choiceLabels[i]} ${c}`).join("     "));
     return result;
   };
-  const pages = examPages(doc.problems, doc.perPage).map((page, index) => {
-    const rows = Array.from({ length: doc.perPage / 2 }, (_, i) => `<w:tr><w:trPr><w:trHeight w:val="${Math.floor(12500 / (doc.perPage / 2))}" w:hRule="atLeast"/></w:trPr>${[page.left[i], page.right[i]].map((p, col) => `<w:tc><w:tcPr><w:tcW w:w="5100" w:type="dxa"/><w:vAlign w:val="top"/><w:tcMar><w:top w:w="160" w:type="dxa"/><w:left w:w="${col ? 360 : 0}" w:type="dxa"/><w:right w:w="${col ? 0 : 360}" w:type="dxa"/></w:tcMar><w:tcBorders>${col === 0 ? '<w:right w:val="single" w:sz="5" w:color="000000"/>' : ""}</w:tcBorders></w:tcPr>${problem(p)}</w:tc>`).join("")}</w:tr>`).join("");
-    return `${index ? '<w:p><w:r><w:br w:type="page"/></w:r></w:p>' : ""}${wordParagraph(`${doc.title || "MATHTYPING"}                                                  ${index + 1}`, '<w:pBdr><w:bottom w:val="single" w:sz="6"/></w:pBdr>')}<w:tbl><w:tblPr><w:tblW w:w="10200" w:type="dxa"/><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid><w:gridCol w:w="5100"/><w:gridCol w:w="5100"/></w:tblGrid>${rows}</w:tbl>`;
+  const pages = examPages(doc.problems, doc.perPage, doc.problemHeights).map((page, index) => {
+    const logoRuns = doc.brandImage ? picture(doc.brandImage, true).replace(/^<w:p>|<\/w:p>$/g, "") : "";
+    const rows = Array.from({ length: page.capacity / 2 }, (_, i) => `<w:tr><w:trPr><w:trHeight w:val="${Math.floor(12500 / (page.capacity / 2))}" w:hRule="atLeast"/></w:trPr>${[page.left[i], page.right[i]].map((p, col) => `<w:tc><w:tcPr><w:tcW w:w="5100" w:type="dxa"/><w:vAlign w:val="top"/><w:tcMar><w:top w:w="160" w:type="dxa"/><w:left w:w="${col ? 360 : 0}" w:type="dxa"/><w:right w:w="${col ? 0 : 360}" w:type="dxa"/></w:tcMar><w:tcBorders>${col === 0 ? '<w:right w:val="single" w:sz="5" w:color="000000"/>' : ""}</w:tcBorders></w:tcPr>${problem(p)}</w:tc>`).join("")}</w:tr>`).join("");
+    return `${index ? '<w:p><w:r><w:br w:type="page"/></w:r></w:p>' : ""}${wordParagraph(`${doc.title === "MATHTYPING" && doc.brandImage ? "" : doc.title || "MATHTYPING"}                                                  ${index + 1}`, '<w:pBdr><w:bottom w:val="single" w:sz="6"/></w:pBdr>').replace('</w:pPr>', '</w:pPr>' + logoRuns)}<w:tbl><w:tblPr><w:tblW w:w="10200" w:type="dxa"/><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid><w:gridCol w:w="5100"/><w:gridCol w:w="5100"/></w:tblGrid>${rows}</w:tbl>`;
   }).join("");
   zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="jpeg" ContentType="image/jpeg"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>`);
   zip.file("_rels/.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
@@ -147,17 +149,18 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
     if (inline.trim() || !result) result += single(inline);
     return result;
   };
+  const picture = (data: string, logo = false) => {
+      const img = imageBytes(data), binId = `image${++imageId}`;
+      const scale = Math.min((logo ? 7500 : 18000) / img.width, (logo ? 2200 : 12000) / img.height), width = Math.round(img.width * scale), height = Math.round(img.height * scale);
+      zip.file(`BinData/${binId}.${img.ext}`, img.data, { base64: true });
+      images.push(`<opf:item id="${binId}" href="BinData/${binId}.${img.ext}" media-type="image/${img.ext}" isEmbeded="1"/>`);
+      return `<hp:p id="${++id}" paraPrIDRef="3" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:pic id="${++id}" zOrder="0" numberingType="PICTURE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${id}" reverse="0"><hp:offset x="0" y="0"/><hp:orgSz width="${width}" height="${height}"/><hp:curSz width="${width}" height="${height}"/><hp:flip horizontal="0" vertical="0"/><hp:rotationInfo angle="0" centerX="${Math.round(width / 2)}" centerY="${Math.round(height / 2)}" rotateimage="1"/><hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo><hp:imgRect><hc:pt0 x="0" y="0"/><hc:pt1 x="${width}" y="0"/><hc:pt2 x="${width}" y="${height}"/><hc:pt3 x="0" y="${height}"/></hp:imgRect><hp:imgClip left="0" right="${width}" top="0" bottom="${height}"/><hp:inMargin left="0" right="0" top="0" bottom="0"/><hc:img binaryItemIDRef="${binId}" bright="0" contrast="0" effect="REAL_PIC" alpha="0"/><hp:sz width="${width}" height="${height}" widthRelTo="ABSOLUTE" heightRelTo="ABSOLUTE" protect="0"/><hp:pos treatAsChar="1" affectLSpacing="1" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/><hp:outMargin left="0" right="0" top="0" bottom="0"/><hp:shapeComment>문항 그림</hp:shapeComment></hp:pic></hp:run></hp:p>`;
+    };
   const problem = (p?: ExamProblem) => {
     if (!p) return para("");
     let text = para(`${p.number}. ${p.question}${p.points ? `  [${p.points}]` : ""}`);
     if (p.boxContent) text += para(`〈보기〉\n${p.boxContent}`);
-    if (p.figure) {
-      const img = imageBytes(p.figure), binId = `image${++imageId}`;
-      const scale = Math.min(18000 / img.width, 12000 / img.height), width = Math.round(img.width * scale), height = Math.round(img.height * scale);
-      zip.file(`BinData/${binId}.${img.ext}`, img.data, { base64: true });
-      images.push(`<opf:item id="${binId}" href="BinData/${binId}.${img.ext}" media-type="image/${img.ext}" isEmbeded="1"/>`);
-      text += `<hp:p id="${++id}" paraPrIDRef="3" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:pic id="${++id}" zOrder="0" numberingType="PICTURE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${id}" reverse="0"><hp:offset x="0" y="0"/><hp:orgSz width="${width}" height="${height}"/><hp:curSz width="${width}" height="${height}"/><hp:flip horizontal="0" vertical="0"/><hp:rotationInfo angle="0" centerX="${Math.round(width / 2)}" centerY="${Math.round(height / 2)}" rotateimage="1"/><hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo><hp:imgRect><hc:pt0 x="0" y="0"/><hc:pt1 x="${width}" y="0"/><hc:pt2 x="${width}" y="${height}"/><hc:pt3 x="0" y="${height}"/></hp:imgRect><hp:imgClip left="0" right="${width}" top="0" bottom="${height}"/><hp:inMargin left="0" right="0" top="0" bottom="0"/><hc:img binaryItemIDRef="${binId}" bright="0" contrast="0" effect="REAL_PIC" alpha="0"/><hp:sz width="${width}" height="${height}" widthRelTo="ABSOLUTE" heightRelTo="ABSOLUTE" protect="0"/><hp:pos treatAsChar="1" affectLSpacing="1" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/><hp:outMargin left="0" right="0" top="0" bottom="0"/><hp:shapeComment>문항 그림</hp:shapeComment></hp:pic></hp:run></hp:p>`;
-    }
+    if (p.figure) text += picture(p.figure);
     if (p.choices.length) text += para(p.choices.map((c, i) => `${choiceLabels[i]} ${c}`).join("    "));
     return text;
   };
@@ -165,10 +168,11 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
   const opening = original.slice(0, original.indexOf(">", original.indexOf("<hs:sec")) + 1);
   let sectionPr = original.match(/<hp:secPr[\s\S]*?<\/hp:secPr>/)![0];
   sectionPr = sectionPr.replace('<hp:pagePr ', '<hp:pagePr width="59528" height="84186" ').replace(/left="8504" right="8504" top="5668" bottom="4252"/, 'left="4252" right="4252" top="4252" bottom="4252"');
-  const content = examPages(doc.problems, doc.perPage).map((page, pi) => {
-    const rowCount = doc.perPage / 2, height = Math.floor(66000 / rowCount);
+  const content = examPages(doc.problems, doc.perPage, doc.problemHeights).map((page, pi) => {
+    const logoRuns = doc.brandImage ? picture(doc.brandImage, true).replace(/^<hp:p[^>]*>|<\/hp:p>$/g, "") : "";
+    const rowCount = page.capacity / 2, height = Math.floor(66000 / rowCount);
     const rows = Array.from({ length: rowCount }, (_, ri) => `<hp:tr>${[page.left[ri], page.right[ri]].map((p, ci) => `<hp:tc name="" header="0" hasMargin="1" protect="0" editable="1" dirty="0" borderFillIDRef="${ci === 0 ? 3 : 1}"><hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="TOP" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">${problem(p)}</hp:subList><hp:cellAddr colAddr="${ci}" rowAddr="${ri}"/><hp:cellSpan colSpan="1" rowSpan="1"/><hp:cellSz width="25512" height="${height}"/><hp:cellMargin left="${ci ? 1700 : 0}" right="${ci ? 0 : 1700}" top="700" bottom="700"/></hp:tc>`).join("")}</hp:tr>`).join("");
-    const header = para(`${doc.title || "MATHTYPING"}                                                  ${pi + 1}`, pi > 0, "16");
+    const header = para(`${doc.title === "MATHTYPING" && doc.brandImage ? "" : doc.title || "MATHTYPING"}                                                  ${pi + 1}`, pi > 0, "16").replace(/(<hp:p[^>]*>)/, (_, opening) => opening + logoRuns);
     return header + `<hp:p id="${++id}" paraPrIDRef="3" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:tbl id="${++id}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="CELL" repeatHeader="0" rowCnt="${rowCount}" colCnt="2" cellSpacing="0" borderFillIDRef="1" noAdjust="0"><hp:sz width="51024" height="66000" widthRelTo="ABSOLUTE" heightRelTo="ABSOLUTE" protect="0"/><hp:pos treatAsChar="1" affectLSpacing="1" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/><hp:outMargin left="0" right="0" top="0" bottom="0"/><hp:inMargin left="0" right="0" top="0" bottom="0"/>${rows}</hp:tbl></hp:run></hp:p>`;
   }).join("");
   zip.file("Contents/section0.xml", `${opening}<hp:p id="1" paraPrIDRef="3" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0">${sectionPr}<hp:ctrl><hp:colPr id="" type="NEWSPAPER" layout="LEFT" colCount="1" sameSz="1" sameGap="0"/></hp:ctrl><hp:t/></hp:run></hp:p>${content}</hs:sec>`);

@@ -4,7 +4,7 @@ export type ExamProblem = {
   boxContent: string; choices: string[]; sourcePage?: number;
   figure?: string; review?: string;
 };
-export type ExamDocument = { title: string; problems: ExamProblem[]; perPage: number };
+export type ExamDocument = { title: string; problems: ExamProblem[]; perPage: number; brandImage?: string; problemHeights?: Record<string, number> };
 export const choiceLabels = ["①", "②", "③", "④", "⑤"];
 export type TextPart = { math: boolean; display: boolean; value: string };
 
@@ -21,23 +21,36 @@ export function splitMath(text: string): TextPart[] {
   if (end < text.length) parts.push({ math: false, display: false, value: text.slice(end) });
   return parts;
 }
+export function repairMath(text: string): string {
+  const repaired = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => '$' + math + '$').replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => '$$' + math + '$$');
+  return !repaired.includes('$') && /\\[a-zA-Z]+/.test(repaired) && !/[가-힣]/.test(repaired) ? '$' + repaired.trim() + '$' : repaired;
+}
 export function normalizeProblems(value: unknown, sourcePage?: number): ExamProblem[] {
-  if (!Array.isArray(value) || value.length > 100) throw new Error("문항 목록 형식을 확인해 주세요.");
+  if (!Array.isArray(value) || value.length > 100) throw new Error('문항 목록 형식을 확인해 주세요.');
   return value.map((item, i) => {
-    if (!item || typeof item !== "object" || typeof item.question !== "string" || !item.question.trim()) throw new Error(`${i + 1}번 문항 본문을 확인해 주세요.`);
-    const text = (v: unknown, max = 20000) => typeof v === "string" ? v.slice(0, max) : "";
-    return { id: crypto.randomUUID(), number: text(item.number, 30) || String(i + 1), points: text(item.points, 30),
-      question: text(item.question), boxContent: text(item.boxContent), choices: Array.isArray(item.choices) ? item.choices.slice(0, 5).map((v: unknown) => text(v)) : [],
-      sourcePage, review: text(item.review, 1000) };
+    if (!item || typeof item !== 'object' || typeof item.question !== 'string' || !item.question.trim()) throw new Error('문항 본문을 확인해 주세요.');
+    const text = (v: unknown, max = 20000) => typeof v === 'string' ? v.slice(0, max) : '';
+    const number = text(item.number, 30) || String(i + 1);
+    const question = repairMath(text(item.question).replace(/^\s*(\d+)[.)]\s*/, (prefix, n) => n === number ? '' : prefix));
+    const warning = '본문이 매우 짧습니다. 문장 조각을 문항으로 인식했는지 원본과 확인해 주세요.';
+    const review = [text(item.review, 1000), question.trim().length < 12 && !item.choices?.length && !text(item.review).includes(warning) ? warning : ''].filter(Boolean).join(' / ');
+    return { id: crypto.randomUUID(), number, points: text(item.points, 30), question,
+      boxContent: repairMath(text(item.boxContent).replace(/^\s*(?:[〈<＜]\s*)?보기(?:\s*[〉>＞])?\s*\n?/, '')),
+      choices: Array.isArray(item.choices) ? item.choices.slice(0, 5).map((v: unknown) => repairMath(text(v).replace(/^\s*[①②③④⑤]\s*/, ''))) : [], sourcePage, review };
   });
 }
-export function examPages(problems: ExamProblem[], perPage: number) {
+export const COLUMN_HEIGHT = 970;
+export function examPages(problems: ExamProblem[], perPage: number, heights: Record<string, number> = {}) {
   const size = [2, 4, 6].includes(perPage) ? perPage : 4;
-  return Array.from({ length: Math.ceil(problems.length / size) }, (_, i) => {
-    const page = problems.slice(i * size, (i + 1) * size);
-    // Keep the same column capacity on a partly filled final page.
-    return { left: page.slice(0, size / 2), right: page.slice(size / 2) };
-  });
+  const pages: { left: ExamProblem[]; right: ExamProblem[]; capacity: number }[] = [];
+  for (let offset = 0; offset < problems.length;) {
+    let capacity = size;
+    while (capacity > 2 && problems.slice(offset, offset + capacity).some(p => (heights[p.id] ?? 0) > COLUMN_HEIGHT / (capacity / 2))) capacity -= 2;
+    const page = problems.slice(offset, offset + capacity);
+    pages.push({ left: page.slice(0, capacity / 2), right: page.slice(capacity / 2), capacity });
+    offset += capacity;
+  }
+  return pages;
 }
 export const sampleProblems: Omit<ExamProblem, "id">[] = [
   { number: "1", points: "2점", question: "$\\sqrt[3]{5} \\times 25^{\\frac{1}{3}}$의 값은?", boxContent: "", choices: ["1", "2", "3", "4", "5"] },

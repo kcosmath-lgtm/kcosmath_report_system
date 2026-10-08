@@ -75,13 +75,36 @@ test("HWPX contains editable Hancom equations, valid style references and OCF pa
 });
 test("both editable exports embed attached figure bytes and relationships", async () => {
   const figure = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN1sAAAAASUVORK5CYII=";
-  const withImage = { ...doc, problems: [{ ...doc.problems[0], figure }] };
+  const withImage = { ...doc, brandImage: figure, problems: [{ ...doc.problems[0], figure }] };
   const word = await zipBlob(await buildDocx(withImage));
   assert.ok(word.file("word/media/image1.png"));
+  assert.ok(word.file("word/media/image2.png"));
   assert.match(await word.file("word/_rels/document.xml.rels").async("string"), /media\/image1.png/);
   const template = fs.readFileSync(path.resolve(__dirname, "../public/typing/blank.hwpx"));
   const hangul = await zipBlob(await buildHwpx(withImage, template.buffer.slice(template.byteOffset, template.byteOffset + template.byteLength)));
   assert.ok(hangul.file("BinData/image1.png"));
+  assert.ok(hangul.file("BinData/image2.png"));
   assert.match(await hangul.file("Contents/content.hpf").async("string"), /BinData\/image1.png/);
   assert.match(await hangul.file("Contents/section0.xml").async("string"), /binaryItemIDRef="image1"/);
+});
+
+
+
+test('OCR repairs duplicate numbers and math and flags suspicious fragments', () => {
+  const [p, fragment] = model.normalizeProblems([{ number: '7', question: '7. 다음 값은?', boxContent: '〈보기〉\n$a>0$', choices: ['① \\sqrt{2}'] }, { number: '8', question: '과', choices: [] }]);
+  assert.equal(p.question, '다음 값은?');
+  assert.equal(p.boxContent, '$a>0$');
+  assert.equal(p.choices[0], '$\\sqrt{2}$');
+  assert.match(fragment.review, /문장 조각/);
+  assert.equal(fragment.question, '과');
+  assert.equal(model.repairMath('\\(x^2\\)'), '$x^2$');
+});
+test('long questions get a full column in preview and editable exports', async () => {
+  const problemHeights = { '1': 700 };
+  const pages = model.examPages(doc.problems, 4, problemHeights);
+  assert.equal(pages.length, 2);
+  assert.equal(pages[0].capacity, 2);
+  assert.deepEqual(pages.flatMap(p => [...p.left, ...p.right]).map(p => p.number), ['1','2','3','4']);
+  const zip = await zipBlob(await buildDocx({ ...doc, problemHeights }));
+  assert.match(await zip.file('word/document.xml').async('string'), /w:val="12500"/);
 });

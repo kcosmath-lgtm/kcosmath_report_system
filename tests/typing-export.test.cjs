@@ -108,3 +108,28 @@ test('long questions get a full column in preview and editable exports', async (
   const zip = await zipBlob(await buildDocx({ ...doc, problemHeights }));
   assert.match(await zip.file('word/document.xml').async('string'), /w:val="12500"/);
 });
+
+
+test('OCR table normalization preserves empty cells, fractions and letters', () => {
+  const [p] = model.normalizeProblems([{ number: '1', question: '표에서 값을 구하시오.', tables: [{ caption: '<표 1>', rows: [['x','1','5','8','B'], ['y','4','A','32','\\frac{15}{2}']] }] }]);
+  assert.equal(p.tables[0].rows[1][4], '$\\frac{15}{2}$');
+  assert.equal(p.tables[0].rows[0][4], 'B');
+  assert.throws(() => model.normalizeTables([{ rows: [['x','y'], ['z']] }]));
+  assert.throws(() => model.normalizeTables([{ rows: Array.from({ length: 21 }, () => ['x']) }]));
+});
+test('Word and Hangul exports contain native editable table cells and native math', async () => {
+  const withTables = { ...doc, problems: [{ ...doc.problems[0], tables: [{ caption: '<표 1>', rows: [['$x$','1','5','8','B'], ['$y$','4','A','32','$\\frac{15}{2}$']] }] }] };
+  const word = await zipBlob(await buildDocx(withTables));
+  const document = parse(await word.file('word/document.xml').async('string'));
+  assert.equal(document.getElementsByTagName('w:tbl').length, 2);
+  assert.equal(document.getElementsByTagName('w:tc').length, 14);
+  assert.ok(document.getElementsByTagName('m:f').length >= 2);
+  const template = fs.readFileSync(path.resolve(__dirname, '../public/typing/blank.hwpx'));
+  const hwpx = await zipBlob(await buildHwpx(withTables, template.buffer.slice(template.byteOffset, template.byteOffset + template.byteLength)));
+  const section = parse(await hwpx.file('Contents/section0.xml').async('string'));
+  assert.equal(section.getElementsByTagName('hp:tbl').length, 2);
+  assert.equal(section.getElementsByTagName('hp:tc').length, 14);
+  const header = parse(await hwpx.file('Contents/header.xml').async('string'));
+  assert.ok(Array.from(header.getElementsByTagName('hh:borderFill')).some(n => n.getAttribute('id') === '5'));
+  assert.ok(Array.from(section.getElementsByTagName('hp:script')).some(n => n.textContent.includes('15') && n.textContent.includes('over')));
+});

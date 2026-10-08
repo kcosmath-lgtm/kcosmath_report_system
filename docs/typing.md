@@ -34,3 +34,11 @@ OCR은 `gemini-3.1-flash-lite`에 고정되어 있으며 다른 모델로 대체
 `node scripts/typing-review-fixtures.cjs`로 실제 앱 확인용 예시 파일을 `.local-backups/typing-review/`에 만들 수 있습니다. 빈 HWPX 템플릿은 `node scripts/create-typing-template.mjs`로 다시 생성할 수 있습니다.
 
 HWPX 빈 문서 템플릿은 Apache-2.0 `ownhwpx`의 BlankFileMaker로 생성했습니다. Word 수식 변환은 LGPL-3.0-or-later `mathml2omml`을 의존성으로 사용합니다.
+
+### 스캔 PDF와 표
+
+PDF.js worker와 함께 wasm(JBIG2/JPEG2000 디코더), cmaps, standard_fonts를 postinstall에서 public/typing으로 복사합니다. wasmUrl 누락 시 일부 스캔 PDF의 본문 레이어가 사라져 그림/필기만 OCR로 전달될 수 있습니다. `npm install` 또는 `node scripts/prepare-typing-assets.mjs`로 자산을 준비합니다.
+
+문항의 tables에는 `{ caption, rows: string[][] }`를 저장합니다. 문항당 6개, 표당 20행·10열까지 지원하며 빈 셀을 유지합니다. 문항 편집 → 표 추가에서 셀 내용·수식과 행/열을 수정할 수 있습니다. 화면/PDF와 Word/HWPX에 실제 표로 출력합니다. 현재 병합 셀은 지원하지 않습니다. 기존 JSON/학원 저장본은 tables가 없어도 그대로 열립니다.
+
+개인 PDF를 저장소에 넣지 않고 JBIG2 회귀 검증을 실행하려면 `TYPING_REVIEW_PDF`에 로컬 PDF 경로를 설정하고 브라우저 테스트의 JBIG2 항목을 실행합니다. Gemini 실제 추론은 별도의 서버 환경변수 설정이 필요하며 모의 OCR 테스트와 구분합니다.

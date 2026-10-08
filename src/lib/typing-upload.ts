@@ -16,14 +16,14 @@ export async function readSource(file: File): Promise<SourcePage[]> {
   if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) throw new Error("PDF, JPG, PNG, WebP 파일을 선택해 주세요.");
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc = "/typing/pdf.worker.min.mjs";
-  const task = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
+  const task = pdfjs.getDocument({ wasmUrl: "/typing/wasm/", cMapUrl: "/typing/cmaps/", cMapPacked: true, standardFontDataUrl: "/typing/standard_fonts/", data: new Uint8Array(await file.arrayBuffer()) });
   try {
     const pdf = await task.promise;
     if (pdf.numPages > 30) throw new Error("PDF는 30페이지 이하로 나누어 올려 주세요.");
     const pages: SourcePage[] = [];
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i), size = page.getViewport({ scale: 1 });
-      const viewport = page.getViewport({ scale: Math.min(2, 1600 / size.width, 2200 / size.height) });
+      const viewport = page.getViewport({ scale: Math.min(3, 2000 / size.width, 2800 / size.height) });
       const canvas = document.createElement("canvas"); canvas.width = Math.round(viewport.width); canvas.height = Math.round(viewport.height);
       await page.render({ canvas, viewport, background: "white" }).promise;
       pages.push(make(canvas.toDataURL("image/jpeg", 0.88), `${file.name} · ${i}쪽`));

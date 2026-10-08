@@ -115,6 +115,12 @@ export async function buildDocx(doc: ExamDocument): Promise<Blob> {
     if (!p) return "<w:p/>";
     let result = wordParagraph(`${p.number}. ${p.question}${p.points ? `  [${p.points}]` : ""}`);
     if (p.boxContent) result += wordParagraph(p.boxContent, '<w:pBdr><w:top w:val="single" w:sz="4"/><w:left w:val="single" w:sz="4"/><w:bottom w:val="single" w:sz="4"/><w:right w:val="single" w:sz="4"/></w:pBdr>');
+    for (const table of p.tables ?? []) {
+      if (table.caption) result += wordParagraph(table.caption, '<w:jc w:val="center"/>');
+      const width = Math.floor(4600 / table.rows[0].length);
+      const borders = ["top", "left", "bottom", "right", "insideH", "insideV"].map(edge => `<w:${edge} w:val="single" w:sz="4" w:color="000000"/>`).join("");
+      result += `<w:tbl><w:tblPr><w:tblW w:w="4600" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders>${borders}</w:tblBorders></w:tblPr><w:tblGrid>${table.rows[0].map(() => `<w:gridCol w:w="${width}"/>`).join("")}</w:tblGrid>${table.rows.map(row => `<w:tr>${row.map(cell => `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/></w:tcPr>${wordParagraph(cell, '<w:jc w:val="center"/>')}</w:tc>`).join("")}</w:tr>`).join("")}</w:tbl><w:p/>`;
+    }
     if (p.figure) result += picture(p.figure);
     if (p.choices.length) result += wordParagraph(p.choices.map((c, i) => `${choiceLabels[i]} ${c}`).join("     "));
     return result;
@@ -160,6 +166,12 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
     if (!p) return para("");
     let text = para(`${p.number}. ${p.question}${p.points ? `  [${p.points}]` : ""}`);
     if (p.boxContent) text += para(`〈보기〉\n${p.boxContent}`);
+    for (const table of p.tables ?? []) {
+      if (table.caption) text += para(table.caption, false, "17");
+      const width = Math.floor(23000 / table.rows[0].length);
+      const rows = table.rows.map((row, ri) => `<hp:tr>${row.map((cell, ci) => `<hp:tc name="" header="0" hasMargin="1" protect="0" editable="1" dirty="0" borderFillIDRef="5"><hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">${para(cell, false, "17")}</hp:subList><hp:cellAddr colAddr="${ci}" rowAddr="${ri}"/><hp:cellSpan colSpan="1" rowSpan="1"/><hp:cellSz width="${width}" height="1800"/><hp:cellMargin left="250" right="250" top="250" bottom="250"/></hp:tc>`).join("")}</hp:tr>`).join("");
+      text += `<hp:p id="${++id}" paraPrIDRef="3" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:tbl id="${++id}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="CELL" repeatHeader="0" rowCnt="${table.rows.length}" colCnt="${table.rows[0].length}" cellSpacing="0" borderFillIDRef="5" noAdjust="0"><hp:sz width="23000" height="${table.rows.length * 1800}" widthRelTo="ABSOLUTE" heightRelTo="ABSOLUTE" protect="0"/><hp:pos treatAsChar="1" affectLSpacing="1" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/><hp:outMargin left="0" right="0" top="500" bottom="500"/><hp:inMargin left="0" right="0" top="0" bottom="0"/>${rows}</hp:tbl></hp:run></hp:p>`;
+    }
     if (p.figure) text += picture(p.figure);
     if (p.choices.length) text += para(p.choices.map((c, i) => `${choiceLabels[i]} ${c}`).join("    "));
     return text;
@@ -180,7 +192,8 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
   const border = header.match(/<hh:borderFill id="1"[\s\S]*?<\/hh:borderFill>/)![0];
   const centerBorder = border.replace('id="1"', 'id="3"').replace('<hh:rightBorder type="None"', '<hh:rightBorder type="Solid"');
   const topBorder = border.replace('id="1"', 'id="4"').replace('<hh:bottomBorder type="None"', '<hh:bottomBorder type="Solid"');
-  header = header.replace('<hh:borderFills itemCnt="2">', '<hh:borderFills itemCnt="4">').replace('</hh:borderFills>', `${centerBorder}${topBorder}</hh:borderFills>`);
+  const tableBorder = border.replace('id="1"', 'id="5"').replace(/Border type="None"/g, 'Border type="Solid"');
+  header = header.replace('<hh:borderFills itemCnt="2">', '<hh:borderFills itemCnt="5">').replace('</hh:borderFills>', `${centerBorder}${topBorder}${tableBorder}</hh:borderFills>`);
   const pr = header.match(/<hh:paraPr id="3"[\s\S]*?<\/hh:paraPr>/)![0].replace('id="3"', 'id="16"').replace(/borderFillIDRef="2"/, 'borderFillIDRef="4"');
   const centerPr = pr.replace('id="16"', 'id="17"').replace(/horizontal="[^"]+"/, 'horizontal="CENTER"').replace('borderFillIDRef="4"', 'borderFillIDRef="2"');
   header = header.replace('<hh:paraProperties itemCnt="16">', '<hh:paraProperties itemCnt="18">').replace('</hh:paraProperties>', `${pr}${centerPr}</hh:paraProperties>`).replace('paraPrIDRef="6750318"', 'paraPrIDRef="3"');

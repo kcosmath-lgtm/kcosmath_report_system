@@ -142,3 +142,45 @@ test('long boxed questions paginate and separate figures appear in preview and e
   const task = pdfjs.getDocument({ data: new Uint8Array(bytes) });
   const pdf = await task.promise; expect(pdf.numPages).toBe(2); await task.destroy();
 });
+
+
+test('recognized tables are editable and survive JSON restore and document exports', async ({ page }) => {
+  await page.route('**/api/typing/extract', route => route.fulfill({ json: { problems: [{ number: '1', question: '표에서 A+B+C의 값은?', choices: ['2','4','6','8','10'], tables: [{ caption: '표 1', rows: [['$x$','1','5','8','B'], ['$y$','4','A','32','48']] }, { caption: '표 2', rows: [['$x$','-5','-3','1','4'], ['$y$','-6','-10','C','$\\frac{15}{2}$']] }] }] } }));
+  await page.goto('/typing');
+  await page.locator('input[type="file"][accept*="application/pdf"]').setInputFiles({ name: 'table.png', mimeType: 'image/png', buffer: await page.getByRole('heading', { name: /시험지 타이핑/ }).screenshot() });
+  await page.getByRole('button', { name: '선택 페이지 인식' }).click();
+  await expect(page.locator('[data-problem] table')).toHaveCount(2);
+  await expect(page.locator('[data-problem] table').first().locator('td')).toHaveCount(10);
+  await page.getByRole('textbox', { name: '문항 1 표 1 2행 3열', exact: true }).fill('$a^2$');
+  await expect(page.locator('[data-problem] table').first().locator('td').nth(7).locator('.katex')).toHaveCount(1);
+  await page.getByRole('button', { name: '표 추가', exact: true }).click();
+  await expect(page.locator('[data-problem] table')).toHaveCount(3);
+  await page.getByRole('button', { name: '행 추가', exact: true }).last().click();
+  await page.getByRole('button', { name: '열 추가', exact: true }).last().click();
+  await expect(page.locator('[data-problem] table').last().locator('td')).toHaveCount(9);
+  const [word] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Word', exact: true }).click()]);
+  const zip = await JSZip.loadAsync(readFileSync(await word.path()));
+  expect((await zip.file('word/document.xml').async('string')).match(/<w:tbl>/g)).toHaveLength(4);
+  await page.waitForTimeout(800); await page.reload();
+  await expect(page.locator('[data-problem] table')).toHaveCount(3);
+});
+
+test('JBIG2 scanned PDF renders its printed body instead of only annotations', async ({ page }, testInfo) => {
+  test.skip(!process.env.TYPING_REVIEW_PDF, 'Set TYPING_REVIEW_PDF to a local JBIG2 regression document.');
+  const warnings = []; page.on('console', msg => { if (/Jbig2Error|JBig2 failed|UnknownErrorException/.test(msg.text())) warnings.push(msg.text()); });
+  let decoderLoaded = false;
+  page.on('response', response => { if (response.url().includes('/typing/wasm/jbig2.wasm') && response.ok()) decoderLoaded = true; });
+  await page.goto('/typing');
+  await page.locator('input[type="file"][accept*="application/pdf"]').setInputFiles({ name: 'scanned.pdf', mimeType: 'application/pdf', buffer: readFileSync(process.env.TYPING_REVIEW_PDF) });
+  await expect(page.getByRole('button', { name: /6\. scanned.pdf/ })).toBeVisible({ timeout: 30000 });
+  expect(warnings).toEqual([]); expect(decoderLoaded).toBe(true);
+  const ink = await page.locator('img[alt="scanned.pdf · 1쪽"]').evaluate(async img => {
+    await img.decode(); const canvas = document.createElement('canvas'); canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0);
+    const {data} = ctx.getImageData(Math.floor(canvas.width * .1), Math.floor(canvas.height * .32), Math.floor(canvas.width * .36), Math.floor(canvas.height * .055));
+    let dark = 0; for(let i=0;i<data.length;i+=4) if(data[i]<100 && data[i+1]<100 && data[i+2]<100) dark++;
+    return dark;
+  });
+  expect(ink).toBeGreaterThan(1000);
+  await page.getByRole('img', { name: 'scanned.pdf · 1쪽' }).screenshot({ path: testInfo.outputPath('jbig2-fixed.png') });
+});

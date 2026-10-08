@@ -43,3 +43,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/public/typing/wasm/
+/public/typing/cmaps/
+/public/typing/standard_fonts/

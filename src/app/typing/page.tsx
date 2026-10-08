@@ -12,7 +12,7 @@ import TypingMath from "../../components/TypingMath";
 import { useAuth } from "../../components/AuthProvider";
 import { supabase } from "../../lib/supabase";
 import { storageError } from "../../lib/supabase-report-storage";
-import { COLUMN_HEIGHT, choiceLabels, examPages, normalizeProblems, sampleProblems, type ExamDocument, type ExamProblem } from "../../lib/typing-model";
+import { COLUMN_HEIGHT, choiceLabels, examPages, normalizeProblems, sampleProblems, type ExamDocument, type ExamProblem, type ExamTable } from "../../lib/typing-model";
 import { imageData, readSource, type SourcePage } from "../../lib/typing-upload";
 import styles from "./typing.module.css";
 
@@ -31,7 +31,7 @@ function PaperTitle({ text }: { text: string }) {
   }, [text]);
   return <div className={styles.paperTitle}><span ref={ref}>{text}</span></div>;
 }
-function ProblemView({ p, measure = false }: { p: ExamProblem; measure?: boolean }) { return <section className={styles.problem} data-problem={measure ? undefined : true}><div className={styles.question}><strong>{p.number}.</strong><div><TypingMath text={p.question}/>{p.points && <small> [{p.points}]</small>}</div></div>{p.boxContent && <div className={styles.box}><span>〈보기〉</span><TypingMath text={p.boxContent}/></div>}{p.figure && <img className={styles.figure} src={p.figure} alt={`${p.number}번 문항 그림`}/>}<div className={styles.choices} data-wide={p.choices.some(c => c.length > 12)}>{p.choices.map((c, n) => <div key={n}><span>{choiceLabels[n]}</span><TypingMath text={c}/></div>)}</div></section>; }
+function ProblemView({ p, measure = false }: { p: ExamProblem; measure?: boolean }) { return <section className={styles.problem} data-problem={measure ? undefined : true}><div className={styles.question}><strong>{p.number}.</strong><div><TypingMath text={p.question}/>{p.points && <small> [{p.points}]</small>}</div></div>{p.boxContent && <div className={styles.box}><span>〈보기〉</span><TypingMath text={p.boxContent}/></div>}{p.tables?.map((table, ti) => <table className={styles.examTable} key={ti}>{table.caption && <caption>{table.caption}</caption>}<tbody>{table.rows.map((row, ri) => <tr key={ri}>{row.map((cell, ci) => <td key={ci}><TypingMath text={cell}/></td>)}</tr>)}</tbody></table>)}{p.figure && <img className={styles.figure} src={p.figure} alt={`${p.number}번 문항 그림`}/>}<div className={styles.choices} data-wide={p.choices.some(c => c.length > 12)}>{p.choices.map((c, n) => <div key={n}><span>{choiceLabels[n]}</span><TypingMath text={c}/></div>)}</div></section>; }
 function cleanDocument(doc: ExamDocument): ExamDocument {
   return { ...doc, problems: normalizeProblems(doc.problems).map((p, i) => ({ ...p, id: doc.problems[i].id || p.id, figure: doc.problems[i].figure, sourcePage: doc.problems[i].sourcePage })) };
 }
@@ -227,6 +227,12 @@ function TypingWorkspace() {
               <label>문제 본문<textarea value={p.question} rows={5} onChange={e => update(p.id, { question: e.target.value })}/></label>
               <label>보기 / 조건 박스<textarea value={p.boxContent} rows={2} onChange={e => update(p.id, { boxContent: e.target.value })}/></label>
               <label>선택지 · 한 줄에 하나씩, 최대 5개<textarea value={p.choices.join("\n")} rows={3} onChange={e => update(p.id, { choices: e.target.value ? e.target.value.split("\n").slice(0, 5) : [] })}/></label>
+              <div className={styles.tableEditor}><strong>표 편집</strong><button disabled={(p.tables?.length ?? 0) >= 6} onClick={() => update(p.id, { tables: [...(p.tables ?? []), { caption: "", rows: [["", ""], ["", ""]] }] })}><Plus size={13}/>표 추가</button>
+                {p.tables?.map((table, ti) => {
+                  const changeTable = (patch: Partial<ExamTable>) => update(p.id, { tables: p.tables!.map((t, index) => index === ti ? { ...t, ...patch } : t) });
+                  return <div className={styles.tableCard} key={ti}><label>표 제목<input value={table.caption} maxLength={150} onChange={e => changeTable({ caption: e.target.value })}/></label><div className={styles.tableCells}><table><tbody>{table.rows.map((row, ri) => <tr key={ri}>{row.map((cell, ci) => <td key={ci}><input aria-label={`문항 ${p.number} 표 ${ti + 1} ${ri + 1}행 ${ci + 1}열`} value={cell} maxLength={2000} onChange={e => changeTable({ rows: table.rows.map((r, rowIndex) => rowIndex === ri ? r.map((c, columnIndex) => columnIndex === ci ? e.target.value : c) : r) })}/></td>)}</tr>)}</tbody></table></div><div className={styles.tableActions}><button disabled={table.rows.length >= 20} onClick={() => changeTable({ rows: [...table.rows, table.rows[0].map(() => "")] })}>행 추가</button><button disabled={table.rows.length <= 1} onClick={() => changeTable({ rows: table.rows.slice(0, -1) })}>마지막 행 삭제</button><button disabled={table.rows[0].length >= 10} onClick={() => changeTable({ rows: table.rows.map(row => [...row, ""]) })}>열 추가</button><button disabled={table.rows[0].length <= 1} onClick={() => changeTable({ rows: table.rows.map(row => row.slice(0, -1)) })}>마지막 열 삭제</button><button onClick={() => update(p.id, { tables: p.tables!.filter((_, index) => index !== ti) })}>표 삭제</button></div></div>;
+                })}
+              </div>
               <label className={styles.figureUpload}><strong>그림 별도 첨부</strong><span>이 문항에 들어갈 도형·그래프 이미지를 선택하세요.</span><input type="file" accept="image/png,image/jpeg,image/webp" onChange={async e => { const file = e.target.files?.[0]; e.target.value = ""; if (!file) return; try { if (file.size > 10 * 1024 * 1024) throw new Error("그림은 10MB 이하로 올려 주세요."); update(p.id, { figure: await imageData(file, 800) }); } catch (e) { setError(e instanceof Error ? e.message : "그림을 읽지 못했습니다."); } }}/></label>{p.figure && <div className={styles.figureAttachment}><img src={p.figure} alt={`${p.number}번 첨부 그림 미리보기`}/><button onClick={() => update(p.id, { figure: undefined })}>첨부 그림 삭제</button></div>}
             </section>)}
           </>}

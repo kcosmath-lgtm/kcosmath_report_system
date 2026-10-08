@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { StudentGroup } from '../types/student';
 import type { StudentDailySave } from '../types/student-daily';
 import { loadStudentDaily, loadWrongAnswers, saveStudentDaily } from '../lib/report-storage';
@@ -12,8 +12,16 @@ export default function StudentGrades({ groups, history, onSaved, blocked, show,
   const [message, setMessage] = useState('');
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const input = fileInput.current;
+    const cancel = () => onBusyChange(false);
+    input?.addEventListener('cancel', cancel);
+    return () => input?.removeEventListener('cancel', cancel);
+  }, [onBusyChange]);
   const students = groups.flatMap(g => g.students.map(s => ({ ...s, group: g.group })));
   async function read(file: File) {
+    onBusyChange(true);
+    console.info('[grade-import] file_selected', { size: file.size });
     setMessage(''); setPending([]); setError(false);
     try {
       if (file.size > 5 * 1024 * 1024) throw new Error('5MB 이하 파일을 선택해 주세요.');
@@ -25,12 +33,14 @@ export default function StudentGrades({ groups, history, onSaved, blocked, show,
       const doc = new DOMParser().parseFromString(text, 'text/html');
       const grid = Array.from(doc.querySelectorAll('tr')).map(tr => Array.from(tr.querySelectorAll('th,td')).map(td => td.textContent?.replace(/\u00a0/g,' ').trim() ?? ''));
       const parsed = parseGradeRows(grid);
+      console.info('[grade-import] file_parsed', { graded: parsed.rows.length, skipped: parsed.skipped });
       setPending(parsed.rows.map(r => {
         const matches = students.filter(s => s.name.trim() === r.name.trim() && s.grade.trim() === r.grade.trim());
         return { ...r, studentId: matches.length === 1 ? matches[0].id : '' };
       }));
       setMessage(`${parsed.rows.length}건 확인 · 미채점 ${parsed.skipped}건 제외. 날짜는 생성일 기준이며 변경할 수 있습니다. 점수 만점은 100점 기준입니다.`);
-    } catch(e) { setError(true); setMessage(e instanceof Error ? e.message : '파일을 읽지 못했습니다.'); }
+    } catch(e) { console.error('[grade-import] file_read_failed', e instanceof Error ? e.message : 'Unknown error'); setError(true); setMessage(e instanceof Error ? e.message : '파일을 읽지 못했습니다.'); }
+    finally { onBusyChange(false); }
   }
   async function importGrades() {
     if (busy) return;
@@ -67,8 +77,8 @@ export default function StudentGrades({ groups, history, onSaved, blocked, show,
     finally { setBusy(false); onBusyChange(false); }
   }
   return <>
-    <div className={styles.gradeActions}><input ref={fileInput} hidden type="file" accept=".xls,.html,.htm" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void read(file); }} />
-      <button disabled={blocked || busy} title={blocked ? '수업 기록을 먼저 저장해 주세요.' : undefined} onClick={() => fileInput.current?.click()}>성적 엑셀 가져오기</button>
+    <div className={styles.gradeActions}><input ref={fileInput} hidden type="file" accept=".xls,.html,.htm" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void read(file); else onBusyChange(false); }} />
+      <button type="button" disabled={blocked || busy} title={blocked ? '수업 기록을 먼저 저장해 주세요.' : undefined} onClick={() => { console.info('[grade-import] picker_open v2'); onBusyChange(true); fileInput.current?.click(); }}>성적 엑셀 가져오기</button>
       <button aria-pressed={show} disabled={busy} onClick={() => setShow(!show)}>{show ? '수업 기록 보기' : '성적 보기'}</button>
     </div>
     {message && <p className={styles.message} role={error ? 'alert' : 'status'} data-error={error}>{message}</p>}

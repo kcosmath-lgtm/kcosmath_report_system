@@ -1,0 +1,37 @@
+import { test, expect } from '@playwright/test';
+test('file chooser focus preserves date, parses grades and persists them', async ({ page }) => {
+ const host = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder-url-for-build.supabase.co').hostname;
+ const user={id:'10000000-0000-4000-8000-000000000001',email:'test@example.com',aud:'authenticated',role:'authenticated',user_metadata:{},app_metadata:{}};
+ const token=['eyJhbGciOiJIUzI1NiJ9',Buffer.from(JSON.stringify({sub:user.id,exp:Math.floor(Date.now()/1000)+86400,role:'authenticated'})).toString('base64url'),'signature'].join('.');
+ await page.addInitScript(({host,user,token})=>localStorage.setItem(`sb-${host.split('.')[0]}-auth-token`,JSON.stringify({access_token:token,refresh_token:'test',expires_at:Math.floor(Date.now()/1000)+86400,user})),{host,user,token});
+ await page.route(`https://${host}/**`,route=>route.fulfill({json:route.request().url().includes('cosmath_get_my_workspace')?{id:'academy',name:'Test',role:'owner'}:user}));
+ await page.goto('/students');
+ await expect(page.getByText('등록된 반이 없습니다.')).toBeVisible();
+ await page.evaluate(()=>new Promise((resolve,reject)=>{
+  const request=indexedDB.open('cosmath-local-v1',4);
+  request.onupgradeneeded=()=>{for(const name of ['classes','students','lessons','reports','wrongAnswers','handoffs','studentDaily'])request.result.createObjectStore(name,{keyPath:'id'});};
+  request.onsuccess=()=>{const db=request.result,tx=db.transaction(['classes','students'],'readwrite');tx.objectStore('classes').put({id:'class',name:'테스트 반'});tx.objectStore('students').put({id:'student',class_id:'class',name:'테스트 학생',grade:'중3',active:true,version:1});tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);};request.onerror=()=>reject(request.error);
+ }));
+ await page.reload();
+ await page.getByRole('button',{name:'테스트 반 1',exact:false}).click();
+ await page.getByLabel('기록 날짜').fill('2026-10-07');
+ await expect(page.getByLabel('기록 날짜')).toHaveValue('2026-10-07');
+ const chooserPromise=page.waitForEvent('filechooser');
+ await page.getByRole('button',{name:'성적 엑셀 가져오기'}).click();
+ const chooser=await chooserPromise;
+ await page.evaluate(()=>{window.dispatchEvent(new Event('focus'));document.dispatchEvent(new Event('visibilitychange'));});
+ const cells=['학생명','학년','점수','생성일','문제지명','문제지ID','문항수','정/오'];
+ const values=['테스트 학생','중3','93점','26.10.07','Daily Test','123','15문항','14/1'];
+ const html=`<meta charset="utf-8"><table><tr>${cells.map(v=>`<th>${v}</th>`).join('')}</tr><tr>${values.map(v=>`<td>${v}</td>`).join('')}</tr></table>`;
+ await chooser.setFiles({name:'grades.xls',mimeType:'application/vnd.ms-excel',buffer:Buffer.from(html)});
+ await expect(page.getByText('가져올 성적 확인 · 아직 저장되지 않았습니다')).toBeVisible();
+ await expect(page.getByLabel('기록 날짜')).toHaveValue('2026-10-07');
+ await page.getByRole('button',{name:'확인한 성적 저장',exact:true}).first().click();
+ await expect(page.getByRole('status')).toContainText('성적 1건 저장 완료');
+ await expect(page.getByRole('cell',{name:'93 / 100'})).toBeVisible();
+ await page.reload();
+ await page.getByRole('button',{name:'테스트 반 1',exact:false}).click();
+ await page.getByLabel('기록 날짜').fill('2026-10-07');
+ await page.getByRole('button',{name:'성적 보기',exact:true}).click();
+ await expect(page.getByRole('cell',{name:'93 / 100'})).toBeVisible();
+});

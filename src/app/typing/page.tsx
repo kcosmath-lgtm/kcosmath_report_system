@@ -146,7 +146,9 @@ function TypingWorkspace() {
         const source = targets[i]; setBusy(`${i + 1}/${targets.length} 페이지 인식 중`); setSourceId(source.id);
         try {
           const response = await fetch("/api/typing/extract", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ image: source.image.split(",")[1], mimeType: "image/jpeg" }), signal: AbortSignal.timeout(65_000) });
-          const result = await response.json(); if (!response.ok) throw new Error(result.error || "인식에 실패했습니다.");
+          const result = await response.json().catch(() => null);
+          if (!response.ok) throw new Error(result?.error ? `${result.error}${result.code ? " [" + result.code + "]" : ""}${result.requestId ? " · 오류 번호: " + result.requestId : ""}` : `서버가 OCR 응답을 반환하지 못했습니다 (HTTP ${response.status}). Vercel 실행 로그를 확인해 주세요.`);
+          if (!result) throw new Error("서버의 OCR 응답을 읽지 못했습니다. 다시 시도해 주세요.");
           const pageNumber = sources.findIndex(s => s.id === source.id) + 1;
           const problems = normalizeProblems(result.problems, pageNumber);
           if (!problems.length) throw new Error("인식된 문항이 없습니다. 원본을 확인해 주세요.");

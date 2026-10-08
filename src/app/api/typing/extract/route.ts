@@ -15,6 +15,13 @@ export async function POST(req: NextRequest) {
   if (membership.error || !membership.data) return NextResponse.json({ error: "학원 가입이 필요합니다." }, { status: 403 });
   const access = await client.rpc("cosmath_has_typing_access");
   if (access.error || access.data !== true) return NextResponse.json({ error: "시험지 타이핑 사용 권한이 없습니다. 관리자에게 권한을 요청해 주세요." }, { status: 403 });
+  const requestId = crypto.randomUUID();
+  let stage = "request";
+  const fail = (code: string, message: string, status = 502, details: Record<string, string | number> = {}) => {
+    // Log only diagnostic codes, never keys, tokens, uploaded images or OCR text.
+    console.error("[typing-ocr]", JSON.stringify({ requestId, code, stage, model: OCR_MODEL, ...details }));
+    return NextResponse.json({ error: message, code, requestId }, { status });
+  };
   try {
     if (Number(req.headers.get("content-length")) > 4_000_000) return NextResponse.json({ error: "페이지 이미지가 너무 큽니다." }, { status: 413 });
     const body = await req.json();
@@ -25,6 +32,7 @@ export async function POST(req: NextRequest) {
     const key = process.env.GEMINI_API_KEY?.trim();
     if (!key) return NextResponse.json({ error: "OCR 서버 설정이 준비되지 않았습니다. 관리자에게 문의해 주세요." }, { status: 503 });
     const fields = Object.fromEntries(["number", "points", "question", "boxContent", "review"].map(name => [name, { type: "STRING" }]));
+    stage = "gemini_request";
     const result = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${OCR_MODEL}:generateContent`, {
       method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": key }, signal: AbortSignal.timeout(50_000),
       body: JSON.stringify({ contents: [{ parts: [
@@ -34,13 +42,40 @@ export async function POST(req: NextRequest) {
         type: "OBJECT", properties: { problems: { type: "ARRAY", items: { type: "OBJECT", properties: { ...fields, tables: { type: "ARRAY", maxItems: 6, items: { type: "OBJECT", properties: { caption: { type: "STRING" }, rows: { type: "ARRAY", maxItems: 20, items: { type: "ARRAY", maxItems: 10, items: { type: "STRING" } } } }, required: ["caption", "rows"] } }, choices: { type: "ARRAY", items: { type: "STRING" } } }, required: ["number", "question", "choices"] } } }, required: ["problems"],
       } } }),
     });
-    if (!result.ok) return NextResponse.json({ error: result.status === 429 ? "Gemini 사용량 한도에 도달했습니다. 잠시 후 다시 시도해 주세요." : `OCR 요청에 실패했습니다 (${result.status}). API 키와 모델 접근 권한을 확인해 주세요.` }, { status: result.status === 429 ? 429 : 502 });
+    if (!result.ok) {
+      const messages: Record<number, string> = {
+        400: "Gemini가 OCR 요청 형식 또는 API 키를 거절했습니다. 서버 로그의 GEMINI_HTTP_400을 확인해 주세요.",
+        401: "Gemini API 키 인증에 실패했습니다. Vercel의 GEMINI_API_KEY를 확인해 주세요.",
+        403: "Gemini 모델 사용 권한이 없습니다. API 키의 프로젝트와 접근 제한을 확인해 주세요.",
+        404: "지정한 gemini-3.1-flash-lite 모델을 찾을 수 없습니다. 모델 접근 가능 여부를 확인해 주세요.",
+        429: "Gemini 사용량 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.",
+      };
+      const upstream = await result.json().catch(() => null);
+      const providerStatus = typeof upstream?.error?.status === "string" && /^[A-Z_]{1,60}$/.test(upstream.error.status) ? upstream.error.status : "UNKNOWN";
+      const reason = Array.isArray(upstream?.error?.details) ? upstream.error.details.find((d: { reason?: unknown }) => typeof d.reason === "string" && /^[A-Z_]{1,80}$/.test(d.reason as string))?.reason : undefined;
+      return fail(`GEMINI_HTTP_${result.status}`, messages[result.status] || `Gemini 서버가 오류를 반환했습니다 (${result.status}). 잠시 후 다시 시도해 주세요.`, result.status === 429 ? 429 : 502, { upstreamStatus: result.status, providerStatus, ...(reason ? { providerReason: reason } : {}) });
+    }
+    stage = "gemini_response";
     const data = await result.json();
     const candidate = data.candidates?.[0];
-    if (candidate?.finishReason !== "STOP") throw new Error("OCR 결과가 완성되지 않았습니다. 페이지를 나누어 다시 시도해 주세요.");
-    const parsed = JSON.parse(candidate.content.parts.map((p: { text?: string }) => p.text ?? "").join(""));
-    return NextResponse.json({ problems: normalizeProblems(parsed.problems), model: OCR_MODEL });
+    if (!candidate) return fail("OCR_NO_CANDIDATE", "Gemini가 인식 결과를 반환하지 않았습니다. 원본 페이지를 확인해 주세요.");
+    if (candidate.finishReason !== "STOP") {
+      const reason = typeof candidate.finishReason === "string" && /^[A-Z_]{1,60}$/.test(candidate.finishReason) ? candidate.finishReason : "UNKNOWN";
+      return fail("OCR_INCOMPLETE", reason === "MAX_TOKENS" ? "인식 결과가 길어 중간에 종료되었습니다. 페이지를 나누어 다시 인식해 주세요." : `Gemini가 인식을 완료하지 못했습니다 (${reason}).`, 502, { finishReason: reason });
+    }
+    stage = "ocr_json";
+    const text = candidate.content?.parts?.filter((p: { thought?: boolean }) => !p.thought).map((p: { text?: string }) => p.text ?? "").join("");
+    if (!text) return fail("OCR_EMPTY_TEXT", "Gemini의 인식 결과가 비어 있습니다. 해당 페이지를 다시 인식해 주세요.");
+    const parsed = JSON.parse(text);
+    stage = "ocr_validation";
+    const problems = normalizeProblems(parsed.problems);
+    if (!problems.length) return fail("OCR_NO_PROBLEMS", "인식된 문항이 없습니다. 원본 미리보기에 본문이 정상적으로 보이는지 확인해 주세요.");
+    return NextResponse.json({ problems, model: OCR_MODEL });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error && /timeout|abort/i.test(e.name) ? "OCR 처리 시간이 초과되었습니다. 해당 페이지를 다시 시도해 주세요." : "문항을 인식하지 못했습니다. 더 선명한 이미지로 다시 시도해 주세요." }, { status: 502 });
+    if (e instanceof Error && /timeout|abort/i.test(e.name)) return fail("OCR_TIMEOUT", "OCR 처리 시간이 50초를 초과했습니다. 해당 페이지를 나누어 다시 시도해 주세요.", 504);
+    if (stage === "request") return fail("INVALID_REQUEST", "요청 데이터를 읽지 못했습니다. 파일을 다시 올려 주세요.", 400);
+    if (stage === "ocr_json" || stage === "gemini_response") return fail("OCR_INVALID_JSON", "Gemini가 읽을 수 없는 형식의 결과를 반환했습니다. 해당 페이지를 다시 인식해 주세요.");
+    if (stage === "ocr_validation") return fail("OCR_INVALID_DOCUMENT", "인식 결과의 문항 또는 표 구조가 올바르지 않습니다. 해당 페이지를 나누어 다시 인식해 주세요.");
+    return fail("OCR_CONNECTION", "Gemini 서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.");
   }
 }

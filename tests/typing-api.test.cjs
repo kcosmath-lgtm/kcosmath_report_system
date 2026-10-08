@@ -55,3 +55,27 @@ test("invalid images and model failures do not trigger fallback models", async (
   global.fetch = async () => { calls++; return new Response("quota", { status: 429 }); };
   try { assert.equal((await POST(request(payload))).status, 429); assert.equal(calls, 1); } finally { global.fetch = oldFetch; }
 });
+
+
+test('OCR errors identify upstream failure, truncation, JSON and table validation without leaking secrets', async () => {
+  const oldFetch = global.fetch, oldLog = console.error, logs = [];
+  console.error = (...args) => logs.push(args.join(' '));
+  const cases = [
+    [new Response(JSON.stringify({ error: { status: 'INVALID_ARGUMENT', message: 'server-test-key private content', details: [{ reason: 'API_KEY_INVALID' }] } }), { status: 400 }), 'GEMINI_HTTP_400', 502],
+    [new Response(JSON.stringify({ candidates: [{ finishReason: 'MAX_TOKENS' }] })), 'OCR_INCOMPLETE', 502],
+    [new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'not json private content' }] } }] })), 'OCR_INVALID_JSON', 502],
+    [new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ problems: [{ question: '표 문제', tables: [{ rows: [['x','y'], ['z']] }] }] }) }] } }] })), 'OCR_INVALID_DOCUMENT', 502],
+  ];
+  try {
+    for (const [providerResponse, code, status] of cases) {
+      global.fetch = async () => providerResponse;
+      const response = await POST(request(payload)), body = await response.json();
+      assert.equal(response.status, status); assert.equal(body.code, code); assert.ok(body.requestId);
+      assert.ok(!JSON.stringify(body).includes('server-test-key'));
+    }
+    global.fetch = async () => { throw new DOMException('private content', 'TimeoutError'); };
+    const timeout = await POST(request(payload)); assert.equal(timeout.status, 504); assert.equal((await timeout.json()).code, 'OCR_TIMEOUT');
+    assert.ok(logs.some(line => line.includes('API_KEY_INVALID')));
+    assert.ok(logs.every(line => !line.includes('server-test-key') && !line.includes('private content')));
+  } finally { global.fetch = oldFetch; console.error = oldLog; }
+});

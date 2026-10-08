@@ -25,9 +25,8 @@ export default function StudentGrades({ groups, history, onSaved, blocked, show,
       const grid = Array.from(doc.querySelectorAll('tr')).map(tr => Array.from(tr.querySelectorAll('th,td')).map(td => td.textContent?.replace(/\u00a0/g,' ').trim() ?? ''));
       const parsed = parseGradeRows(grid);
       setPending(parsed.rows.map(r => {
-        const matches = students.filter(s => s.name === r.name && (!r.grade || s.grade === r.grade));
-        const exact = matches.filter(s => s.group === r.group);
-        return { ...r, studentId: exact.length === 1 ? exact[0].id : matches.length === 1 ? matches[0].id : '' };
+        const matches = students.filter(s => s.name.trim() === r.name.trim() && s.grade.trim() === r.grade.trim());
+        return { ...r, studentId: matches.length === 1 ? matches[0].id : '' };
       }));
       setMessage(`${parsed.rows.length}건 확인 · 미채점 ${parsed.skipped}건 제외. 날짜는 생성일 기준이며 변경할 수 있습니다. 점수 만점은 100점 기준입니다.`);
     } catch(e) { setMessage(e instanceof Error ? e.message : '파일을 읽지 못했습니다.'); }

@@ -61,7 +61,7 @@ test('OCR errors identify upstream failure, truncation, JSON and table validatio
   const oldFetch = global.fetch, oldLog = console.error, logs = [];
   console.error = (...args) => logs.push(args.join(' '));
   const cases = [
-    [new Response(JSON.stringify({ error: { status: 'INVALID_ARGUMENT', message: 'server-test-key private content', details: [{ reason: 'API_KEY_INVALID' }] } }), { status: 400 }), 'GEMINI_HTTP_400', 502],
+    [new Response(JSON.stringify({ error: { status: 'INVALID_ARGUMENT', message: 'server-test-key private content', details: [{ reason: 'API_KEY_INVALID' }] } }), { status: 400 }), 'GEMINI_API_KEY_INVALID', 502],
     [new Response(JSON.stringify({ candidates: [{ finishReason: 'MAX_TOKENS' }] })), 'OCR_INCOMPLETE', 502],
     [new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'not json private content' }] } }] })), 'OCR_INVALID_JSON', 502],
     [new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ problems: [{ question: '표 문제', tables: [{ rows: [['x','y'], ['z']] }] }] }) }] } }] })), 'OCR_INVALID_DOCUMENT', 502],
@@ -77,5 +77,27 @@ test('OCR errors identify upstream failure, truncation, JSON and table validatio
     const timeout = await POST(request(payload)); assert.equal(timeout.status, 504); assert.equal((await timeout.json()).code, 'OCR_TIMEOUT');
     assert.ok(logs.some(line => line.includes('API_KEY_INVALID')));
     assert.ok(logs.every(line => !line.includes('server-test-key') && !line.includes('private content')));
+  } finally { global.fetch = oldFetch; console.error = oldLog; }
+});
+
+
+test('Gemini 400 errors distinguish schema, billing and image failures without logging raw messages', async () => {
+  const oldFetch = global.fetch, oldLog = console.error;
+  const logs = []; console.error = (...args) => logs.push(args.join(' '));
+  try {
+    for (const [message, code] of [
+      ['Response schema has too many states for serving. private-content', 'GEMINI_SCHEMA_INVALID'],
+      ['Please enable a paid plan. private-content', 'GEMINI_BILLING_REQUIRED'],
+      ['Unable to decode image. private-content', 'GEMINI_IMAGE_INVALID'],
+      ['Request contains an invalid argument. private-content', 'GEMINI_REQUEST_INVALID'],
+    ]) {
+      global.fetch = async (_url, options) => {
+        assert.ok(!options.body.includes('maxItems'));
+        return new Response(JSON.stringify({ error: { status: 'INVALID_ARGUMENT', message } }), { status: 400 });
+      };
+      const body = await (await POST(request(payload))).json(); assert.equal(body.code, code);
+      assert.ok(!body.error.includes('private-content'));
+    }
+    assert.ok(logs.every(line => !line.includes('private-content')));
   } finally { global.fetch = oldFetch; console.error = oldLog; }
 });

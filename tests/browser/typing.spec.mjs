@@ -160,7 +160,7 @@ test('recognized tables are editable and survive JSON restore and document expor
   await expect(page.locator('[data-problem] table').last().locator('td')).toHaveCount(9);
   const [word] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Word', exact: true }).click()]);
   const zip = await JSZip.loadAsync(readFileSync(await word.path()));
-  expect((await zip.file('word/document.xml').async('string')).match(/<w:tbl>/g)).toHaveLength(4);
+  expect((await zip.file('word/document.xml').async('string')).match(/<w:tbl>/g)).toHaveLength(6);
   await page.waitForTimeout(800); await page.reload();
   await expect(page.locator('[data-problem] table')).toHaveCount(3);
 });
@@ -213,4 +213,46 @@ test('coordinate choices never overlap and Korean box statements keep variables 
   await page.screenshot({ path: testInfo.outputPath('choices-box-fixed.png'), fullPage: true });
   await page.emulateMedia({ media: 'print' }); await check();
   await page.emulateMedia({ media: 'screen' }); await page.setViewportSize({ width: 390, height: 844 }); await check();
+});
+
+
+test('sentence choices use one full-width row each', async ({ page }) => {
+  await page.goto('/typing');
+  await page.getByRole('button', { name: '예시 시험지 4문항으로 시작' }).click();
+  await page.getByRole('textbox', { name: '선택지 · 한 줄에 하나씩, 최대 5개' }).first().fill('㉠과 ㉡의 그래프는 만난다.\n㉡과 ㉢의 그래프는 만나지 않는다.\n㉠, ㉡, ㉢의 그래프는 제3사분면을 지난다.\n한 쌍의 매끄러운 곡선으로 그려지는 그래프는 3개다.\n원점을 지나는 직선으로 그려지는 그래프 중에서 x축에 가장 가까운 그래프는 ㉡의 그래프이다.');
+  const choices = page.locator('[data-problem]').first().locator('[data-prose="true"]');
+  await expect(choices).toBeVisible();
+  await expect.poll(() => choices.locator(':scope > div').evaluateAll(nodes => {
+    const rects = nodes.map(n => n.getBoundingClientRect());
+    return rects.length === 5 && rects.every((r, i) => Math.abs(r.left - rects[0].left) < 1 && (!i || r.top >= rects[i - 1].bottom));
+  })).toBe(true);
+});
+
+
+test('OCR crops a figure locally, supports replacing its region and file, and preserves it on reload', async ({ page }) => {
+  let calls = 0;
+  await page.route('**/api/typing/extract', route => { calls++; return route.fulfill({ json: { problems: [{ number: '1', question: '그림의 값을 구하시오.', choices: ['1','2','3','4','5'], figureBox: [250,500,750,900] }] } }); });
+  await page.goto('/typing');
+  const data = await page.evaluate(() => { const canvas = document.createElement('canvas'); canvas.width=600;canvas.height=800;const ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,600,800);ctx.fillStyle='blue';ctx.fillRect(300,200,240,400);return canvas.toDataURL('image/png').split(',')[1]; });
+  const original = { name: 'figure-source.png', mimeType: 'image/png', buffer: Buffer.from(data, 'base64') };
+  await page.locator('input[type="file"][accept*="application/pdf"]').setInputFiles(original);
+  await page.getByRole('button', { name: '선택 페이지 인식' }).click();
+  const figure = page.locator('[data-problem] img'); await expect(figure).toHaveCount(1);
+  expect(await figure.evaluate(async img => { await img.decode(); return [img.naturalWidth,img.naturalHeight]; })).toEqual([240,400]);
+  await page.getByRole('button', { name: '원본에서 그림 영역 다시 선택' }).click();
+  await page.getByRole('spinbutton', { name: '1번 그림 상단 (%)' }).fill('0');
+  await page.getByRole('spinbutton', { name: '1번 그림 왼쪽 (%)' }).fill('0');
+  await page.getByRole('spinbutton', { name: '1번 그림 하단 (%)' }).fill('50');
+  await page.getByRole('spinbutton', { name: '1번 그림 오른쪽 (%)' }).fill('50');
+  await page.getByRole('button', { name: '선택 영역 적용' }).click();
+  await expect.poll(() => figure.evaluate(async img => { await img.decode(); return [img.naturalWidth,img.naturalHeight]; })).toEqual([300,400]);
+  await page.getByLabel('그림 교체').setInputFiles(original);
+  await expect.poll(() => figure.evaluate(async img => { await img.decode(); return [img.naturalWidth,img.naturalHeight]; })).toEqual([600,800]);
+  const [hangul] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: '한글 HWPX', exact: true }).click()]);
+  const zip = await JSZip.loadAsync(readFileSync(await hangul.path()));
+  expect(Object.keys(zip.files).filter(n => n.startsWith('BinData/image'))).toHaveLength(2);
+  await page.waitForTimeout(800); await page.reload(); await expect(figure).toHaveCount(1);
+  expect(calls).toBe(1);
+  await page.getByRole('button', { name: '문항 편집' }).click();
+  await page.getByRole('button', { name: '첨부 그림 삭제' }).click(); await expect(figure).toHaveCount(0);
 });

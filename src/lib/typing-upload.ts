@@ -1,3 +1,4 @@
+import { normalizeFigureBox, type FigureBox } from "./typing-model";
 export type SourcePage = { id: string; name: string; image: string; selected: boolean; status: "ready" | "done" | "error"; error?: string };
 export async function imageData(file: File, maxWidth = 1600): Promise<string> {
   const bitmap = await createImageBitmap(file);
@@ -31,4 +32,23 @@ export async function readSource(file: File): Promise<SourcePage[]> {
     }
     return pages;
   } finally { await task.destroy(); }
+}
+
+export async function cropFigure(image: string, box: FigureBox): Promise<string> {
+  const bounds = normalizeFigureBox(box);
+  if (!bounds) throw new Error("그림 영역의 위·아래·좌·우 범위를 확인해 주세요.");
+  if (!/^data:image\/(jpeg|png|webp);base64,/.test(image)) throw new Error("올바른 원본 이미지가 필요합니다.");
+  const bitmap = await createImageBitmap(await (await fetch(image)).blob());
+  try {
+    const [top,left,bottom,right] = bounds;
+    const x = Math.floor(bitmap.width * left / 1000), y = Math.floor(bitmap.height * top / 1000);
+    const width = Math.min(bitmap.width - x, Math.ceil(bitmap.width * (right-left) / 1000));
+    const height = Math.min(bitmap.height - y, Math.ceil(bitmap.height * (bottom-top) / 1000));
+    if (width < 4 || height < 4) throw new Error("그림 영역이 너무 작습니다. 범위를 넓혀 주세요.");
+    const scale = Math.min(1, 1200 / width, 1600 / height);
+    const canvas = document.createElement("canvas"); canvas.width = Math.max(1, Math.round(width * scale)); canvas.height = Math.max(1, Math.round(height * scale));
+    const ctx = canvas.getContext("2d")!; ctx.fillStyle = "white"; ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(bitmap,x,y,width,height,0,0,canvas.width,canvas.height);
+    return canvas.toDataURL("image/png");
+  } finally { bitmap.close(); }
 }

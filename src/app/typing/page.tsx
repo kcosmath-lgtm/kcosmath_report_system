@@ -8,12 +8,13 @@ import { ArrowDown, ArrowUp, FileDown, FileText, Loader2, Plus, Printer, Save, S
 import "katex/dist/katex.min.css";
 import LandingMenu from "../../components/LandingMenu";
 import TypingAccessGate from "../../components/TypingAccessGate";
+import TypingFigureEditor from "../../components/TypingFigureEditor";
 import TypingMath from "../../components/TypingMath";
 import { useAuth } from "../../components/AuthProvider";
 import { supabase } from "../../lib/supabase";
 import { storageError } from "../../lib/supabase-report-storage";
-import { COLUMN_HEIGHT, formatBoxContent, choiceLabels, examPages, normalizeProblems, sampleProblems, type ExamDocument, type ExamProblem, type ExamTable } from "../../lib/typing-model";
-import { imageData, readSource, type SourcePage } from "../../lib/typing-upload";
+import { COLUMN_HEIGHT, hasProseChoices, formatBoxContent, choiceLabels, examPages, normalizeProblems, sampleProblems, type ExamDocument, type ExamProblem, type ExamTable } from "../../lib/typing-model";
+import { cropFigure, imageData, readSource, type SourcePage } from "../../lib/typing-upload";
 import styles from "./typing.module.css";
 
 function PaperTitle({ text }: { text: string }) {
@@ -43,16 +44,16 @@ function Choices({ choices }: { choices: string[] }) {
         const content = item.lastElementChild as HTMLElement;
         return label.offsetWidth + 5 + content.scrollWidth;
       }));
-      const columns = Math.max(1, Math.min(5, Math.floor((node.clientWidth + 16) / (width + 16))));
+      const columns = hasProseChoices(choices) ? 1 : Math.max(1, Math.min(5, Math.floor((node.clientWidth + 16) / (width + 16))));
       node.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
     };
     const observer = new ResizeObserver(fit); observer.observe(node);
     fit(); void document.fonts.ready.then(fit);
     return () => { cancelled = true; observer.disconnect(); };
   }, [choices]);
-  return <div className={styles.choices} ref={ref}>{choices.map((c, n) => <div key={n}><span>{choiceLabels[n]}</span><div className={styles.choiceContent}><TypingMath text={c}/></div></div>)}</div>;
+  return <div className={styles.choices} data-prose={hasProseChoices(choices)} ref={ref}>{choices.map((c, n) => <div key={n}><span>{choiceLabels[n]}</span><div className={styles.choiceContent}><TypingMath text={c}/></div></div>)}</div>;
 }
-function ProblemView({ p, measure = false }: { p: ExamProblem; measure?: boolean }) { return <section className={styles.problem} data-problem={measure ? undefined : true}><div className={styles.question}><strong>{p.number}.</strong><div><TypingMath text={p.question}/>{p.points && <small> [{p.points}]</small>}</div></div>{p.boxContent && <div className={styles.box}><div className={styles.boxLabel}>〈보기〉</div><TypingMath text={formatBoxContent(p.boxContent)}/></div>}{p.tables?.map((table, ti) => <table className={styles.examTable} key={ti}>{table.caption && <caption>{table.caption}</caption>}<tbody>{table.rows.map((row, ri) => <tr key={ri}>{row.map((cell, ci) => <td key={ci}><TypingMath text={cell}/></td>)}</tr>)}</tbody></table>)}{p.figure && <img className={styles.figure} src={p.figure} alt={`${p.number}번 문항 그림`}/>}<Choices choices={p.choices}/></section>; }
+function ProblemView({ p, measure = false }: { p: ExamProblem; measure?: boolean }) { return <section className={styles.problem} data-problem={measure ? undefined : true} data-problem-id={measure ? undefined : p.id}><div className={styles.question}><strong>{p.number}.</strong><div><TypingMath text={p.question}/>{p.points && <small> [{p.points}]</small>}</div></div>{p.boxContent && <div className={styles.box}><div className={styles.boxLabel}>〈보기〉</div><TypingMath text={formatBoxContent(p.boxContent)}/></div>}{p.tables?.map((table, ti) => <table className={styles.examTable} key={ti}>{table.caption && <caption>{table.caption}</caption>}<tbody>{table.rows.map((row, ri) => <tr key={ri}>{row.map((cell, ci) => <td key={ci}><TypingMath text={cell}/></td>)}</tr>)}</tbody></table>)}{p.figure && <img className={styles.figure} src={p.figure} alt={`${p.number}번 문항 그림`}/>}<Choices choices={p.choices}/></section>; }
 function cleanDocument(doc: ExamDocument): ExamDocument {
   return { ...doc, problems: normalizeProblems(doc.problems).map((p, i) => ({ ...p, id: doc.problems[i].id || p.id, figure: doc.problems[i].figure, sourcePage: doc.problems[i].sourcePage })) };
 }
@@ -172,6 +173,11 @@ function TypingWorkspace() {
           if (!result) throw new Error("서버의 OCR 응답을 읽지 못했습니다. 다시 시도해 주세요.");
           const pageNumber = sources.findIndex(s => s.id === source.id) + 1;
           const problems = normalizeProblems(result.problems, pageNumber);
+          for (const problem of problems) {
+            if (!problem.figureBox) continue;
+            try { problem.figure = await cropFigure(source.image, problem.figureBox); problem.figureSourceId = source.id; }
+            catch { problem.review = [problem.review, "그림 자동 자르기에 실패했습니다. 원본에서 영역을 직접 선택해 주세요."].filter(Boolean).join(" / "); }
+          }
           if (!problems.length) throw new Error("인식된 문항이 없습니다. 원본을 확인해 주세요.");
           if (!mounted.current) break;
           change(d => ({ ...d, problems: [...d.problems, ...problems] }));
@@ -190,13 +196,17 @@ function TypingWorkspace() {
     setBusy("다운로드 준비 중"); setError("");
     try {
       const { buildDocx, buildHwpx, downloadBlob } = await import("../../lib/typing-export");
+      const choiceColumns = Object.fromEntries(Array.from(preview.current?.querySelectorAll<HTMLElement>('[data-problem]') ?? []).map(node => {
+        const choices = node.querySelector<HTMLElement>(`.${styles.choices}`);
+        return [node.getAttribute('data-problem-id') ?? '', Number(choices?.style.gridTemplateColumns.match(/repeat\((\d+)/)?.[1] ?? 1)];
+      }));
       let blob: Blob;
       const brandImage = format === "json" ? undefined : await imageData(new File([await (await fetch(logo.src)).blob()], "logo.png", { type: "image/png" }), 400);
       if (format === "json") blob = new Blob([JSON.stringify(doc, null, 2)], { type: "application/json" });
-      else if (format === "docx") blob = await buildDocx({ ...doc, brandImage, problemHeights: heights });
+      else if (format === "docx") blob = await buildDocx({ ...doc, brandImage, choiceColumns, problemHeights: heights });
       else {
         const response = await fetch("/typing/blank.hwpx"); if (!response.ok) throw new Error("한글 문서 양식을 불러오지 못했습니다.");
-        blob = await buildHwpx({ ...doc, problemHeights: heights }, await response.arrayBuffer());
+        blob = await buildHwpx({ ...doc, brandImage, choiceColumns, problemHeights: heights }, await response.arrayBuffer());
       }
       downloadBlob(blob, `${doc.title || "시험지"}.${format}`); setMessage(`${format.toUpperCase()} 편집본을 내려받았습니다.`);
     } catch (e) { setError(e instanceof Error ? e.message : "내보내기에 실패했습니다."); } finally { setBusy(""); }
@@ -256,7 +266,7 @@ function TypingWorkspace() {
                   return <div className={styles.tableCard} key={ti}><label>표 제목<input value={table.caption} maxLength={150} onChange={e => changeTable({ caption: e.target.value })}/></label><div className={styles.tableCells}><table><tbody>{table.rows.map((row, ri) => <tr key={ri}>{row.map((cell, ci) => <td key={ci}><input aria-label={`문항 ${p.number} 표 ${ti + 1} ${ri + 1}행 ${ci + 1}열`} value={cell} maxLength={2000} onChange={e => changeTable({ rows: table.rows.map((r, rowIndex) => rowIndex === ri ? r.map((c, columnIndex) => columnIndex === ci ? e.target.value : c) : r) })}/></td>)}</tr>)}</tbody></table></div><div className={styles.tableActions}><button disabled={table.rows.length >= 20} onClick={() => changeTable({ rows: [...table.rows, table.rows[0].map(() => "")] })}>행 추가</button><button disabled={table.rows.length <= 1} onClick={() => changeTable({ rows: table.rows.slice(0, -1) })}>마지막 행 삭제</button><button disabled={table.rows[0].length >= 10} onClick={() => changeTable({ rows: table.rows.map(row => [...row, ""]) })}>열 추가</button><button disabled={table.rows[0].length <= 1} onClick={() => changeTable({ rows: table.rows.map(row => row.slice(0, -1)) })}>마지막 열 삭제</button><button onClick={() => update(p.id, { tables: p.tables!.filter((_, index) => index !== ti) })}>표 삭제</button></div></div>;
                 })}
               </div>
-              <label className={styles.figureUpload}><strong>그림 별도 첨부</strong><span>이 문항에 들어갈 도형·그래프 이미지를 선택하세요.</span><input type="file" accept="image/png,image/jpeg,image/webp" onChange={async e => { const file = e.target.files?.[0]; e.target.value = ""; if (!file) return; try { if (file.size > 10 * 1024 * 1024) throw new Error("그림은 10MB 이하로 올려 주세요."); update(p.id, { figure: await imageData(file, 800) }); } catch (e) { setError(e instanceof Error ? e.message : "그림을 읽지 못했습니다."); } }}/></label>{p.figure && <div className={styles.figureAttachment}><img src={p.figure} alt={`${p.number}번 첨부 그림 미리보기`}/><button onClick={() => update(p.id, { figure: undefined })}>첨부 그림 삭제</button></div>}
+              <TypingFigureEditor problem={p} sources={sources} onChange={patch => update(p.id, patch)} onError={setError}/>
             </section>)}
           </>}
         </fieldset>

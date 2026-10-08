@@ -49,7 +49,7 @@ test("DOCX contains editable OMML, two columns, display equations and escaped te
   assert.ok(document.getElementsByTagNameNS(math, "rad").length);
   assert.ok(document.getElementsByTagNameNS(math, "oMathPara").length >= 2);
   assert.ok(document.documentElement.textContent.includes(doc.title));
-  assert.equal(document.getElementsByTagName("w:tc").length, 4);
+  assert.equal(document.getElementsByTagName("w:tc").length, 31);
   assert.equal(document.getElementsByTagName("w:drawing").length, 0);
 });
 test("HWPX contains editable Hancom equations, valid style references and OCF packaging", async () => {
@@ -68,7 +68,7 @@ test("HWPX contains editable Hancom equations, valid style references and OCF pa
   assert.ok(scripts.some(s => s.includes("cases")));
   assert.ok(scripts.some(s => s.includes("root") && s.includes("of")));
   assert.ok(scripts.every(s => !s.includes("\\") && !s.includes("$")));
-  assert.equal(section.getElementsByTagNameNS(hp, "tc").length, 4);
+  assert.equal(section.getElementsByTagNameNS(hp, "tc").length, 31);
   const header = parse(await zip.file("Contents/header.xml").async("string"));
   const styles = new Set(Array.from(header.getElementsByTagName("hh:paraPr")).map(n => n.getAttribute("id")));
   for (const p of Array.from(section.getElementsByTagNameNS(hp, "p"))) assert.ok(styles.has(p.getAttribute("paraPrIDRef")));
@@ -121,14 +121,14 @@ test('Word and Hangul exports contain native editable table cells and native mat
   const withTables = { ...doc, problems: [{ ...doc.problems[0], tables: [{ caption: '<표 1>', rows: [['$x$','1','5','8','B'], ['$y$','4','A','32','$\\frac{15}{2}$']] }] }] };
   const word = await zipBlob(await buildDocx(withTables));
   const document = parse(await word.file('word/document.xml').async('string'));
-  assert.equal(document.getElementsByTagName('w:tbl').length, 2);
-  assert.equal(document.getElementsByTagName('w:tc').length, 14);
+  assert.equal(document.getElementsByTagName('w:tbl').length, 4);
+  assert.equal(document.getElementsByTagName('w:tc').length, 23);
   assert.ok(document.getElementsByTagName('m:f').length >= 2);
   const template = fs.readFileSync(path.resolve(__dirname, '../public/typing/blank.hwpx'));
   const hwpx = await zipBlob(await buildHwpx(withTables, template.buffer.slice(template.byteOffset, template.byteOffset + template.byteLength)));
   const section = parse(await hwpx.file('Contents/section0.xml').async('string'));
-  assert.equal(section.getElementsByTagName('hp:tbl').length, 2);
-  assert.equal(section.getElementsByTagName('hp:tc').length, 14);
+  assert.equal(section.getElementsByTagName('hp:tbl').length, 4);
+  assert.equal(section.getElementsByTagName('hp:tc').length, 23);
   const header = parse(await hwpx.file('Contents/header.xml').async('string'));
   assert.ok(Array.from(header.getElementsByTagName('hh:borderFill')).some(n => n.getAttribute('id') === '5'));
   assert.ok(Array.from(section.getElementsByTagName('hp:script')).some(n => n.textContent.includes('15') && n.textContent.includes('over')));
@@ -143,4 +143,41 @@ test('box prose joins OCR line fragments but preserves Korean statement boundari
   assert.match(fixed, /ㄴ\. 200g에 1000원인 소고기를 \$x\$ g 샀을 때의 가격은 \$y\$ 원이다\./);
   assert.equal(model.splitMath(fixed).filter(p => p.display).length, 0);
   assert.ok(model.splitMath(model.formatBoxContent('조건\n$$x^2+y^2=1$$\n을 만족한다.')).some(p => p.display));
+});
+
+
+test('HWPX uses portrait A4, automatic equation metrics, compact anchors and aligned editable choices', async () => {
+  const withLayout = { ...doc, title: '중학교 수학 시험', problems: [{ ...doc.problems[0], boxContent: 'ㄱ. $x$는 양수이다.\nㄴ. $y$는 음수이다.' }], choiceColumns: { '0': 3 } };
+  const template = fs.readFileSync(path.resolve(__dirname, '../public/typing/blank.hwpx'));
+  const zip = await zipBlob(await buildHwpx(withLayout, template.buffer.slice(template.byteOffset, template.byteOffset + template.byteLength)));
+  const section = parse(await zip.file('Contents/section0.xml').async('string'));
+  const page = section.getElementsByTagName('hp:pagePr')[0];
+  assert.equal(page.getAttribute('landscape'), 'NARROWLY');
+  assert.equal(page.getAttribute('width'), '59528'); assert.equal(page.getAttribute('height'), '84186');
+  for (const equation of section.getElementsByTagName('hp:equation')) {
+    assert.equal(equation.getAttribute('baseLine'), '0');
+    assert.equal(equation.getElementsByTagName('hp:sz')[0].getAttribute('width'), '0');
+    assert.equal(equation.getElementsByTagName('hp:sz')[0].getAttribute('height'), '0');
+  }
+  const tables = Array.from(section.getElementsByTagName('hp:tbl'));
+  const headerTable = tables.find(t => t.getAttribute('colCnt') === '3' && t.getElementsByTagName('hp:sz')[0].getAttribute('width') === '51024');
+  assert.ok(headerTable); assert.ok(headerTable.textContent.includes(withLayout.title));
+  const choiceTable = tables.find(t => t.getAttribute('colCnt') === '3' && t.getAttribute('rowCnt') === '2');
+  assert.ok(choiceTable);
+  const cells = Array.from(choiceTable.getElementsByTagName('hp:tc'));
+  assert.equal(cells[0].getElementsByTagName('hp:cellAddr')[0].getAttribute('colAddr'), cells[3].getElementsByTagName('hp:cellAddr')[0].getAttribute('colAddr'));
+  assert.ok(tables.some(t => t.getAttribute('borderFillIDRef') === '5' && t.textContent.includes('양수이다')));
+  const header = parse(await zip.file('Contents/header.xml').async('string'));
+  const style = Array.from(header.getElementsByTagName('hh:paraPr')).find(p => p.getAttribute('id') === '18');
+  assert.ok(Array.from(style.getElementsByTagName('hh:lineSpacing')).every(p => p.getAttribute('value') === '100'));
+  const charIds = Array.from(header.getElementsByTagName('hh:charPr')).map(n => n.getAttribute('id'));
+  assert.equal(new Set(charIds).size, charIds.length);
+});
+
+
+test('figure coordinates validate bounds and preserve manual recovery when OCR coordinates are invalid', () => {
+  assert.deepEqual(model.normalizeFigureBox([250,500,750,900]), [250,500,750,900]);
+  for (const value of [[], [0,0,0,10], [-1,0,50,100], [0,0,1001,100], [100,100,50,50], ['0',0,50,50]]) assert.equal(model.normalizeFigureBox(value), undefined);
+  const [problem] = model.normalizeProblems([{ question: '그림에서 값을 구하시오.', figureBox: [700,100,200,900] }]);
+  assert.equal(problem.figureBox, undefined); assert.match(problem.review, /영역을 직접 선택/);
 });

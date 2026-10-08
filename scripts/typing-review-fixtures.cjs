@@ -12,7 +12,8 @@ const model = load("../src/lib/typing-model.ts");
 const { buildDocx, buildHwpx } = load("../src/lib/typing-export.ts");
 (async () => {
   const folder = path.resolve(__dirname, "../.local-backups/typing-review"); fs.mkdirSync(folder, { recursive: true });
-  const doc = { title: "MATHTYPING", perPage: 4, problems: model.sampleProblems.map((p, i) => ({ ...p, id: String(i) })) };
+  const brandImage = 'data:image/png;base64,' + fs.readFileSync(path.resolve(__dirname, '../public/logo.png')).toString('base64');
+  const doc = { title: "수학 복습 시험지", brandImage, perPage: 4, choiceColumns: { '0': 5, '1': 5, '2': 5, '3': 5 }, problems: model.sampleProblems.map((p, i) => ({ ...p, id: String(i) })) };
   const template = fs.readFileSync(path.resolve(__dirname, "../public/typing/blank.hwpx"));
   fs.writeFileSync(path.join(folder, "sample.docx"), Buffer.from(await (await buildDocx(doc)).arrayBuffer()));
   fs.writeFileSync(path.join(folder, "sample.hwpx"), Buffer.from(await (await buildHwpx(doc, template.buffer.slice(template.byteOffset, template.byteOffset + template.byteLength))).arrayBuffer()));

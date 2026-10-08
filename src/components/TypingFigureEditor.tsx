@@ -1,10 +1,10 @@
 "use client";
-import { diagramPng, type FigureDiagram } from "../lib/typing-diagram";
+import { type FigureDiagram } from "../lib/typing-diagram";
 /* eslint-disable @next/next/no-img-element */
 import { useRef, useState, type PointerEvent } from "react";
 import { cropFigure, imageData, readSource, type SourcePage } from "../lib/typing-upload";
 import type { ExamProblem, FigureBox } from "../lib/typing-model";
-import { supabase } from "../lib/supabase";
+import { requestFigure } from "../lib/typing-figure-client";
 import styles from "./TypingFigureEditor.module.css";
 
 export default function TypingFigureEditor({ problem, sources, onSources, onChange, onError }: {
@@ -39,13 +39,7 @@ export default function TypingFigureEditor({ problem, sources, onSources, onChan
     if (!original || busy) return;
     setBusy(true); setCandidate(null); onError("");
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("로그인이 필요합니다.");
-      const response = await fetch("/api/typing/clean-figure", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, signal: AbortSignal.timeout(60_000),
-        body: JSON.stringify({ image: original.split(",")[1], mimeType: original.slice(5, original.indexOf(";")), context: JSON.stringify({ question: problem.question, conditions: problem.boxContent, choices: problem.choices, tables: problem.tables, figureFor: problem.number }) }) });
-      const result = await response.json().catch(() => null);
-      if (!response.ok || !result?.diagram) throw new Error(result?.error ?? '그림 구조 추출에 실패했습니다.');
-      setCandidate({ original, image: await diagramPng(result.diagram), diagram: result.diagram });
+      setCandidate({ original, ...await requestFigure(problem) });
     } catch (e) { onError(e instanceof Error ? e.message : "그림 정리에 실패했습니다. 원본을 유지했습니다."); }
     finally { setBusy(false); }
   }

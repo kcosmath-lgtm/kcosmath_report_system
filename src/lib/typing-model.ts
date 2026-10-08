@@ -55,12 +55,23 @@ export function formatTableCell(text: string): string {
     ? `$${value.replace(/×/g, "\\times ").replace(/÷/g, "\\div ").replace(/−/g, "-")}$` : value;
 }
 export function formatChoiceContent(text: string): string {
+  const math = (value: string) => {
+    const fraction = /\\(?:d|t)?frac\b/.test(value);
+    let result = value.replace(/\\tfrac\b/g, "\\frac");
+    if (fraction && /^\([\s\S]*\)$/.test(result.trim())) result = result.trim().replace(/^\(/, "\\left(").replace(/\)$/, "\\right)");
+    if (fraction && !/\\(?:display|text|script|scriptscript)style\b/.test(result)) result = "\\displaystyle " + result;
+    return result;
+  };
+  const coordinate = text.trim();
+  if (/^\(\s*[+-]?\d+(?:\.\d+)?(?:\s*\/\s*[+-]?\d+(?:\.\d+)?)?\s*,\s*[+-]?\d+(?:\.\d+)?(?:\s*\/\s*[+-]?\d+(?:\.\d+)?)?\s*\)$/.test(coordinate)) {
+    return "$" + math(coordinate.replace(/([+-]?\d+(?:\.\d+)?)\s*\/\s*([+-]?\d+(?:\.\d+)?)/g, (_, a, b) => `\\frac{${a}}{${b}}`)) + "$";
+  }
   const whole = formatTableCell(text);
-  if (whole.startsWith("$") && whole.endsWith("$")) return whole;
+  if (whole.startsWith("$") && whole.endsWith("$") && splitMath(whole).length === 1) return "$" + math(splitMath(whole)[0].value) + "$";
   return splitMath(repairMath(text)).map(part => part.math
-    ? (part.display ? "$$" : "$") + part.value + (part.display ? "$$" : "$")
+    ? (part.display ? "$$" : "$") + math(part.value) + (part.display ? "$$" : "$")
     : part.value.replace(/[+-]?\d+(?:\.\d+)?(?:\s*\/\s*[+-]?\d+(?:\.\d+)?)?(?:°|%)?/g, value => value.endsWith("°") || value.endsWith("%")
-      ? `$${value.replace(/°/g, "^{\\circ}").replace(/%/g, "\\%")}$` : formatTableCell(value))
+      ? `$${value.replace(/°/g, "^{\\circ}").replace(/%/g, "\\%")}$` : formatChoiceContent(value))
   ).join("");
 }
 // OCR may promote a variable inside Korean prose to a display equation.
@@ -69,7 +80,7 @@ export function formatBoxContent(text: string): string {
   return inline.replace(/\r\n?/g, "\n").replace(/([^\n])\s+([ㄱㄴㄷㄹㅁ])[.)]\s*/g, "$1\n$2. ").split("\n").reduce<string[]>((lines, line) => {
     const value = line.trim();
     if (!value) return lines;
-    if (!lines.length || /^(?:[ㄱㄴㄷㄹㅁ][.)]|[①-⑳]|\d+[.)]|조건\s*\d+[.:])/.test(value) || value.includes("$$") || lines[lines.length - 1].includes("$$")) lines.push(value);
+    if (!lines.length || /^(?:[ㄱㄴㄷㄹㅁ][.)]|[①-⑳㉠-㉤]|\d+[.)]|조건\s*\d+[.:])/.test(value) || value.includes("$$") || lines[lines.length - 1].includes("$$")) lines.push(value);
     else lines[lines.length - 1] += " " + value;
     return lines;
   }, []).join("\n");
@@ -97,9 +108,9 @@ export function normalizeProblems(value: unknown, sourcePage?: number): ExamProb
     const number = text(item.number, 30) || String(i + 1);
     const question = repairMath(text(item.question).replace(/^\s*(\d+)[.)]\s*/, (prefix, n) => n === number ? '' : prefix));
     const figureBox = normalizeFigureBox(item.figureBox);
-    const choiceFigures: ChoiceFigure[] = Array.from({ length: Math.min(5, Math.max(item.choices?.length ?? 0, item.choiceFigures?.length ?? 0, item.choiceFigureBoxes?.length ?? 0)) }, (_, index) => {
+    const choiceFigures: ChoiceFigure[] = Array.from({ length: Math.min(5, Math.max(item.choices?.length ?? 0, item.choiceFigures?.length ?? 0, item.choiceFigureBoxes?.length ?? 0, item.choiceDiagrams?.length ?? 0)) }, (_, index) => {
       const existing = item.choiceFigures?.[index];
-      return { figureDiagram: existing?.figureDiagram, figure: typeof existing?.figure === "string" && /^data:image\/(png|jpeg);base64,/.test(existing.figure) ? existing.figure : undefined,
+      return { figureDiagram: existing?.figureDiagram ?? item.choiceDiagrams?.[index], figure: typeof existing?.figure === "string" && /^data:image\/(png|jpeg);base64,/.test(existing.figure) ? existing.figure : undefined,
         figureBox: normalizeFigureBox(existing?.figureBox ?? item.choiceFigureBoxes?.[index]), figureSourceId: text(existing?.figureSourceId, 100) || undefined };
     });
     const figureWarning = Array.isArray(item.figureBox) && item.figureBox.length && !figureBox ? "그림 위치를 확인하지 못했습니다. 원본에서 영역을 직접 선택해 주세요." : "";

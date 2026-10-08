@@ -140,7 +140,7 @@ export async function buildDocx(doc: ExamDocument): Promise<Blob> {
   const problem = (p?: ExamProblem) => {
     if (!p) return "<w:p/>";
     let result = wordParagraph(`${p.number}. ${p.question}${p.points ? `  [${p.points}]` : ""}`);
-    if (p.boxContent) result += wordParagraph(formatBoxContent(p.boxContent), '<w:pBdr><w:top w:val="single" w:sz="4"/><w:left w:val="single" w:sz="4"/><w:bottom w:val="single" w:sz="4"/><w:right w:val="single" w:sz="4"/></w:pBdr>');
+    if (p.boxContent) result += formatBoxContent(p.boxContent).split('\n').map(line => wordParagraph(line, '<w:pBdr><w:top w:val="single" w:sz="4"/><w:left w:val="single" w:sz="4"/><w:bottom w:val="single" w:sz="4"/><w:right w:val="single" w:sz="4"/></w:pBdr>' + (/^(?:[ㄱㄴㄷㄹㅁ][.)]|[㉠-㉤])/.test(line) ? '<w:ind w:left="300" w:hanging="300"/>' : ''))).join('');
     for (const table of p.tables ?? []) {
       if (table.caption) result += wordParagraph(table.caption, '<w:jc w:val="center"/>');
       const width = Math.floor(4600 / table.rows[0].length);
@@ -149,7 +149,7 @@ export async function buildDocx(doc: ExamDocument): Promise<Blob> {
     }
     if (p.figure) result += picture(p.figure);
     if (p.choices.length) {
-      const columns = choiceRowsEnabled(p) ? 1 : hasStatementChoices(p.choices) ? 3 : p.choiceFigures?.some(f => f.figure) ? 2 : Math.max(1, Math.min(5, doc.choiceColumns?.[p.id] ?? (p.choices.some(c => c.length > 20) ? 1 : 3)));
+      const columns = choiceRowsEnabled(p) ? 1 : hasStatementChoices(p.choices) ? (doc.choiceColumns?.[p.id] === 1 ? 1 : 3) : p.choiceFigures?.some(f => f.figure) ? 2 : ([1,3,5].includes(doc.choiceColumns?.[p.id] ?? 0) ? doc.choiceColumns![p.id] : p.choices.some(c => c.length > 20) ? 1 : 3);
       result += wordTable(Array.from({ length: Math.ceil(p.choices.length / columns) }, (_, ri) => Array.from({ length: columns }, (_, ci) => {
         const i = ri * columns + ci; return p.choices[i] === undefined ? "<w:p/>" : wordParagraph(choiceLabels[i] + " " + formatChoiceContent(p.choices[i])) + (p.choiceFigures?.[i]?.figure ? picture(p.choiceFigures[i].figure!, false, true) : "");
       })), 4600, true);
@@ -210,14 +210,14 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
   const problem = (p?: ExamProblem) => {
     if (!p) return para("");
     let text = para(`${p.number}. ${p.question}${p.points ? `  [${p.points}]` : ""}`);
-    if (p.boxContent) text += nativeTable([[para("〈보기〉", false, "17") + para(formatBoxContent(p.boxContent))]], 5, false, 1800, 23000, true);
+    if (p.boxContent) text += nativeTable([[para("〈보기〉", false, "17") + formatBoxContent(p.boxContent).split("\n").map(line => para(line, false, /^(?:[ㄱㄴㄷㄹㅁ][.)]|[㉠-㉤])/.test(line) ? "21" : "3")).join("")]], 5, false, 1800, 23000, true);
     for (const table of p.tables ?? []) {
       if (table.caption) text += para(table.caption, false, "17");
       text += nativeTable(table.rows.map(row => row.map(formatTableCell)));
     }
     if (p.figure) text += picture(p.figure);
     if (p.choices.length) {
-      const columns = choiceRowsEnabled(p) ? 1 : hasStatementChoices(p.choices) ? 3 : p.choiceFigures?.some(f => f.figure) ? 2 : Math.max(1, Math.min(5, doc.choiceColumns?.[p.id] ?? (p.choices.some(c => c.length > 20) ? 1 : 3)));
+      const columns = choiceRowsEnabled(p) ? 1 : hasStatementChoices(p.choices) ? (doc.choiceColumns?.[p.id] === 1 ? 1 : 3) : p.choiceFigures?.some(f => f.figure) ? 2 : ([1,3,5].includes(doc.choiceColumns?.[p.id] ?? 0) ? doc.choiceColumns![p.id] : p.choices.some(c => c.length > 20) ? 1 : 3);
       const rows = Array.from({ length: Math.ceil(p.choices.length / columns) }, (_, ri) => Array.from({ length: columns }, (_, ci) => {
         const i = ri * columns + ci; return p.choices[i] === undefined ? para("") : para(choiceLabels[i] + " " + formatChoiceContent(p.choices[i])) + (p.choiceFigures?.[i]?.figure ? picture(p.choiceFigures[i].figure!, false, true) : "");
       }));
@@ -251,12 +251,13 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
   const centerPr = pr.replace('id="16"', 'id="17"').replace(/horizontal="[^"]+"/, 'horizontal="CENTER"').replace('borderFillIDRef="4"', 'borderFillIDRef="2"');
   const anchorPr = pr.replace('id="16"', 'id="18"').replace(/value="160"/g, 'value="100"').replace('borderFillIDRef="4"', 'borderFillIDRef="2"');
   const headerAnchorPr = anchorPr.replace('id="18"', 'id="20"').replace('keepWithNext="0"', 'keepWithNext="1"');
+  const statementPr = anchorPr.replace('id="18"', 'id="21"').replace(/<hc:intent value="0"/g, '<hc:intent value="-1500"').replace(/<hc:left value="0"/g, '<hc:left value="1500"');
   const rightPr = centerPr.replace('id="17"', 'id="19"').replace('horizontal="CENTER"', 'horizontal="RIGHT"');
   const charPr = header.match(/<hh:charPr id="0"[\s\S]*?<\/hh:charPr>/)![0];
   const titleChar = charPr.replace('id="0"', 'id="7"').replace('height="1000"', 'height="' + Math.max(700, Math.min(1400, Math.floor(62000 / Math.max(1, doc.title.length)))) + '"').replace('</hh:charPr>', '<hh:bold/></hh:charPr>');
   const pageChar = charPr.replace('id="0"', 'id="8"').replace('height="1000"', 'height="1800"');
   header = header.replace(/<hh:charProperties itemCnt="(\d+)">/, (_, count) => '<hh:charProperties itemCnt="' + (Number(count) + 2) + '">').replace('</hh:charProperties>', titleChar + pageChar + '</hh:charProperties>');
-  header = header.replace('<hh:paraProperties itemCnt="16">', '<hh:paraProperties itemCnt="21">').replace('</hh:paraProperties>', pr + centerPr + anchorPr + rightPr + headerAnchorPr + '</hh:paraProperties>').replace('paraPrIDRef="6750318"', 'paraPrIDRef="3"');
+  header = header.replace('<hh:paraProperties itemCnt="16">', '<hh:paraProperties itemCnt="22">').replace('</hh:paraProperties>', pr + centerPr + anchorPr + rightPr + headerAnchorPr + statementPr + '</hh:paraProperties>').replace('paraPrIDRef="6750318"', 'paraPrIDRef="3"');
   zip.file("Contents/header.xml", header);
   let hpf = await zip.file("Contents/content.hpf")!.async("string");
   hpf = hpf.replace(/<opf:title\s*\/>/, `<opf:title>${xml(doc.title)}</opf:title>`).replace('</opf:manifest>', `${images.join("")}</opf:manifest>`);

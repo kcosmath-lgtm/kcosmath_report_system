@@ -32,7 +32,7 @@ test('Korean statement combinations force three plus two cells in both native ex
   assert.ok(Array.from(section.getElementsByTagName('hp:tbl')).some(t => t.getAttribute('colCnt') === '3' && t.getAttribute('rowCnt') === '2' && t.textContent.includes('⑤')));
 });
 test('choice numbers, mixed prose, decimals and degrees render as native math without nesting delimiters', async () => {
-  assert.equal(model.formatChoiceContent('15/2'), '$\\frac{15}{2}$');
+  assert.equal(model.formatChoiceContent('15/2'), '$\\displaystyle \\frac{15}{2}$');
   assert.equal(model.formatChoiceContent('각 A의 크기는 130°이다.'), '각 A의 크기는 $130^{\\circ}$이다.');
   assert.equal(model.formatChoiceContent('비율은 1.25%이다.'), '비율은 $1.25\\%$이다.');
   assert.equal(model.formatChoiceContent('$x^2$의 값은 3이다.'), '$x^2$의 값은 $3$이다.');
@@ -250,4 +250,12 @@ test('figure coordinates validate bounds and preserve manual recovery when OCR c
   for (const value of [[], [0,0,0,10], [-1,0,50,100], [0,0,1001,100], [100,100,50,50], ['0',0,50,50]]) assert.equal(model.normalizeFigureBox(value), undefined);
   const [problem] = model.normalizeProblems([{ question: '그림에서 값을 구하시오.', figureBox: [700,100,200,900] }]);
   assert.equal(problem.figureBox, undefined); assert.match(problem.review, /영역을 직접 선택/);
+});
+
+test('coordinate fractions form one full size math expression and formatting is idempotent', () => {
+ const value=model.formatChoiceContent('(-10, 4/5)');
+ assert.equal(model.splitMath(value).length,1);
+ assert.ok(value.includes('\\displaystyle'));
+ assert.ok(value.includes('\\left('));
+ assert.equal(model.formatChoiceContent(value),value);
 });

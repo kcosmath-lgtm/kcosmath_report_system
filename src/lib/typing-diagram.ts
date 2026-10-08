@@ -1,4 +1,12 @@
 export type FigureDiagram = { width: number; height: number; elements: { kind: "polyline" | "ellipse" | "text"; points: number[][]; x: number; y: number; rx: number; ry: number; text: string }[] };
+export const diagramSchema = { type: "OBJECT", properties: {
+  width: { type: "NUMBER" }, height: { type: "NUMBER" },
+  elements: { type: "ARRAY", items: { type: "OBJECT", properties: {
+    kind: { type: "STRING", enum: ["polyline", "ellipse", "text"] },
+    points: { type: "ARRAY", items: { type: "ARRAY", items: { type: "NUMBER" } } },
+    ...Object.fromEntries(["x","y","rx","ry"].map(name => [name, { type: "NUMBER" }])), text: { type: "STRING" },
+  }, required: ["kind","points","x","y","rx","ry","text"] } },
+}, required: ["width","height","elements"] };
 export function normalizeDiagram(value: unknown): FigureDiagram {
   const d = value as FigureDiagram;
   const coordinate = (n: number) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 2000;

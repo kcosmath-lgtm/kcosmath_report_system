@@ -343,3 +343,42 @@ test('preview edits text and deletes an image while statement choices keep three
   await problem.getByRole('button',{name:'문항 1 그림 편집',exact:true}).click();await page.getByRole('button',{name:'이미지 삭제',exact:true}).click();await expect(problem.locator('img')).toHaveCount(0);
   await page.waitForTimeout(800);await page.reload();await expect(problem).toContainText('미리보기에서 수정한');await expect(problem).toContainText('ㄱ, ㄴ');await expect(problem.locator('img')).toHaveCount(0);
 });
+
+
+test('coordinate fractions keep a single math expression per choice and balanced rows', async ({page})=>{
+ await page.goto('/typing');await page.getByRole('button',{name:'예시 시험지 4문항으로 시작'}).click();
+ await page.getByRole('textbox',{name:'선택지 · 한 줄에 하나씩, 최대 5개'}).first().fill(['(-10, 4/5)','(-4, 2)','(6, -3/4)','(16, -1/2)','(20, -2/5)'].join('\n'));
+ const choices=page.locator('[data-problem]').first().locator('[data-prose]');
+ await expect(choices.locator('.katex')).toHaveCount(5);await expect(choices.locator('.mfrac')).toHaveCount(4);
+ await expect.poll(()=>choices.locator(':scope > div').evaluateAll(nodes=>{const r=nodes.map(n=>n.getBoundingClientRect());return Math.abs(r[0].top-r[2].top)<3&&r[3].top>r[0].top&&Math.abs(r[0].left-r[3].left)<1&&Math.abs(r[1].left-r[4].left)<1&&nodes.every(n=>n.scrollWidth<=n.clientWidth+2);})).toBe(true);
+});
+
+
+test('first OCR includes diagrams and choice layout uses only five, three or one column without scrollbars', async({page})=>{
+ let calls=0;
+ const diagram={width:100,height:80,elements:[{kind:'polyline',points:[[0,40],[100,40]],x:0,y:0,rx:0,ry:0,text:''}]};
+ await page.route('**/api/typing/extract',r=>{calls++;return r.fulfill({json:{problems:[{number:'1',question:'그래프에서 값을 구하시오.',choices:['14/3','16/3','6','20/3','22/3'],figureDiagram:diagram,figureBox:[]}]}});});
+ await page.goto('/typing');const data=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=100;c.height=80;return c.toDataURL('image/png').split(',')[1];});
+ await page.locator('input[type="file"][accept*="application/pdf"]').setInputFiles({name:'graph.png',mimeType:'image/png',buffer:Buffer.from(data,'base64')});await page.getByRole('button',{name:'선택 페이지 인식'}).click();
+ const problem=page.locator('[data-problem]').first();await expect(problem.locator('img')).toHaveCount(1);expect(calls).toBe(1);
+ const choices=problem.locator('[data-prose]');
+ await expect.poll(()=>choices.evaluate(n=>getComputedStyle(n).gridTemplateColumns.split(' ').length)).toBe(5);
+ expect(await choices.locator(':scope > div > div').evaluateAll(nodes=>nodes.every(n=>getComputedStyle(n).overflowX==='visible'&&n.scrollWidth<=n.clientWidth+1))).toBe(true);
+ await page.getByRole('textbox',{name:'선택지 · 한 줄에 하나씩, 최대 5개'}).fill(Array(5).fill('123456789012345678901234567890/12345').join('\n'));
+ await expect.poll(()=>choices.evaluate(n=>getComputedStyle(n).gridTemplateColumns.split(' ').length)).toBe(1);
+});
+
+
+test('preview image offers AI output and Korean box statements indent wrapped lines',async({page})=>{
+ await page.route('**/api/typing/clean-figure',r=>r.fulfill({json:{diagram:{width:100,height:80,elements:[{kind:'polyline',points:[[0,0],[100,80]],x:0,y:0,rx:0,ry:0,text:''}]}}}));
+ await page.goto('/typing');await page.getByRole('button',{name:'예시 시험지 4문항으로 시작'}).click();
+ await page.getByRole('textbox',{name:'보기 / 조건 박스'}).first().fill('ㄱ. 책을 하루에 열 장씩 읽었으며 다음 날에도 같은 분량을 읽었다. '.repeat(2));
+ const statement=page.locator('[data-problem]').first().locator('[class*="boxStatement"]').first();
+ await expect(statement).toBeVisible();
+ expect(await statement.evaluate(n=>{const text=n.querySelector('span')?.firstChild;if(!text||text.nodeType!==3)return false;let first;for(let i=0;i<text.textContent.length;i++){const range=document.createRange();range.setStart(text,i);range.setEnd(text,i+1);const r=range.getBoundingClientRect();if(!first)first=r;else if(r.top>first.top+3)return r.left>first.left+8;}return false;})).toBe(true);
+ const data=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=200;c.height=80;return c.toDataURL('image/png').split(',')[1];});
+ await page.getByLabel('그림 별도 첨부').first().setInputFiles({name:'graph.png',mimeType:'image/png',buffer:Buffer.from(data,'base64')});
+ const problem=page.locator('[data-problem]').first();await problem.getByRole('button',{name:'문항 1 그림 편집',exact:true}).click();
+ const dialog=page.getByRole('dialog');await dialog.getByRole('button',{name:'AI로 출력하기',exact:true}).click();await expect(dialog.getByAltText('미리보기 AI 출력 결과',{exact:true})).toBeVisible();
+ await dialog.getByRole('button',{name:'AI 출력 적용',exact:true}).click();await expect.poll(()=>problem.locator('img').evaluate(img=>img.naturalWidth)).toBe(100);
+});

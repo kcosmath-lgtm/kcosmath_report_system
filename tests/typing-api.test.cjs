@@ -147,3 +147,10 @@ test('diagram SVG escapes labels and rejects invalid coordinates and excessive p
   assert.throws(()=>normalizeDiagram({...diagram,elements:[{...element,x:NaN}]}));
   assert.throws(()=>normalizeDiagram({...diagram,elements:Array(301).fill(element)}));
 });
+
+
+test('first OCR returns validated common and choice diagrams and keeps bad diagrams as crop fallbacks',async()=>{
+ const oldFetch=global.fetch;let calls=0;const d={width:100,height:80,elements:[{kind:'polyline',points:[[0,0],[100,80]],x:0,y:0,rx:0,ry:0,text:''}]};
+ global.fetch=async(url,options)=>{calls++;const body=JSON.parse(options.body);assert.ok(body.generationConfig.responseSchema.properties.problems.items.properties.figureDiagram);return new Response(JSON.stringify({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify({problems:[{question:'그래프 문제',choices:['',''],figureDiagram:d,choiceDiagrams:[d,{...d,width:-1}],figureBox:[0,0,100,100],choiceFigureBoxes:[[0,0,100,100],[100,100,200,200]]}]})}]}}]}));};
+ try {const result=await(await POST(request(payload))).json();assert.equal(calls,1);assert.equal(result.problems[0].figureDiagram.width,100);assert.equal(result.problems[0].choiceFigures[0].figureDiagram.width,100);assert.equal(result.problems[0].choiceFigures[1].figureDiagram,undefined);assert.ok(result.problems[0].review.includes('원본'));}finally{global.fetch=oldFetch;}
+});

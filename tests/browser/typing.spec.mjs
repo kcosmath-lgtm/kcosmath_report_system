@@ -206,6 +206,10 @@ test('coordinate choices never overlap and Korean box statements keep variables 
     }); expect(valid).toBe(true);
   };
   await check();
+  await expect.poll(async () => problem.locator('[class*="choices"] > div').evaluateAll(nodes => {
+    const r = nodes.map(n => n.getBoundingClientRect());
+    return Math.abs(r[0].left - r[3].left) < 1 && Math.abs(r[1].left - r[4].left) < 1 && r[3].top > r[0].top;
+  })).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('choices-box-fixed.png'), fullPage: true });
   await page.emulateMedia({ media: 'print' }); await check();
   await page.emulateMedia({ media: 'screen' }); await page.setViewportSize({ width: 390, height: 844 }); await check();

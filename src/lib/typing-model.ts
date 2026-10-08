@@ -6,6 +6,7 @@ export type ChoiceFigure = { figureDiagram?: FigureDiagram; figure?: string; fig
 export type ExamProblem = {
   id: string; number: string; points: string; question: string;
   boxContent: string; choices: string[]; sourcePage?: number;
+  boxLayout?: "box" | "inline";
   figureDiagram?: FigureDiagram; figure?: string; figureBox?: FigureBox; figureSourceId?: string; review?: string; tables?: ExamTable[];
   choiceLayout?: "auto" | "rows" | "grid";
   choiceFigures?: ChoiceFigure[];
@@ -118,7 +119,16 @@ export function normalizeProblems(value: unknown, sourcePage?: number): ExamProb
     if (!item || typeof item !== 'object' || typeof item.question !== 'string' || !item.question.trim()) throw new Error('문항 본문을 확인해 주세요.');
     const text = (v: unknown, max = 20000) => typeof v === 'string' ? v.slice(0, max) : '';
     const number = text(item.number, 30) || String(i + 1);
-    const question = repairMath(text(item.question).replace(/^\s*(\d+)[.)]\s*/, (prefix, n) => n === number ? '' : prefix));
+    let question = repairMath(text(item.question).replace(/^\s*(\d+)[.)]\s*/, (prefix, n) => n === number ? '' : prefix));
+    let boxContent = repairMath(text(item.boxContent).replace(/^\s*(?:[〈<＜]\s*)?보기(?:\s*[〉>＞])?\s*\n?/, '')).trim();
+    const condition = boxContent.replace(/^[（(]\s*([\s\S]*?)\s*[)）]$/, '$1').replace(/\s*\n\s*/g, ' ').trim();
+    const inlineCondition = /^단\s*[,，]/.test(condition) && !/[ㄱㄴㄷㄹㅁ][.)]|[㉠-㉭]/.test(condition)
+      && item.boxLayout !== "box" && !/[〈<＜]\s*보기\s*[〉>＞]|보기에서/.test(question);
+    if (boxContent && (item.boxLayout === "inline" || inlineCondition)) {
+      const comparable = (value: string) => value.replace(/[$\s()（）]/g, '');
+      if (!comparable(question).includes(comparable(condition))) question = question.trimEnd() + ` (${condition})`;
+      boxContent = '';
+    }
     const figureBox = normalizeFigureBox(item.figureBox);
     const choiceFigures: ChoiceFigure[] = Array.from({ length: Math.min(5, Math.max(item.choices?.length ?? 0, item.choiceFigures?.length ?? 0, item.choiceFigureBoxes?.length ?? 0, item.choiceDiagrams?.length ?? 0)) }, (_, index) => {
       const existing = item.choiceFigures?.[index];
@@ -129,7 +139,7 @@ export function normalizeProblems(value: unknown, sourcePage?: number): ExamProb
     const warning = '본문이 매우 짧습니다. 문장 조각을 문항으로 인식했는지 원본과 확인해 주세요.';
     const review = [text(item.review, 1000), figureWarning, question.trim().length < 12 && !item.choices?.length && !item.tables?.length && !text(item.review).includes(warning) ? warning : ''].filter(Boolean).join(' / ');
     return { id: crypto.randomUUID(), figureDiagram: item.figureDiagram, number, points: text(item.points, 30), question,
-      boxContent: repairMath(text(item.boxContent).replace(/^\s*(?:[〈<＜]\s*)?보기(?:\s*[〉>＞])?\s*\n?/, '')),
+      boxContent, boxLayout: item.boxLayout === "box" || item.boxLayout === "inline" ? item.boxLayout : undefined,
       choices: Array.from({ length: choiceFigures.length }, (_, index) => repairMath(text(item.choices?.[index]).replace(/^\s*[①②③④⑤]\s*/, ''))), choiceFigures, choiceLayout: item.choiceLayout === "rows" || item.choiceLayout === "grid" ? item.choiceLayout : "auto", sourcePage, review, figureBox, figureSourceId: text(item.figureSourceId, 100) || undefined, tables: normalizeTables(item.tables) };
   });
 }

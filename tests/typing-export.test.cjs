@@ -19,6 +19,24 @@ const model = load("../src/lib/typing-model.ts");
 const { buildDocx, buildHwpx, latexToHancom, prepareExportDocument, exportPages, hwpxChoiceColumns, normalizeHwpxLineTypes } = load("../src/lib/typing-export.ts");
 const doc = { title: "수학 <시험> & 복습", perPage: 4, problems: model.sampleProblems.map((p, i) => ({ ...p, id: String(i) })) };
 
+test('parenthesized qualifications stay in the question and genuine boxes remain boxed', async () => {
+  const input = { question: '두 그래프가 만날 때 $ab$의 값은?', boxContent: '단, $a, b$는 수', choices: ['8','10','12','14','16'] };
+  const [problem] = model.normalizeProblems([input]);
+  assert.equal(problem.question, '두 그래프가 만날 때 $ab$의 값은? (단, $a, b$는 수)');
+  assert.equal(problem.boxContent, '');
+  const [again] = model.normalizeProblems([problem]); assert.equal(again.question, problem.question);
+  const [duplicate] = model.normalizeProblems([{ ...input, question: problem.question, boxContent: '(단, $a, b$는 수)' }]);
+  assert.equal(duplicate.question, problem.question); assert.equal(duplicate.boxContent, '');
+  assert.equal(model.normalizeProblems([{ ...input, boxLayout: 'box' }])[0].boxContent, input.boxContent);
+  assert.equal(model.normalizeProblems([{ ...input, boxContent: 'ㄱ. $a>0$\nㄴ. $b<0$' }])[0].boxContent, 'ㄱ. $a>0$\nㄴ. $b<0$');
+  const nativeDoc = { ...doc, problems: [problem] };
+  const word = await (await zipBlob(await buildDocx(nativeDoc))).file('word/document.xml').async('string');
+  assert.ok(word.includes('(단,')); assert.ok(!word.includes('〈보기〉'));
+  const template = fs.readFileSync(path.resolve(__dirname, '../public/typing/blank.hwpx'));
+  const section = await (await zipBlob(await buildHwpx(nativeDoc, template))).file('Contents/section0.xml').async('string');
+  assert.ok(section.includes('(단,')); assert.ok(!section.includes('〈보기〉'));
+});
+
 test('OWPML line enums disable strikeout and preserve only intended table borders', async () => {
   assert.equal(normalizeHwpxLineTypes('<hh:strikeout shape="None" color="#000000"/>'), '<hh:strikeout shape="NONE" color="#000000"/>');
   assert.equal(normalizeHwpxLineTypes('<hh:topBorder type="DashDot"/>'), '<hh:topBorder type="DASH_DOT"/>');

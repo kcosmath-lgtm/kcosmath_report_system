@@ -19,6 +19,51 @@ const model = load("../src/lib/typing-model.ts");
 const { buildDocx, buildHwpx, latexToHancom, prepareExportDocument, exportPages, hwpxChoiceColumns, normalizeHwpxLineTypes } = load("../src/lib/typing-export.ts");
 const doc = { title: "수학 <시험> & 복습", perPage: 4, problems: model.sampleProblems.map((p, i) => ({ ...p, id: String(i) })) };
 
+test('Hancom embeds whole image coordinates and scales them to the display box', async () => {
+  const canvas = require('@napi-rs/canvas').createCanvas(600, 400);
+  const ctx = canvas.getContext('2d'); ctx.fillStyle = 'blue'; ctx.fillRect(0,0,600,400);
+  const figure = canvas.toDataURL('image/png');
+  const input = { ...doc, brandImage: figure, problems: [{ ...doc.problems[0], figure, choiceFigures: [{ figure }] }] };
+  const template = fs.readFileSync(path.resolve(__dirname, '../public/typing/blank.hwpx'));
+  const zip = await zipBlob(await buildHwpx(input, template));
+  const section = parse(await zip.file('Contents/section0.xml').async('string'));
+  const pictures = Array.from(section.getElementsByTagName('hp:pic')); assert.equal(pictures.length, 3);
+  for (const pic of pictures) {
+    const org = pic.getElementsByTagName('hp:orgSz')[0], clip = pic.getElementsByTagName('hp:imgClip')[0], dim = pic.getElementsByTagName('hp:imgDim')[0];
+    assert.equal(org.getAttribute('width'), '45000'); assert.equal(org.getAttribute('height'), '30000');
+    assert.equal(clip.getAttribute('right'), '45000'); assert.equal(clip.getAttribute('bottom'), '30000');
+    assert.equal(dim.getAttribute('dimwidth'), '45000'); assert.equal(dim.getAttribute('dimheight'), '30000');
+    const matrix = pic.getElementsByTagName('hc:scaMatrix')[0], size = pic.getElementsByTagName('hp:sz')[0];
+    assert.ok(Math.abs(Number(matrix.getAttribute('e1')) * 45000 - Number(size.getAttribute('width'))) < 0.01);
+    assert.ok(Math.abs(Number(matrix.getAttribute('e5')) * 30000 - Number(size.getAttribute('height'))) < 0.01);
+    assert.equal(pic.getElementsByTagName('hc:pt2')[0].getAttribute('x'), '45000');
+    const image = pic.getElementsByTagName('hc:img')[0];
+    assert.equal(await zip.file('BinData/' + image.getAttribute('binaryItemIDRef') + '.png').async('base64'), figure.split(',')[1]);
+  }
+});
+
+test('table-only OCR box is deduplicated without deleting accompanying prose', () => {
+  const tables = [{ caption: '〈표1〉', rows: [['x','1','5','8','B'],['y','4','A','32','48']] }, { caption: '〈표2〉', rows: [['x','-5','-3','-1','4'],['y','-6','-10','C','$\\frac{15}{2}$']] }];
+  const box = '〈표1〉 x | 1 | 5 | 8 | B y | 4 | A | 32 | 48 〈표2〉 x | -5 | -3 | -1 | 4 y | -6 | -10 | C | 15/2';
+  const input = { question: '두 표를 보고 값을 구하시오.', boxContent: box, tables, choices: ['1','2'] };
+  const [fixed] = model.normalizeProblems([input]); assert.equal(fixed.boxContent, ''); assert.equal(fixed.tables.length, 2);
+  assert.equal(model.removeDuplicateTableBox('ㄱ. 표의 값은 양수이다.\n' + box, tables), 'ㄱ. 표의 값은 양수이다.\n' + box);
+  assert.equal(prepareExportDocument({ ...doc, problems: [{ ...doc.problems[0], ...input }] }, 'hwpx').document.problems[0].boxContent, '');
+});
+
+test('native export preserves measured preview pagination and gives box prose normal leading', async () => {
+  const input = { ...doc, problemHeights: Object.fromEntries(doc.problems.map(p => [p.id, 400])), problems: doc.problems.map(p => ({ ...p, boxContent: 'ㄱ. 조건을 확인한다.\nㄴ. 계산 과정을 설명한다.' })) };
+  assert.equal(exportPages(input).length, 1); assert.equal(exportPages(input)[0].capacity, 4);
+  const template = fs.readFileSync(path.resolve(__dirname, '../public/typing/blank.hwpx'));
+  const zip = await zipBlob(await buildHwpx(input, template));
+  const header = parse(await zip.file('Contents/header.xml').async('string'));
+  for (const id of ['21','22']) {
+    const style = Array.from(header.getElementsByTagName('hh:paraPr')).find(n => n.getAttribute('id') === id);
+    assert.ok(Array.from(style.getElementsByTagName('hh:lineSpacing')).every(n => Number(n.getAttribute('value')) >= 160));
+    assert.equal(style.getElementsByTagName('hh:align')[0].getAttribute('horizontal'), 'LEFT');
+  }
+});
+
 test('parenthesized qualifications stay in the question and genuine boxes remain boxed', async () => {
   const input = { question: '두 그래프가 만날 때 $ab$의 값은?', boxContent: '단, $a, b$는 수', choices: ['8','10','12','14','16'] };
   const [problem] = model.normalizeProblems([input]);

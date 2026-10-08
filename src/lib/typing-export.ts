@@ -1,7 +1,7 @@
 import JSZip from "jszip";
 import katex from "katex";
 import { mml2omml } from "mathml2omml";
-import { choiceLabels, hasStatementChoices, formatTableCell, formatChoiceContent, choiceRowsEnabled, formatBoxContent, examPages, splitMath, type ExamDocument, type ExamProblem } from "./typing-model";
+import { choiceLabels, hasStatementChoices, formatTableCell, formatChoiceContent, choiceRowsEnabled, formatBoxContent, removeDuplicateTableBox, examPages, splitMath, type ExamDocument, type ExamProblem } from "./typing-model";
 
 export const xml = (s: string) => s.replace(/[<>&"']/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" }[c]!));
 function mathML(latex: string, display = false) {
@@ -85,7 +85,7 @@ export function prepareExportDocument(doc: ExamDocument, format: "docx" | "hwpx"
         return `[수식 원문: ${part.value.replace(/\$/g, "＄")}]`;
       }
     }).join("");
-    return { ...problem, question: repair(problem.question), boxContent: repair(formatBoxContent(problem.boxContent)), choices: problem.choices.map(choice => repair(formatChoiceContent(choice))),
+    return { ...problem, question: repair(problem.question), boxContent: repair(formatBoxContent(removeDuplicateTableBox(problem.boxContent, problem.tables))), choices: problem.choices.map(choice => repair(formatChoiceContent(choice))),
       tables: problem.tables?.map(table => ({ caption: repair(table.caption), rows: table.rows.map(row => row.map(cell => repair(formatTableCell(cell)))) })) };
   });
   return { document: { ...doc, problems }, warnings: [...warnings] };
@@ -124,6 +124,8 @@ function imageBytes(data: string) {
 // Browser and office applications use different font and equation metrics.
 // Reserve room for native equations, cell padding and table anchor paragraphs.
 export function exportPages(doc: ExamDocument) {
+  if (doc.problems.every(problem => Number.isFinite(doc.problemHeights?.[problem.id]) && doc.problemHeights![problem.id] > 0))
+    return examPages(doc.problems, doc.perPage, doc.problemHeights);
   const heights: Record<string, number> = {};
   const textHeight = (text: string) => splitMath(text).reduce((height, part) => {
     if (part.display) return height + 80;
@@ -258,9 +260,11 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
   const picture = (data: string, logo = false, choice = false) => {
       const img = imageBytes(data), binId = `image${++imageId}`;
       const scale = Math.min((logo ? 7500 : choice ? 9000 : 18000) / img.width, (logo ? 2200 : choice ? 7000 : 12000) / img.height), width = Math.round(img.width * scale), height = Math.round(img.height * scale);
+      const nativeWidth = img.width * 75, nativeHeight = img.height * 75;
+      const scaleX = width / nativeWidth, scaleY = height / nativeHeight;
       zip.file(`BinData/${binId}.${img.ext}`, img.data, { base64: true });
       images.push(`<opf:item id="${binId}" href="BinData/${binId}.${img.ext}" media-type="image/${img.ext}" isEmbeded="1"/>`);
-      return `<hp:p id="${++id}" paraPrIDRef="3" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:pic id="${++id}" zOrder="0" numberingType="PICTURE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${id}" reverse="0"><hp:offset x="0" y="0"/><hp:orgSz width="${width}" height="${height}"/><hp:curSz width="${width}" height="${height}"/><hp:flip horizontal="0" vertical="0"/><hp:rotationInfo angle="0" centerX="${Math.round(width / 2)}" centerY="${Math.round(height / 2)}" rotateimage="1"/><hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo><hp:imgRect><hc:pt0 x="0" y="0"/><hc:pt1 x="${width}" y="0"/><hc:pt2 x="${width}" y="${height}"/><hc:pt3 x="0" y="${height}"/></hp:imgRect><hp:imgClip left="0" right="${width}" top="0" bottom="${height}"/><hp:inMargin left="0" right="0" top="0" bottom="0"/><hc:img binaryItemIDRef="${binId}" bright="0" contrast="0" effect="REAL_PIC" alpha="0"/><hp:sz width="${width}" height="${height}" widthRelTo="ABSOLUTE" heightRelTo="ABSOLUTE" protect="0"/><hp:pos treatAsChar="1" affectLSpacing="1" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/><hp:outMargin left="0" right="0" top="0" bottom="0"/><hp:shapeComment>문항 그림</hp:shapeComment></hp:pic></hp:run></hp:p>`;
+      return `<hp:p id="${++id}" paraPrIDRef="3" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:pic id="${++id}" zOrder="0" numberingType="PICTURE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${id}" reverse="0"><hp:offset x="0" y="0"/><hp:orgSz width="${nativeWidth}" height="${nativeHeight}"/><hp:curSz width="${width}" height="${height}"/><hp:flip horizontal="0" vertical="0"/><hp:rotationInfo angle="0" centerX="${Math.round(width / 2)}" centerY="${Math.round(height / 2)}" rotateimage="1"/><hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="${scaleX}" e2="0" e3="0" e4="0" e5="${scaleY}" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo><hc:img binaryItemIDRef="${binId}" bright="0" contrast="0" effect="REAL_PIC" alpha="0"/><hp:imgRect><hc:pt0 x="0" y="0"/><hc:pt1 x="${nativeWidth}" y="0"/><hc:pt2 x="${nativeWidth}" y="${nativeHeight}"/><hc:pt3 x="0" y="${nativeHeight}"/></hp:imgRect><hp:imgClip left="0" right="${nativeWidth}" top="0" bottom="${nativeHeight}"/><hp:inMargin left="0" right="0" top="0" bottom="0"/><hp:imgDim dimwidth="${nativeWidth}" dimheight="${nativeHeight}"/><hp:effects/><hp:sz width="${width}" height="${height}" widthRelTo="ABSOLUTE" heightRelTo="ABSOLUTE" protect="0"/><hp:pos treatAsChar="1" affectLSpacing="1" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/><hp:outMargin left="0" right="0" top="0" bottom="0"/><hp:shapeComment>문항 그림</hp:shapeComment></hp:pic></hp:run></hp:p>`;
     };
   const nativeTable = (cells: string[][], border = 5, centered = true, rowHeight = 1800, totalWidth = 23000, raw = false) => {
     const table = { rows: cells };
@@ -271,7 +275,7 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
   const problem = (p?: ExamProblem) => {
     if (!p) return para("");
     let text = para(`${p.number}. ${p.question}${p.points ? `  [${p.points}]` : ""}`);
-    if (p.boxContent) text += nativeTable([[para("〈보기〉", false, "17") + formatBoxContent(p.boxContent).split("\n").map(line => para(line, false, /^(?:[ㄱㄴㄷㄹㅁ][.)]|[㉠-㉤])/.test(line) ? "21" : "3")).join("")]], 5, false, 1800, 23000, true);
+    if (p.boxContent) text += nativeTable([[para("〈보기〉", false, "17") + formatBoxContent(p.boxContent).split("\n").map(line => para(line, false, /^(?:[ㄱㄴㄷㄹㅁ][.)]|[㉠-㉤])/.test(line) ? "21" : "22")).join("")]], 5, false, 1800, 23000, true);
     for (const table of p.tables ?? []) {
       if (table.caption) text += para(table.caption, false, "17");
       text += nativeTable(table.rows.map(row => row.map(formatTableCell)));
@@ -314,13 +318,14 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
   const centerPr = pr.replace('id="16"', 'id="17"').replace(/horizontal="[^"]+"/, 'horizontal="CENTER"').replace('borderFillIDRef="4"', 'borderFillIDRef="2"');
   const anchorPr = pr.replace('id="16"', 'id="18"').replace(/value="160"/g, 'value="100"').replace('borderFillIDRef="4"', 'borderFillIDRef="2"');
   const headerAnchorPr = anchorPr.replace('id="18"', 'id="20"').replace('keepWithNext="1"', 'keepWithNext="0"');
-  const statementPr = anchorPr.replace('id="18"', 'id="21"').replace(/<hc:intent value="0"/g, '<hc:intent value="-1500"').replace(/<hc:left value="0"/g, '<hc:left value="1500"');
+  const statementPr = pr.replace('id="16"', 'id="21"').replace('borderFillIDRef="4"', 'borderFillIDRef="2"').replace('horizontal="JUSTIFY"', 'horizontal="LEFT"').replace(/<hc:intent value="0"/g, '<hc:intent value="-1500"').replace(/<hc:left value="0"/g, '<hc:left value="1500"').replace(/<hc:next value="0"/g, '<hc:next value="400"');
+  const boxPr = statementPr.replace('id="21"', 'id="22"').replaceAll('value="-1500"', 'value="0"').replaceAll('value="1500"', 'value="0"');
   const rightPr = centerPr.replace('id="17"', 'id="19"').replace('horizontal="CENTER"', 'horizontal="RIGHT"');
   const charPr = header.match(/<hh:charPr id="0"[\s\S]*?<\/hh:charPr>/)![0];
   const titleChar = charPr.replace('id="0"', 'id="7"').replace('height="1000"', 'height="' + Math.max(700, Math.min(1400, Math.floor(62000 / Math.max(1, doc.title.length)))) + '"').replace('</hh:charPr>', '<hh:bold/></hh:charPr>');
   const pageChar = charPr.replace('id="0"', 'id="8"').replace('height="1000"', 'height="1800"');
   header = header.replace(/<hh:charProperties itemCnt="(\d+)">/, (_, count) => '<hh:charProperties itemCnt="' + (Number(count) + 2) + '">').replace('</hh:charProperties>', titleChar + pageChar + '</hh:charProperties>');
-  header = header.replace('<hh:paraProperties itemCnt="16">', '<hh:paraProperties itemCnt="22">').replace('</hh:paraProperties>', pr + centerPr + anchorPr + rightPr + headerAnchorPr + statementPr + '</hh:paraProperties>').replace('paraPrIDRef="6750318"', 'paraPrIDRef="3"');
+  header = header.replace('<hh:paraProperties itemCnt="16">', '<hh:paraProperties itemCnt="23">').replace('</hh:paraProperties>', pr + centerPr + anchorPr + rightPr + headerAnchorPr + statementPr + boxPr + '</hh:paraProperties>').replace('paraPrIDRef="6750318"', 'paraPrIDRef="3"');
   zip.file("Contents/header.xml", header);
   let hpf = await zip.file("Contents/content.hpf")!.async("string");
   hpf = hpf.replace(/<opf:title\s*\/>/, `<opf:title>${xml(doc.title)}</opf:title>`).replace('</opf:manifest>', `${images.join("")}</opf:manifest>`);

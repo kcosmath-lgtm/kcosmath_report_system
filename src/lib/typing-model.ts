@@ -113,6 +113,17 @@ export function normalizeTables(value: unknown): ExamTable[] {
     return { caption: typeof table.caption === "string" ? table.caption.slice(0, 150) : "", rows: table.rows.map((row: string[]) => row.map(repairMath)) };
   });
 }
+export function removeDuplicateTableBox(box: string, tables: ExamTable[] = []): string {
+  if (!box || !tables.length) return box;
+  const canonical = (value: string) => value.replace(/\\(?:display|text)style\b/g, '').replace(/\\(?:d|t)?frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}/g, '$1/$2').replace(/[\s$|{}(),/:;〈〉<>＜＞]/g, '');
+  const withoutCaptions = (value: string) => {
+    for (const table of tables) if (table.caption) value = value.split(table.caption).join('');
+    return value.replace(/[〈<＜]?\s*표\s*\d+\s*[〉>＞]?/g, '');
+  };
+  const content = canonical(withoutCaptions(box));
+  const cells = canonical(tables.map(table => table.rows.flat().join(' ')).join(' '));
+  return content && content === cells ? '' : box;
+}
 export function normalizeProblems(value: unknown, sourcePage?: number): ExamProblem[] {
   if (!Array.isArray(value) || value.length > 100) throw new Error('문항 목록 형식을 확인해 주세요.');
   return value.map((item, i) => {
@@ -121,6 +132,8 @@ export function normalizeProblems(value: unknown, sourcePage?: number): ExamProb
     const number = text(item.number, 30) || String(i + 1);
     let question = repairMath(text(item.question).replace(/^\s*(\d+)[.)]\s*/, (prefix, n) => n === number ? '' : prefix));
     let boxContent = repairMath(text(item.boxContent).replace(/^\s*(?:[〈<＜]\s*)?보기(?:\s*[〉>＞])?\s*\n?/, '')).trim();
+    const tables = normalizeTables(item.tables);
+    boxContent = removeDuplicateTableBox(boxContent, tables);
     const condition = boxContent.replace(/^[（(]\s*([\s\S]*?)\s*[)）]$/, '$1').replace(/\s*\n\s*/g, ' ').trim();
     const inlineCondition = /^단\s*[,，]/.test(condition) && !/[ㄱㄴㄷㄹㅁ][.)]|[㉠-㉭]/.test(condition)
       && item.boxLayout !== "box" && !/[〈<＜]\s*보기\s*[〉>＞]|보기에서/.test(question);
@@ -140,7 +153,7 @@ export function normalizeProblems(value: unknown, sourcePage?: number): ExamProb
     const review = [text(item.review, 1000), figureWarning, question.trim().length < 12 && !item.choices?.length && !item.tables?.length && !text(item.review).includes(warning) ? warning : ''].filter(Boolean).join(' / ');
     return { id: crypto.randomUUID(), figureDiagram: item.figureDiagram, number, points: text(item.points, 30), question,
       boxContent, boxLayout: item.boxLayout === "box" || item.boxLayout === "inline" ? item.boxLayout : undefined,
-      choices: Array.from({ length: choiceFigures.length }, (_, index) => repairMath(text(item.choices?.[index]).replace(/^\s*[①②③④⑤]\s*/, ''))), choiceFigures, choiceLayout: item.choiceLayout === "rows" || item.choiceLayout === "grid" ? item.choiceLayout : "auto", sourcePage, review, figureBox, figureSourceId: text(item.figureSourceId, 100) || undefined, tables: normalizeTables(item.tables) };
+      choices: Array.from({ length: choiceFigures.length }, (_, index) => repairMath(text(item.choices?.[index]).replace(/^\s*[①②③④⑤]\s*/, ''))), choiceFigures, choiceLayout: item.choiceLayout === "rows" || item.choiceLayout === "grid" ? item.choiceLayout : "auto", sourcePage, review, figureBox, figureSourceId: text(item.figureSourceId, 100) || undefined, tables };
   });
 }
 export const COLUMN_HEIGHT = 970;

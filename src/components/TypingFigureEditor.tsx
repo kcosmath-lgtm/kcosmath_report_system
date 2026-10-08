@@ -3,6 +3,7 @@
 import { useRef, useState, type PointerEvent } from "react";
 import { cropFigure, imageData, readSource, type SourcePage } from "../lib/typing-upload";
 import type { ExamProblem, FigureBox } from "../lib/typing-model";
+import { supabase } from "../lib/supabase";
 import styles from "./TypingFigureEditor.module.css";
 
 export default function TypingFigureEditor({ problem, sources, onSources, onChange, onError }: {
@@ -12,6 +13,7 @@ export default function TypingFigureEditor({ problem, sources, onSources, onChan
 }) {
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false);
   const [sourceId, setSourceId] = useState("");
+  const [candidate, setCandidate] = useState<{ original: string; image: string } | null>(null);
   const [box, setBox] = useState<FigureBox>(problem.figureBox ?? [200, 100, 600, 900]);
   const start = useRef<[number, number] | null>(null);
   const source = sources.find(s => s.id === (sourceId || problem.figureSourceId)) ?? sources[(problem.sourcePage ?? 1) - 1] ?? sources[0];
@@ -31,6 +33,22 @@ export default function TypingFigureEditor({ problem, sources, onSources, onChan
     catch (e) { onError(e instanceof Error ? e.message : "그림을 자르지 못했습니다."); }
     finally { setBusy(false); }
   }
+  async function cleanFigure() {
+    const original = problem.figure;
+    if (!original || busy) return;
+    setBusy(true); setCandidate(null); onError("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("로그인이 필요합니다.");
+      const response = await fetch("/api/typing/clean-figure", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, signal: AbortSignal.timeout(60_000),
+        body: JSON.stringify({ image: original.split(",")[1], mimeType: original.slice(5, original.indexOf(";")) }) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || typeof result?.image !== "string" || !/^data:image\/(png|jpeg|webp);base64,/.test(result.image)) throw new Error(result?.error ?? `그림 AI 요청이 실패했습니다 (HTTP ${response.status}).`);
+      const file = new File([await (await fetch(result.image)).blob()], "cleaned.png");
+      setCandidate({ original, image: await imageData(file, 1200) });
+    } catch (e) { onError(e instanceof Error ? e.message : "그림 정리에 실패했습니다. 원본을 유지했습니다."); }
+    finally { setBusy(false); }
+  }
   return <div className={styles.editor}>
     <label className={styles.upload}><strong>{problem.figure ? "그림 교체" : "그림 별도 첨부"}</strong><span>다른 도형·그래프 이미지로 교체할 수 있습니다.</span>
       <input type="file" disabled={busy} accept="image/png,image/jpeg,image/webp" onChange={async e => {
@@ -44,6 +62,12 @@ export default function TypingFigureEditor({ problem, sources, onSources, onChan
       }}/>
     </label>
     {problem.figure && <div className={styles.attachment}><img src={problem.figure} alt={`${problem.number}번 첨부 그림 미리보기`}/><button type="button" disabled={busy} onClick={() => { onChange({ figure: undefined, figureBox: undefined, figureSourceId: undefined }); setOpen(false); }}>첨부 그림 삭제</button></div>}
+    {problem.figure && <><button type="button" className={styles.aiButton} disabled={busy} onClick={() => void cleanFigure()}>{busy ? "그림 처리 중…" : "AI로 손글씨 지우고 재생성"}</button><p>선택한 그림만 AI로 정리합니다. 별도 이미지 생성 API 비용이 발생합니다.</p></>}
+    {candidate && candidate.original === problem.figure && <div className={styles.comparison}>
+      <strong>AI 정리 결과 비교</strong><div className={styles.compareImages}><div>원본<img src={candidate.original} alt={`${problem.number}번 AI 정리 전`}/></div><div>AI 정리<img src={candidate.image} alt={`${problem.number}번 AI 정리 결과`}/></div></div>
+      <p>숫자·각도·눈금·글자가 원본과 같은지 확인한 후 적용하세요.</p>
+      <div className={styles.actions}><button type="button" disabled={busy} onClick={() => { onChange({ figure: candidate.image }); setCandidate(null); }}>정리된 그림 적용</button><button type="button" disabled={busy} onClick={() => setCandidate(null)}>원본 유지</button></div>
+    </div>}
     <label className={styles.upload}>그림 자르기용 원본 PDF·이미지 올리기<input type="file" aria-label={`${problem.number}번 그림 자르기용 원본`} disabled={busy} accept="application/pdf,image/png,image/jpeg,image/webp,.pdf" onChange={async e => {
       const file = e.target.files?.[0]; e.target.value = ""; if (!file) return;
       setBusy(true);

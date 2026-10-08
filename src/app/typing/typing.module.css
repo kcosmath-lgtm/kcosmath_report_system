@@ -13,3 +13,5 @@
 .choices{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));align-items:baseline;gap:9px 16px}.choices>div{flex:0 0 auto;max-width:100%;align-items:baseline;gap:5px}.choices>div>span:first-child{flex:none;white-space:nowrap}.choiceContent{width:max-content;min-width:0;max-width:100%;overflow-x:auto;overflow-y:hidden;padding:3px 0}.choiceContent :global(.katex){white-space:nowrap}.box{text-align:left}.box :global(.katex-display){margin:8px 0}
 
 .choices[data-prose=true]{grid-template-columns:minmax(0,1fr)}.choices[data-prose=true]>div{width:100%}.choices[data-prose=true] .choiceContent{flex:1;width:auto;overflow-wrap:anywhere}
+
+.choiceFigure{display:block;width:100%;max-width:140px;height:100px;object-fit:contain;object-position:left center;margin-top:5px}.choices:has(.choiceFigure) .choiceContent{width:100%;overflow:visible}.choiceFigureEditor{margin-top:14px;border:1px solid #dce5ee;border-radius:8px;padding:10px}.choiceFigureEditor summary{cursor:pointer;font-size:12px;color:#316d9e}.choiceFigureEditor>div{margin-top:12px;padding-top:10px;border-top:1px solid #e1e8f0}

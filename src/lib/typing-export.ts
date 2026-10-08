@@ -1,7 +1,7 @@
 import JSZip from "jszip";
 import katex from "katex";
 import { mml2omml } from "mathml2omml";
-import { choiceLabels, choiceRowsEnabled, formatBoxContent, examPages, splitMath, type ExamDocument, type ExamProblem } from "./typing-model";
+import { choiceLabels, formatTableCell, formatChoiceContent, choiceRowsEnabled, formatBoxContent, examPages, splitMath, type ExamDocument, type ExamProblem } from "./typing-model";
 
 export const xml = (s: string) => s.replace(/[<>&"']/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" }[c]!));
 function mathML(latex: string, display = false) {
@@ -85,8 +85,8 @@ export function prepareExportDocument(doc: ExamDocument, format: "docx" | "hwpx"
         return `[수식 원문: ${part.value.replace(/\$/g, "＄")}]`;
       }
     }).join("");
-    return { ...problem, question: repair(problem.question), boxContent: repair(formatBoxContent(problem.boxContent)), choices: problem.choices.map(repair),
-      tables: problem.tables?.map(table => ({ caption: repair(table.caption), rows: table.rows.map(row => row.map(repair)) })) };
+    return { ...problem, question: repair(problem.question), boxContent: repair(formatBoxContent(problem.boxContent)), choices: problem.choices.map(choice => repair(formatChoiceContent(choice))),
+      tables: problem.tables?.map(table => ({ caption: repair(table.caption), rows: table.rows.map(row => row.map(cell => repair(formatTableCell(cell)))) })) };
   });
   return { document: { ...doc, problems }, warnings: [...warnings] };
 }
@@ -130,9 +130,9 @@ export async function buildDocx(doc: ExamDocument): Promise<Blob> {
   const zip = new JSZip();
   let imageId = 0;
   const rels: string[] = [];
-  const picture = (data: string, logo = false) => {
+  const picture = (data: string, logo = false, choice = false) => {
       const id = ++imageId, img = imageBytes(data), name = `image${id}.${img.ext}`;
-      const scale = Math.min((logo ? 950000 : 2300000) / img.width, (logo ? 280000 : 1500000) / img.height), width = Math.round(img.width * scale), height = Math.round(img.height * scale);
+      const scale = Math.min((logo ? 950000 : choice ? 1100000 : 2300000) / img.width, (logo ? 280000 : choice ? 850000 : 1500000) / img.height), width = Math.round(img.width * scale), height = Math.round(img.height * scale);
       zip.file(`word/media/${name}`, img.data, { base64: true });
       rels.push(`<Relationship Id="img${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${name}"/>`);
       return `<w:p><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${width}" cy="${height}"/><wp:docPr id="${id}" name="문항 그림 ${id}"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${id}" name="${name}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="img${id}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${width}" cy="${height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
@@ -145,14 +145,14 @@ export async function buildDocx(doc: ExamDocument): Promise<Blob> {
       if (table.caption) result += wordParagraph(table.caption, '<w:jc w:val="center"/>');
       const width = Math.floor(4600 / table.rows[0].length);
       const borders = ["top", "left", "bottom", "right", "insideH", "insideV"].map(edge => `<w:${edge} w:val="single" w:sz="4" w:color="000000"/>`).join("");
-      result += `<w:tbl><w:tblPr><w:tblW w:w="4600" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders>${borders}</w:tblBorders></w:tblPr><w:tblGrid>${table.rows[0].map(() => `<w:gridCol w:w="${width}"/>`).join("")}</w:tblGrid>${table.rows.map(row => `<w:tr>${row.map(cell => `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/></w:tcPr>${wordParagraph(cell, '<w:jc w:val="center"/>')}</w:tc>`).join("")}</w:tr>`).join("")}</w:tbl><w:p/>`;
+      result += `<w:tbl><w:tblPr><w:tblW w:w="4600" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders>${borders}</w:tblBorders></w:tblPr><w:tblGrid>${table.rows[0].map(() => `<w:gridCol w:w="${width}"/>`).join("")}</w:tblGrid>${table.rows.map(row => `<w:tr>${row.map(cell => `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/></w:tcPr>${wordParagraph(formatTableCell(cell), '<w:jc w:val="center"/>')}</w:tc>`).join("")}</w:tr>`).join("")}</w:tbl><w:p/>`;
     }
     if (p.figure) result += picture(p.figure);
     if (p.choices.length) {
-      const columns = choiceRowsEnabled(p) ? 1 : Math.max(1, Math.min(5, doc.choiceColumns?.[p.id] ?? (p.choices.some(c => c.length > 20) ? 1 : 3)));
+      const columns = choiceRowsEnabled(p) ? 1 : p.choiceFigures?.some(f => f.figure) ? 2 : Math.max(1, Math.min(5, doc.choiceColumns?.[p.id] ?? (p.choices.some(c => c.length > 20) ? 1 : 3)));
       result += wordTable(Array.from({ length: Math.ceil(p.choices.length / columns) }, (_, ri) => Array.from({ length: columns }, (_, ci) => {
-        const i = ri * columns + ci; return p.choices[i] === undefined ? "" : choiceLabels[i] + " " + p.choices[i];
-      })));
+        const i = ri * columns + ci; return p.choices[i] === undefined ? "<w:p/>" : wordParagraph(choiceLabels[i] + " " + formatChoiceContent(p.choices[i])) + (p.choiceFigures?.[i]?.figure ? picture(p.choiceFigures[i].figure!, false, true) : "");
+      })), 4600, true);
     }
     return result;
   };
@@ -194,9 +194,9 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
     if (inline.trim() || !result) result += single(inline);
     return result;
   };
-  const picture = (data: string, logo = false) => {
+  const picture = (data: string, logo = false, choice = false) => {
       const img = imageBytes(data), binId = `image${++imageId}`;
-      const scale = Math.min((logo ? 7500 : 18000) / img.width, (logo ? 2200 : 12000) / img.height), width = Math.round(img.width * scale), height = Math.round(img.height * scale);
+      const scale = Math.min((logo ? 7500 : choice ? 9000 : 18000) / img.width, (logo ? 2200 : choice ? 7000 : 12000) / img.height), width = Math.round(img.width * scale), height = Math.round(img.height * scale);
       zip.file(`BinData/${binId}.${img.ext}`, img.data, { base64: true });
       images.push(`<opf:item id="${binId}" href="BinData/${binId}.${img.ext}" media-type="image/${img.ext}" isEmbeded="1"/>`);
       return `<hp:p id="${++id}" paraPrIDRef="3" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:pic id="${++id}" zOrder="0" numberingType="PICTURE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${id}" reverse="0"><hp:offset x="0" y="0"/><hp:orgSz width="${width}" height="${height}"/><hp:curSz width="${width}" height="${height}"/><hp:flip horizontal="0" vertical="0"/><hp:rotationInfo angle="0" centerX="${Math.round(width / 2)}" centerY="${Math.round(height / 2)}" rotateimage="1"/><hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo><hp:imgRect><hc:pt0 x="0" y="0"/><hc:pt1 x="${width}" y="0"/><hc:pt2 x="${width}" y="${height}"/><hc:pt3 x="0" y="${height}"/></hp:imgRect><hp:imgClip left="0" right="${width}" top="0" bottom="${height}"/><hp:inMargin left="0" right="0" top="0" bottom="0"/><hc:img binaryItemIDRef="${binId}" bright="0" contrast="0" effect="REAL_PIC" alpha="0"/><hp:sz width="${width}" height="${height}" widthRelTo="ABSOLUTE" heightRelTo="ABSOLUTE" protect="0"/><hp:pos treatAsChar="1" affectLSpacing="1" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/><hp:outMargin left="0" right="0" top="0" bottom="0"/><hp:shapeComment>문항 그림</hp:shapeComment></hp:pic></hp:run></hp:p>`;
@@ -213,15 +213,15 @@ export async function buildHwpx(doc: ExamDocument, template: ArrayBuffer): Promi
     if (p.boxContent) text += nativeTable([[para("〈보기〉", false, "17") + para(formatBoxContent(p.boxContent))]], 5, false, 1800, 23000, true);
     for (const table of p.tables ?? []) {
       if (table.caption) text += para(table.caption, false, "17");
-      text += nativeTable(table.rows);
+      text += nativeTable(table.rows.map(row => row.map(formatTableCell)));
     }
     if (p.figure) text += picture(p.figure);
     if (p.choices.length) {
-      const columns = choiceRowsEnabled(p) ? 1 : Math.max(1, Math.min(5, doc.choiceColumns?.[p.id] ?? (p.choices.some(c => c.length > 20) ? 1 : 3)));
+      const columns = choiceRowsEnabled(p) ? 1 : p.choiceFigures?.some(f => f.figure) ? 2 : Math.max(1, Math.min(5, doc.choiceColumns?.[p.id] ?? (p.choices.some(c => c.length > 20) ? 1 : 3)));
       const rows = Array.from({ length: Math.ceil(p.choices.length / columns) }, (_, ri) => Array.from({ length: columns }, (_, ci) => {
-        const i = ri * columns + ci; return p.choices[i] === undefined ? "" : choiceLabels[i] + " " + p.choices[i];
+        const i = ri * columns + ci; return p.choices[i] === undefined ? para("") : para(choiceLabels[i] + " " + formatChoiceContent(p.choices[i])) + (p.choiceFigures?.[i]?.figure ? picture(p.choiceFigures[i].figure!, false, true) : "");
       }));
-      text += nativeTable(rows, 1, false);
+      text += nativeTable(rows, 1, false, 1800, 23000, true);
     }
     return text;
   };

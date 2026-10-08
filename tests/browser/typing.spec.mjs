@@ -271,3 +271,58 @@ test('OCR crops a figure locally, supports replacing its region and file, and pr
   expect(calls).toBe(1);
   await page.getByRole('button', { name: '첨부 그림 삭제' }).click(); await expect(figure).toHaveCount(0);
 });
+
+
+test('picture choices crop independently, keep 2+2+1 alignment, export and persist', async ({ page }) => {
+  let calls = 0;
+  await page.route('**/api/typing/extract', route => { calls++; return route.fulfill({ json: { problems: [{ number: '14', question: '두 직선이 평행한 것은?', choices: ['', '', '', '', ''], figureBox: [], choiceFigureBoxes: [[0,0,200,200],[200,200,400,400],[400,400,600,600],[600,600,800,800],[800,800,1000,1000]], tables: [{ caption: '', rows: [['x','-2','15/2']] }] }] } }); });
+  await page.goto('/typing');
+  const data = await page.evaluate(() => { const c = document.createElement('canvas'); c.width=500;c.height=500;const ctx=c.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,500,500);return c.toDataURL('image/png').split(',')[1]; });
+  await page.locator('input[type="file"][accept*="application/pdf"]').setInputFiles({ name: 'choices.png', mimeType: 'image/png', buffer: Buffer.from(data,'base64') });
+  await page.getByRole('button', { name: '선택 페이지 인식' }).click();
+  const problem = page.locator('[data-problem]').first();
+  await page.getByRole('textbox', { name: '선택지 · 한 줄에 하나씩, 최대 5개' }).fill('');
+  await expect(problem.locator('img')).toHaveCount(5);
+  await expect(problem.locator('table .katex')).toHaveCount(3);
+  await expect.poll(() => problem.locator('img').evaluateAll(nodes => {
+    const r=nodes.map(n=>n.getBoundingClientRect()); return r.length===5 && Math.abs(r[0].top-r[1].top)<1 && Math.abs(r[2].top-r[3].top)<1 && Math.abs(r[0].left-r[4].left)<1 && r[4].top>r[2].top;
+  })).toBe(true);
+  for (const [button, entry] of [['Word','word/document.xml'], ['한글 HWPX','Contents/section0.xml']]) {
+    const [file] = await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:button,exact:true}).click()]);
+    const zip = await JSZip.loadAsync(readFileSync(await file.path())); const xml=await zip.file(entry).async('string');
+    expect((xml.match(button==='Word'?/<w:drawing>/g:/<hp:pic /g)||[]).length).toBe(6);
+  }
+  await page.getByText('객관식 선지별 그림 편집 (①~⑤)',{exact:true}).click();
+  const editor = page.locator('details').filter({hasText:'객관식 선지별 그림 편집'});
+  await editor.getByLabel('그림 교체').first().setInputFiles({ name:'replacement.png',mimeType:'image/png',buffer:Buffer.from(data,'base64') });
+  await expect.poll(() => problem.getByAltText('① 선지 그림',{exact:true}).evaluate(img=>img.naturalWidth)).toBe(500);
+  await page.waitForTimeout(800);await page.reload();
+  await expect(problem.locator('img')).toHaveCount(5);
+  await expect.poll(() => problem.getByAltText('① 선지 그림',{exact:true}).evaluate(img=>img.naturalWidth)).toBe(500);
+  expect(calls).toBe(1);
+});
+
+
+test('AI cleanup keeps the original until accepted, preserves it on failure, and saves the applied result', async ({ page }) => {
+  let calls=0, fail=false, output='';
+  await page.route('**/api/typing/clean-figure', route=>{
+    calls++;const body=route.request().postDataJSON();expect(body.apiKey).toBeUndefined();expect(route.request().headers().authorization).toMatch(/^Bearer /);
+    return route.fulfill(fail?{status:502,json:{error:'그림 정리 실패 테스트'}}:{json:{image:output}});
+  });
+  await page.goto('/typing');await page.getByRole('button',{name:'예시 시험지 4문항으로 시작'}).click();
+  const makeImage=async width=>page.evaluate(w=>{const c=document.createElement('canvas');c.width=w;c.height=80;const ctx=c.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,w,80);return c.toDataURL('image/png');},width);
+  const original=await makeImage(200);output=await makeImage(100);
+  await page.getByLabel('그림 별도 첨부').first().setInputFiles({name:'marked.png',mimeType:'image/png',buffer:Buffer.from(original.split(',')[1],'base64')});
+  const figure=page.locator('[data-problem]').first().locator('img');await expect(figure).toHaveCount(1);
+  const before=await figure.getAttribute('src');
+  await expect(page.locator('[data-problem]').first().locator('[data-prose] .katex')).toHaveCount(5);
+  const clean=page.getByRole('button',{name:'AI로 손글씨 지우고 재생성',exact:true});
+  await clean.click();await expect(page.getByAltText('1번 AI 정리 결과',{exact:true})).toBeVisible();
+  expect(await figure.getAttribute('src')).toBe(before);
+  await page.getByRole('button',{name:'원본 유지',exact:true}).click();expect(await figure.getAttribute('src')).toBe(before);
+  fail=true;await clean.click();await expect(page.getByText('그림 정리 실패 테스트',{exact:true})).toBeVisible();expect(await figure.getAttribute('src')).toBe(before);
+  fail=false;await clean.click();await page.getByRole('button',{name:'정리된 그림 적용',exact:true}).click();
+  await expect.poll(()=>figure.evaluate(img=>img.naturalWidth)).toBe(100);
+  await page.waitForTimeout(800);await page.reload();await expect.poll(()=>figure.evaluate(img=>img.naturalWidth)).toBe(100);
+  expect(calls).toBe(3);
+});

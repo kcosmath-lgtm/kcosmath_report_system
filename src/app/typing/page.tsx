@@ -13,7 +13,7 @@ import TypingMath from "../../components/TypingMath";
 import { useAuth } from "../../components/AuthProvider";
 import { supabase } from "../../lib/supabase";
 import { storageError } from "../../lib/supabase-report-storage";
-import { COLUMN_HEIGHT, choiceRowsEnabled, formatBoxContent, choiceLabels, examPages, normalizeProblems, sampleProblems, type ExamDocument, type ExamProblem, type ExamTable } from "../../lib/typing-model";
+import { COLUMN_HEIGHT, formatTableCell, formatChoiceContent, choiceRowsEnabled, formatBoxContent, choiceLabels, examPages, normalizeProblems, sampleProblems, type ExamDocument, type ExamProblem, type ExamTable } from "../../lib/typing-model";
 import { cropFigure, imageData, readSource, type SourcePage } from "../../lib/typing-upload";
 import { buildDocx, buildHwpx, downloadBlob, prepareExportDocument } from "../../lib/typing-export";
 import styles from "./typing.module.css";
@@ -33,7 +33,7 @@ function PaperTitle({ text }: { text: string }) {
   }, [text]);
   return <div className={styles.paperTitle}><span ref={ref}>{text}</span></div>;
 }
-function Choices({ choices, choiceLayout }: Pick<ExamProblem, "choices" | "choiceLayout">) {
+function Choices({ choices, choiceLayout, choiceFigures }: Pick<ExamProblem, "choices" | "choiceLayout" | "choiceFigures">) {
   const rows = choiceRowsEnabled({ choices, choiceLayout });
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -46,16 +46,16 @@ function Choices({ choices, choiceLayout }: Pick<ExamProblem, "choices" | "choic
         const content = item.lastElementChild as HTMLElement;
         return label.offsetWidth + 5 + content.scrollWidth;
       }));
-      const columns = rows ? 1 : Math.max(1, Math.min(5, Math.floor((node.clientWidth + 16) / (width + 16))));
+      const columns = rows ? 1 : choiceFigures?.some(f => f.figure) ? 2 : Math.max(1, Math.min(5, Math.floor((node.clientWidth + 16) / (width + 16))));
       node.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
     };
     const observer = new ResizeObserver(fit); observer.observe(node);
     fit(); void document.fonts.ready.then(fit);
     return () => { cancelled = true; observer.disconnect(); };
-  }, [choices, rows]);
-  return <div className={styles.choices} data-prose={rows} ref={ref}>{choices.map((c, n) => <div key={n}><span>{choiceLabels[n]}</span><div className={styles.choiceContent}><TypingMath text={c}/></div></div>)}</div>;
+  }, [choices, rows, choiceFigures]);
+  return <div className={styles.choices} data-prose={rows} ref={ref}>{choices.map((c, n) => <div key={n}><span>{choiceLabels[n]}</span><div className={styles.choiceContent}><TypingMath text={formatChoiceContent(c)}/>{choiceFigures?.[n]?.figure && <img className={styles.choiceFigure} src={choiceFigures[n].figure} alt={`${choiceLabels[n]} 선지 그림`}/>}</div></div>)}</div>;
 }
-function ProblemView({ p, measure = false }: { p: ExamProblem; measure?: boolean }) { return <section className={styles.problem} data-problem={measure ? undefined : true} data-problem-id={measure ? undefined : p.id}><div className={styles.question}><strong>{p.number}.</strong><div><TypingMath text={p.question}/>{p.points && <small> [{p.points}]</small>}</div></div>{p.boxContent && <div className={styles.box}><div className={styles.boxLabel}>〈보기〉</div><TypingMath text={formatBoxContent(p.boxContent)}/></div>}{p.tables?.map((table, ti) => <table className={styles.examTable} key={ti}>{table.caption && <caption>{table.caption}</caption>}<tbody>{table.rows.map((row, ri) => <tr key={ri}>{row.map((cell, ci) => <td key={ci}><TypingMath text={cell}/></td>)}</tr>)}</tbody></table>)}{p.figure && <img className={styles.figure} src={p.figure} alt={`${p.number}번 문항 그림`}/>}<Choices choices={p.choices} choiceLayout={p.choiceLayout}/></section>; }
+function ProblemView({ p, measure = false }: { p: ExamProblem; measure?: boolean }) { return <section className={styles.problem} data-problem={measure ? undefined : true} data-problem-id={measure ? undefined : p.id}><div className={styles.question}><strong>{p.number}.</strong><div><TypingMath text={p.question}/>{p.points && <small> [{p.points}]</small>}</div></div>{p.boxContent && <div className={styles.box}><div className={styles.boxLabel}>〈보기〉</div><TypingMath text={formatBoxContent(p.boxContent)}/></div>}{p.tables?.map((table, ti) => <table className={styles.examTable} key={ti}>{table.caption && <caption>{table.caption}</caption>}<tbody>{table.rows.map((row, ri) => <tr key={ri}>{row.map((cell, ci) => <td key={ci}><TypingMath text={formatTableCell(cell)}/></td>)}</tr>)}</tbody></table>)}{p.figure && <img className={styles.figure} src={p.figure} alt={`${p.number}번 문항 그림`}/>}<Choices choices={p.choices} choiceLayout={p.choiceLayout} choiceFigures={p.choiceFigures}/></section>; }
 function cleanDocument(doc: ExamDocument): ExamDocument {
   return { ...doc, problems: normalizeProblems(doc.problems).map((p, i) => ({ ...p, id: doc.problems[i].id || p.id, figure: doc.problems[i].figure, sourcePage: doc.problems[i].sourcePage })) };
 }
@@ -176,6 +176,11 @@ function TypingWorkspace() {
           const pageNumber = sources.findIndex(s => s.id === source.id) + 1;
           const problems = normalizeProblems(result.problems, pageNumber);
           for (const problem of problems) {
+            for (const figure of problem.choiceFigures ?? []) {
+              if (!figure.figureBox) continue;
+              try { figure.figure = await cropFigure(source.image, figure.figureBox); figure.figureSourceId = source.id; }
+              catch { problem.review = [problem.review, "선지 그림 자르기에 실패했습니다. 선지별 그림 영역을 직접 선택해 주세요."].filter(Boolean).join(" / "); }
+            }
             if (!problem.figureBox) continue;
             try { problem.figure = await cropFigure(source.image, problem.figureBox); problem.figureSourceId = source.id; }
             catch { problem.review = [problem.review, "그림 자동 자르기에 실패했습니다. 원본에서 영역을 직접 선택해 주세요."].filter(Boolean).join(" / "); }
@@ -262,7 +267,7 @@ function TypingWorkspace() {
               <div className={styles.row}><label>번호<input value={p.number} maxLength={30} onChange={e => update(p.id, { number: e.target.value })}/></label><label>배점<input value={p.points} maxLength={30} onChange={e => update(p.id, { points: e.target.value })} placeholder="3점"/></label></div>
               <label>문제 본문<textarea value={p.question} rows={5} onChange={e => update(p.id, { question: e.target.value })}/></label>
               <label>보기 / 조건 박스<textarea value={p.boxContent} rows={2} onChange={e => update(p.id, { boxContent: e.target.value })}/></label>
-              <label>선택지 · 한 줄에 하나씩, 최대 5개<textarea value={p.choices.join("\n")} rows={3} onChange={e => update(p.id, { choices: e.target.value ? e.target.value.split("\n").slice(0, 5) : [] })}/></label>
+              <label>선택지 · 한 줄에 하나씩, 최대 5개<textarea value={p.choices.join("\n")} rows={3} onChange={e => { const choices = e.target.value ? e.target.value.split("\n").slice(0, 5) : []; const count = Math.max(choices.length, ...(p.choiceFigures ?? []).map((figure, i) => figure.figure ? i + 1 : 0)); update(p.id, { choices: Array.from({ length: count }, (_, i) => choices[i] ?? "") }); }}/></label>
               <label>선택지 배치<select aria-label={`문항 ${p.number} 선택지 배치`} value={p.choiceLayout ?? "auto"} onChange={e => update(p.id, { choiceLayout: e.target.value as ExamProblem["choiceLayout"] })}><option value="auto">자동 · 문장형은 한 줄에 하나</option><option value="rows">한 줄에 하나씩</option><option value="grid">짧은 선지 나란히</option></select></label>
               <div className={styles.tableEditor}><strong>표 편집</strong><button disabled={(p.tables?.length ?? 0) >= 6} onClick={() => update(p.id, { tables: [...(p.tables ?? []), { caption: "", rows: [["", ""], ["", ""]] }] })}><Plus size={13}/>표 추가</button>
                 {p.tables?.map((table, ti) => {
@@ -271,6 +276,10 @@ function TypingWorkspace() {
                 })}
               </div>
               <TypingFigureEditor problem={p} sources={sources} onSources={pages => setSources(prev => [...prev, ...pages].slice(-30))} onChange={patch => update(p.id, patch)} onError={setError}/>
+              <details className={styles.choiceFigureEditor}><summary>객관식 선지별 그림 편집 (①~⑤)</summary>{Array.from({ length: 5 }, (_, index) => <div key={index}><strong>{choiceLabels[index]} 선지 그림</strong><TypingFigureEditor problem={{ ...p, number: p.number + "-" + choiceLabels[index], figure: p.choiceFigures?.[index]?.figure, figureBox: p.choiceFigures?.[index]?.figureBox, figureSourceId: p.choiceFigures?.[index]?.figureSourceId }} sources={sources} onSources={pages => setSources(prev => [...prev, ...pages].slice(-30))} onChange={patch => {
+                const choiceFigures = Array.from({ length: Math.max(p.choices.length, index + 1) }, (_, i) => i === index ? { figure: patch.figure, figureBox: patch.figureBox, figureSourceId: patch.figureSourceId } : (p.choiceFigures?.[i] ?? {}));
+                update(p.id, { choiceFigures, choices: Array.from({ length: Math.max(p.choices.length, index + 1) }, (_, i) => p.choices[i] ?? "") });
+              }} onError={setError}/></div>)}</details>
             </section>)}
           </>}
         </fieldset>

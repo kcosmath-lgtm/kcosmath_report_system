@@ -18,6 +18,45 @@ function load(relative) {
 const model = load("../src/lib/typing-model.ts");
 const { buildDocx, buildHwpx, latexToHancom, prepareExportDocument } = load("../src/lib/typing-export.ts");
 const doc = { title: "수학 <시험> & 복습", perPage: 4, problems: model.sampleProblems.map((p, i) => ({ ...p, id: String(i) })) };
+test('choice numbers, mixed prose, decimals and degrees render as native math without nesting delimiters', async () => {
+  assert.equal(model.formatChoiceContent('15/2'), '$\\frac{15}{2}$');
+  assert.equal(model.formatChoiceContent('각 A의 크기는 130°이다.'), '각 A의 크기는 $130^{\\circ}$이다.');
+  assert.equal(model.formatChoiceContent('비율은 1.25%이다.'), '비율은 $1.25\\%$이다.');
+  assert.equal(model.formatChoiceContent('$x^2$의 값은 3이다.'), '$x^2$의 값은 $3$이다.');
+  const input = { ...doc, problems: [{ ...doc.problems[0], question: '값은?', choices: ['1','-2','15/2','0.5','130°'] }] };
+  const word = await zipBlob(await buildDocx(input));
+  const wordXml = parse(await word.file('word/document.xml').async('string'));
+  assert.equal(wordXml.getElementsByTagName('m:oMath').length, 5);
+  assert.equal(wordXml.getElementsByTagName('m:f').length, 1);
+  const template = fs.readFileSync(path.resolve(__dirname, '../public/typing/blank.hwpx'));
+  const hangul = await zipBlob(await buildHwpx(input, template));
+  const hwpxXml = parse(await hangul.file('Contents/section0.xml').async('string'));
+  assert.equal(hwpxXml.getElementsByTagName('hp:equation').length, 5);
+});
+test('plain table numbers become native equations and five choice images remain in numbered cells', async () => {
+  const figure = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN1sAAAAASUVORK5CYII=';
+  const [problem] = model.normalizeProblems([{ question: '두 직선이 평행한 것은?', choices: ['', '', '', '', ''], choiceFigureBoxes: [[0,0,100,100],[],[],[],[]], tables: [{ rows: [['x','-2','15/2','표 제목']] }] }]);
+  assert.deepEqual(problem.choiceFigures[0].figureBox, [0,0,100,100]);
+  problem.choiceFigures = Array.from({ length: 5 }, () => ({ figure }));
+  const input = { ...doc, problems: [problem] };
+  assert.equal(model.formatTableCell('-2'), '$-2$');
+  assert.equal(model.formatTableCell('15/2'), '$\\frac{15}{2}$');
+  assert.equal(model.formatTableCell('표 제목'), '표 제목');
+  assert.equal(model.normalizeProblems([problem])[0].choiceFigures[4].figure, figure);
+  const word = await zipBlob(await buildDocx(input));
+  const wordXml = parse(await word.file('word/document.xml').async('string'));
+  assert.equal(wordXml.getElementsByTagName('w:drawing').length, 5);
+  assert.equal(wordXml.getElementsByTagName('m:oMath').length, 3);
+  assert.ok(wordXml.getElementsByTagName('m:f').length);
+  const choiceTable = Array.from(wordXml.getElementsByTagName('w:tbl')).find(t => t.getElementsByTagName('w:drawing').length === 5 && t.getElementsByTagName('w:tc').length === 6);
+  assert.ok(choiceTable);
+  const template = fs.readFileSync(path.resolve(__dirname, '../public/typing/blank.hwpx'));
+  const hangul = await zipBlob(await buildHwpx(input, template));
+  const hwpxXml = parse(await hangul.file('Contents/section0.xml').async('string'));
+  assert.equal(hwpxXml.getElementsByTagName('hp:pic').length, 5);
+  assert.equal(hwpxXml.getElementsByTagName('hp:equation').length, 3);
+  assert.ok(Array.from(hwpxXml.getElementsByTagName('hp:tbl')).some(t => t.getAttribute('colCnt') === '2' && t.getAttribute('rowCnt') === '3' && t.getElementsByTagName('hp:pic').length === 5));
+});
 test('sentence choices include OCR prose inside math and manual row layout survives normalization', () => {
   assert.equal(model.hasProseChoices(['$\\text{각 A의 크기는 }130^\\circ\\text{ 이다.}$']), true);
   assert.equal(model.hasProseChoices(['$\\frac{1}{2}$', '$\\sqrt{3}$']), false);

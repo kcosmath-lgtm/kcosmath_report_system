@@ -1,11 +1,13 @@
 export const OCR_MODEL = "gemini-3.1-flash-lite";
 export type FigureBox = [number, number, number, number];
 export type ExamTable = { caption: string; rows: string[][] };
+export type ChoiceFigure = { figure?: string; figureBox?: FigureBox; figureSourceId?: string };
 export type ExamProblem = {
   id: string; number: string; points: string; question: string;
   boxContent: string; choices: string[]; sourcePage?: number;
   figure?: string; figureBox?: FigureBox; figureSourceId?: string; review?: string; tables?: ExamTable[];
   choiceLayout?: "auto" | "rows" | "grid";
+  choiceFigures?: ChoiceFigure[];
 };
 export type ExamDocument = { title: string; problems: ExamProblem[]; perPage: number; choiceColumns?: Record<string, number>; brandImage?: string; problemHeights?: Record<string, number> };
 export const choiceLabels = ["①", "②", "③", "④", "⑤"];
@@ -36,6 +38,25 @@ export function choiceRowsEnabled(problem: Pick<ExamProblem, "choices" | "choice
 export function repairMath(text: string): string {
   const repaired = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => '$' + math + '$').replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => '$$' + math + '$$');
   return !repaired.includes('$') && /\\[a-zA-Z]+/.test(repaired) && !/[가-힣]/.test(repaired) ? '$' + repaired.trim() + '$' : repaired;
+}
+export function formatTableCell(text: string): string {
+  const value = repairMath(text).trim();
+  if (!value || value.includes("$")) return value;
+  if (/^[+-]?\d+(?:\.\d+)?\s*\/\s*[+-]?\d+(?:\.\d+)?$/.test(value)) {
+    const [a, b] = value.split("/").map(s => s.trim());
+    return `$\\frac{${a}}{${b}}$`;
+  }
+  return /^(?:[+-]?\d+(?:\.\d+)?|[A-Za-z]|[\dA-Za-z\s+−×÷=<>^_{}().-]*\d[\dA-Za-z\s+−×÷=<>^_{}().-]*)$/.test(value) && !/[A-Za-z]{2}/.test(value)
+    ? `$${value.replace(/×/g, "\\times ").replace(/÷/g, "\\div ").replace(/−/g, "-")}$` : value;
+}
+export function formatChoiceContent(text: string): string {
+  const whole = formatTableCell(text);
+  if (whole.startsWith("$") && whole.endsWith("$")) return whole;
+  return splitMath(repairMath(text)).map(part => part.math
+    ? (part.display ? "$$" : "$") + part.value + (part.display ? "$$" : "$")
+    : part.value.replace(/[+-]?\d+(?:\.\d+)?(?:\s*\/\s*[+-]?\d+(?:\.\d+)?)?(?:°|%)?/g, value => value.endsWith("°") || value.endsWith("%")
+      ? `$${value.replace(/°/g, "^{\\circ}").replace(/%/g, "\\%")}$` : formatTableCell(value))
+  ).join("");
 }
 // OCR may promote a variable inside Korean prose to a display equation.
 export function formatBoxContent(text: string): string {
@@ -71,12 +92,17 @@ export function normalizeProblems(value: unknown, sourcePage?: number): ExamProb
     const number = text(item.number, 30) || String(i + 1);
     const question = repairMath(text(item.question).replace(/^\s*(\d+)[.)]\s*/, (prefix, n) => n === number ? '' : prefix));
     const figureBox = normalizeFigureBox(item.figureBox);
+    const choiceFigures: ChoiceFigure[] = Array.from({ length: Math.min(5, Math.max(item.choices?.length ?? 0, item.choiceFigures?.length ?? 0, item.choiceFigureBoxes?.length ?? 0)) }, (_, index) => {
+      const existing = item.choiceFigures?.[index];
+      return { figure: typeof existing?.figure === "string" && /^data:image\/(png|jpeg);base64,/.test(existing.figure) ? existing.figure : undefined,
+        figureBox: normalizeFigureBox(existing?.figureBox ?? item.choiceFigureBoxes?.[index]), figureSourceId: text(existing?.figureSourceId, 100) || undefined };
+    });
     const figureWarning = Array.isArray(item.figureBox) && item.figureBox.length && !figureBox ? "그림 위치를 확인하지 못했습니다. 원본에서 영역을 직접 선택해 주세요." : "";
     const warning = '본문이 매우 짧습니다. 문장 조각을 문항으로 인식했는지 원본과 확인해 주세요.';
     const review = [text(item.review, 1000), figureWarning, question.trim().length < 12 && !item.choices?.length && !item.tables?.length && !text(item.review).includes(warning) ? warning : ''].filter(Boolean).join(' / ');
     return { id: crypto.randomUUID(), number, points: text(item.points, 30), question,
       boxContent: repairMath(text(item.boxContent).replace(/^\s*(?:[〈<＜]\s*)?보기(?:\s*[〉>＞])?\s*\n?/, '')),
-      choices: Array.isArray(item.choices) ? item.choices.slice(0, 5).map((v: unknown) => repairMath(text(v).replace(/^\s*[①②③④⑤]\s*/, ''))) : [], choiceLayout: item.choiceLayout === "rows" || item.choiceLayout === "grid" ? item.choiceLayout : "auto", sourcePage, review, figureBox, figureSourceId: text(item.figureSourceId, 100) || undefined, tables: normalizeTables(item.tables) };
+      choices: Array.from({ length: choiceFigures.length }, (_, index) => repairMath(text(item.choices?.[index]).replace(/^\s*[①②③④⑤]\s*/, ''))), choiceFigures, choiceLayout: item.choiceLayout === "rows" || item.choiceLayout === "grid" ? item.choiceLayout : "auto", sourcePage, review, figureBox, figureSourceId: text(item.figureSourceId, 100) || undefined, tables: normalizeTables(item.tables) };
   });
 }
 export const COLUMN_HEIGHT = 970;

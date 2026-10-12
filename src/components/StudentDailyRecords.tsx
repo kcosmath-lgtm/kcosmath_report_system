@@ -7,8 +7,29 @@ import type { StudentGroup } from '../types/student';
 import type { Attendance, DailyExam, StudentDailySave } from '../types/student-daily';
 import styles from './student-daily.module.css';
 import StudentGrades from './StudentGrades';
+import type { KeyboardEvent } from 'react';
+import { wrongAnswerStatus } from '../types/student-daily';
 
-const attendance: Attendance[] = ['', '출석', '지각', '결석', '조퇴'];
+const attendance: Attendance[] = ['출석', '지각', '결석'];
+function StatusButtons({ label, values, value, onChange }: { label: string; values: readonly string[]; value: string; onChange: (value: string) => void }) {
+  return <div className={styles.statusButtons} role="group" aria-label={label}>{values.map((option, index) => <button type="button" key={option} data-state={index} aria-pressed={value === option} aria-label={`${label} ${option === 'O' ? '완료' : option === '△' ? '일부 완료' : option === 'X' ? '미완료' : option}`} title={option === 'O' ? '완료' : option === '△' ? '일부 완료' : option === 'X' ? '미완료' : option} onClick={() => onChange(option)}>{['○', '△', 'X'][index]}</button>)}</div>;
+}
+function WrongStatus({ total, done }: { total: number; done: number }) {
+  const symbol = wrongAnswerStatus(total, done);
+  const label = symbol === '○' ? '전체 완료' : symbol === '△' ? '50% 이상 완료' : symbol === 'X' ? '50% 미만 완료' : '오답 개수 미입력 또는 확인 필요';
+  return <span className={styles.stateBadge} data-state={symbol} aria-label={`오답 상태: ${label}`} title={label}>{symbol}</span>;
+}
+function moveCountFocus(event: KeyboardEvent<HTMLInputElement>) {
+  if (event.key !== 'Tab' || event.altKey || event.ctrlKey || event.metaKey) return;
+  const input = event.currentTarget;
+  const table = input.closest('table');
+  const totals = Array.from(table?.querySelectorAll<HTMLInputElement>('input[data-count="total"]') ?? []);
+  const done = Array.from(table?.querySelectorAll<HTMLInputElement>('input[data-count="done"]') ?? []);
+  const order = [...totals, ...done];
+  const next = order[order.indexOf(input) + (event.shiftKey ? -1 : 1)];
+  if (!next) return;
+  event.preventDefault(); next.focus(); next.select();
+}
 export default function StudentDailyRecords({ rosterRevision = 0, onDirtyChange, studentIds }: { rosterRevision?: number; onDirtyChange?: (dirty: boolean) => void; studentIds?: string[] }) {
   const [date, setDate] = useState(dayjs().format('YYYY-MM-DD'));
   const [dateReady, setDateReady] = useState(false);
@@ -103,16 +124,16 @@ export default function StudentDailyRecords({ rosterRevision = 0, onDirtyChange,
     {message && <p role="status" className={styles.message}>{message}{failed && <button onClick={() => { setLoading(true); setReload(v => v + 1); }}>다시 불러오기</button>}</p>}
     {!showGrades && (loading ? <p>기록을 불러오는 중…</p> : <fieldset disabled={busy || failed} className={styles.layout}>
       {students.some(s => checked.includes(s.id)) && <div className={styles.bulk}><strong>{students.filter(s => checked.includes(s.id)).length}명 일괄 편집</strong>
-        <select aria-label="일괄 출석 상태" value={bulkAttendance} onChange={e => setBulkAttendance(e.target.value as Attendance)}>{attendance.map(a => <option key={a} value={a}>{a || '미기록'}</option>)}</select><button onClick={() => students.filter(s => checked.includes(s.id)).forEach(s => edit(s.id, r => ({ ...r, daily: { ...r.daily, attendance: bulkAttendance } })))}>출석 적용</button>
-        <select aria-label="일괄 숙제 상태" value={bulkHomework} onChange={e => setBulkHomework(e.target.value as typeof bulkHomework)}><option value="O">완료</option><option value="△">일부 완료</option><option value="X">미완료</option></select><button onClick={() => students.filter(s => checked.includes(s.id)).forEach(s => edit(s.id, r => ({ ...r, wrong: { ...r.wrong, homework_status: bulkHomework } })))}>숙제 적용</button>
+        <span>출석</span><StatusButtons label="일괄 출석" values={attendance} value={bulkAttendance} onChange={value => setBulkAttendance(value as Attendance)}/><button onClick={() => students.filter(s => checked.includes(s.id)).forEach(s => edit(s.id, r => ({ ...r, daily: { ...r.daily, attendance: bulkAttendance } })))}>출석 적용</button>
+        <span>숙제</span><StatusButtons label="일괄 숙제" values={['O','△','X']} value={bulkHomework} onChange={value => setBulkHomework(value as typeof bulkHomework)}/><button onClick={() => students.filter(s => checked.includes(s.id)).forEach(s => edit(s.id, r => ({ ...r, wrong: { ...r.wrong, homework_status: bulkHomework } })))}>숙제 적용</button>
         <input aria-label="일괄 전체 오답" type="number" min="0" value={bulkTotal} onChange={e => setBulkTotal(Number(e.target.value))} /><span>문제 중</span><input aria-label="일괄 완료 오답" type="number" min="0" max={bulkTotal} value={bulkDone} onChange={e => setBulkDone(Number(e.target.value))} /><span>완료</span><button disabled={!Number.isInteger(bulkTotal) || !Number.isInteger(bulkDone) || bulkTotal < bulkDone || bulkDone < 0} onClick={() => students.filter(s => checked.includes(s.id)).forEach(s => edit(s.id, r => ({ ...r, wrong: { ...r.wrong, total_wrong: bulkTotal, corrected_count: bulkDone } })))}>오답 적용</button>
       </div>}
       <div className={styles.tableWrap}><table><thead><tr><th><input className={styles.check} type="checkbox" aria-label="보이는 학생 전체 선택" checked={students.length > 0 && students.every(s => checked.includes(s.id))} ref={input => { if (input) input.indeterminate = students.some(s => checked.includes(s.id)) && !students.every(s => checked.includes(s.id)); }} onChange={e => setChecked(e.target.checked ? students.map(s => s.id) : [])} /></th><th>학생</th><th>출석</th><th>오답 완료</th><th>숙제</th></tr></thead><tbody>{students.map(s => {
         const r = rows[s.id]; if (!r) return null;
         return <tr key={s.id} data-selected={selected === s.id}><td><input className={styles.check} type="checkbox" aria-label={`${s.name} 일괄 편집 선택`} checked={checked.includes(s.id)} onChange={e => setChecked(ids => e.target.checked ? [...ids,s.id] : ids.filter(id => id !== s.id))} /></td><td><button onClick={() => setSelected(s.id)}>{s.name}</button><small>{s.grade}{dirty.includes(s.id) ? ' · 미저장' : ''}</small></td>
-          <td><select aria-label={`${s.name} 출석`} value={r.daily.attendance} onChange={e => edit(s.id, v => ({ ...v, daily: { ...v.daily, attendance: e.target.value as Attendance } }))}>{attendance.map(a => <option key={a} value={a}>{a || '미기록'}</option>)}</select></td>
-          <td><div className={styles.wrongCounts}><input type="number" min="0" aria-label={`${s.name} 전체 오답`} value={r.wrong.total_wrong} onChange={e => edit(s.id, v => { const total = Number(e.target.value); return { ...v, wrong: { ...v.wrong, total_wrong: total, completed: total > 0 && v.wrong.corrected_count === total } }; })} /><span>문제 중</span><input type="number" min="0" max={r.wrong.total_wrong} aria-label={`${s.name} 완료 오답`} value={r.wrong.corrected_count} onChange={e => edit(s.id, v => { const count = Number(e.target.value); return { ...v, wrong: { ...v.wrong, corrected_count: count, completed: v.wrong.total_wrong > 0 && count === v.wrong.total_wrong } }; })} /><span>완료</span></div></td>
-          <td><select aria-label={`${s.name} 숙제`} value={r.wrong.homework_status ?? ''} onChange={e => edit(s.id, v => ({ ...v, wrong: { ...v.wrong, homework_status: (e.target.value || null) as typeof v.wrong.homework_status } }))}><option value="">미기록</option><option value="O">완료</option><option value="△">일부 완료</option><option value="X">미완료</option></select></td>
+          <td><StatusButtons label={`${s.name} 출석`} values={attendance} value={r.daily.attendance} onChange={value => edit(s.id, v => ({ ...v, daily: { ...v.daily, attendance: value as Attendance } }))}/>{!attendance.includes(r.daily.attendance) && <small>{r.daily.attendance || '미기록'}</small>}</td>
+          <td><div className={styles.wrongCounts}><input type="number" min="0" data-count="total" onKeyDown={moveCountFocus} aria-label={`${s.name} 전체 오답`} value={r.wrong.total_wrong} onChange={e => edit(s.id, v => { const total = Number(e.target.value); return { ...v, wrong: { ...v.wrong, total_wrong: total, completed: total > 0 && v.wrong.corrected_count === total } }; })} /><span>문제 중</span><input type="number" min="0" max={r.wrong.total_wrong} data-count="done" onKeyDown={moveCountFocus} aria-label={`${s.name} 완료 오답`} value={r.wrong.corrected_count} onChange={e => edit(s.id, v => { const count = Number(e.target.value); return { ...v, wrong: { ...v.wrong, corrected_count: count, completed: v.wrong.total_wrong > 0 && count === v.wrong.total_wrong } }; })} /><span>완료</span><WrongStatus total={r.wrong.total_wrong} done={r.wrong.corrected_count}/></div></td>
+          <td><StatusButtons label={`${s.name} 숙제`} values={['O', '△', 'X']} value={r.wrong.homework_status ?? ''} onChange={value => edit(s.id, v => ({ ...v, wrong: { ...v.wrong, homework_status: value as 'O' | '△' | 'X' } }))}/></td>
           </tr>;
       })}</tbody></table>{!students.length && <p>왼쪽에서 반 또는 학생을 선택해 주세요.</p>}</div>
       <aside className={styles.detail}>{student && row ? <><h3>{student.name} <small>{student.grade} · {date}</small></h3>

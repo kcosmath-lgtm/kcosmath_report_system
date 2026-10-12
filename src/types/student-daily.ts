@@ -7,6 +7,11 @@ export interface StudentDailyRecord {
   reason: string; exams: DailyExam[]; version: number;
 }
 export interface StudentDailySave { daily: StudentDailyRecord; wrong: WrongAnswerRecord }
+export function wrongAnswerStatus(total: number, done: number): '○' | '△' | 'X' | '—' {
+  if (!Number.isInteger(total) || !Number.isInteger(done) || total <= 0 || done < 0 || done > total) return '—';
+  if (done === total) return '○';
+  return done / total >= 0.5 ? '△' : 'X';
+}
 export function validateDailySave({ daily, wrong }: StudentDailySave) {
   if (daily.student_id !== wrong.student_id || daily.record_date !== wrong.record_date ||
     !['', '출석', '지각', '결석', '조퇴'].includes(daily.attendance) || daily.reason.length > 2000 ||

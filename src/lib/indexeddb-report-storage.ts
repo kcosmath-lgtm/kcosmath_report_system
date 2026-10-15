@@ -1,4 +1,111 @@
 import type { Student, StudentGroup } from "../types/student";
+import { validateProgress, type ProgressBook, type ProgressEntry, type ClassBook } from '../types/progress';
+
+export async function loadClassBooks(classId: string): Promise<ClassBook[]> {
+  return transaction('readwrite', async tx => {
+    const store = tx.objectStore('classBooks');
+    const students = (await result<StudentRow[]>(tx.objectStore('students').getAll())).filter(s => s.class_id === classId);
+    const ids = new Set(students.map(s => s.id));
+    const catalog = await result<ClassBook[]>(store.getAll());
+    for (const book of await result<ProgressBook[]>(tx.objectStore('progressBooks').getAll())) {
+      if (!ids.has(book.student_id) || book.library_id || book.archived) continue;
+      let template = catalog.find(c => c.class_id === classId && c.title === book.title && JSON.stringify(c.units) === JSON.stringify(book.units));
+      if (!template) {
+        template = { id: crypto.randomUUID(), class_id: classId, title: book.title, curriculum: book.curriculum, course: book.course, units: book.units, total_pages: book.total_pages ?? 0, version: 1 };
+        await result(store.add(template)); catalog.push(template);
+      }
+      await result(tx.objectStore('progressBooks').put({ ...book, library_id: template.id }));
+    }
+    return catalog.filter(c => c.class_id === classId);
+  });
+}
+export async function manageClassBook(action: 'save' | 'delete' | 'assign', book: ClassBook, studentIds: string[] = []): Promise<ClassBook | ProgressBook[]> {
+  if (action === 'save') validateProgress({ ...book, student_id: '', states: {}, completed_page: 0 });
+  return transaction('readwrite', async tx => {
+    const store = tx.objectStore('classBooks');
+    const old = await result<ClassBook | undefined>(store.get(book.id));
+    if (!await result(tx.objectStore('classes').get(book.class_id)) || (old?.version ?? 0) !== book.version || (old && old.class_id !== book.class_id)) throw conflict();
+    const books = await result<ProgressBook[]>(tx.objectStore('progressBooks').getAll());
+    if (action === 'save') {
+      const saved = { ...book, version: book.version + 1 };
+      await result(old ? store.put(saved) : store.add(saved));
+      for (const b of books.filter(b => b.library_id === book.id && !b.archived)) {
+        // Fill legacy snapshots before changing a textbook outline.
+        for (const e of await result<ProgressEntry[]>(tx.objectStore('progressEntries').getAll())) if (e.book_id === b.id && !e.units_snapshot) await result(tx.objectStore('progressEntries').put({ ...e, units_snapshot: b.units, total_pages_snapshot: b.total_pages ?? 0, completed_page: b.completed_page ?? 0 }));
+        await result(tx.objectStore('progressBooks').put({ ...b, title: saved.title, curriculum: saved.curriculum, course: saved.course, units: saved.units, total_pages: saved.total_pages, completed_page: Math.min(b.completed_page ?? 0, saved.total_pages), states: Object.fromEntries(Object.entries(b.states).filter(([id]) => saved.units.some(u => u.id === id))), version: b.version + 1 }));
+      }
+      return saved;
+    }
+    if (!old) throw conflict();
+    if (action === 'delete') {
+      await result(store.delete(book.id));
+      for (const b of books.filter(b => b.library_id === book.id)) await result(tx.objectStore('progressBooks').put({ ...b, archived: true, version: b.version + 1 }));
+      return old;
+    }
+    const output: ProgressBook[] = [];
+    if (!studentIds.length || studentIds.length > 500) throw conflict();
+    for (const id of new Set(studentIds)) {
+      const student = await result<StudentRow | undefined>(tx.objectStore('students').get(id));
+      if (!student?.active || student.class_id !== old.class_id) throw conflict();
+      const assigned = books.find(b => b.student_id === id && b.library_id === old.id && !b.archived);
+      const saved: ProgressBook = assigned ?? { id: crypto.randomUUID(), student_id: id, title: old.title, curriculum: old.curriculum, course: old.course, units: old.units, total_pages: old.total_pages, completed_page: 0, library_id: old.id, states: {}, version: 1 };
+      if (!assigned) await result(tx.objectStore('progressBooks').add(saved));
+      output.push(saved);
+    }
+    return output;
+  });
+}
+
+export async function loadProgress(studentId: string) {
+  return transaction('readonly', async tx => {
+    const books = (await result<ProgressBook[]>(tx.objectStore('progressBooks').getAll())).filter(b => b.student_id === studentId && !b.archived);
+    const ids = new Set(books.map(b => b.id));
+    const entries = (await result<ProgressEntry[]>(tx.objectStore('progressEntries').getAll())).filter(e => ids.has(e.book_id)).sort((a,b) => b.record_date.localeCompare(a.record_date) || b.created_at.localeCompare(a.created_at));
+    return { books, entries };
+  });
+}
+export async function saveProgress(book: ProgressBook, entry?: ProgressEntry) {
+  validateProgress(book, entry);
+  return transaction('readwrite', tx => saveProgressInTransaction(tx, book, entry));
+}
+export async function saveProgressBooks(books: ProgressBook[]) {
+  books.forEach(book => validateProgress(book));
+  if (!books.length || books.length > 500 || books.some(b => b.version !== 0)) throw new Error('Invalid batch');
+  return transaction('readwrite', async tx => {
+    const output = [];
+    for (const book of books) output.push(await saveProgressInTransaction(tx, book));
+    return output;
+  });
+}
+async function saveProgressInTransaction(tx: IDBTransaction, book: ProgressBook, entry?: ProgressEntry) {
+    const bs = tx.objectStore('progressBooks');
+    const old = await result<ProgressBook | undefined>(bs.get(book.id));
+    const student = await result<StudentRow | undefined>(tx.objectStore('students').get(book.student_id));
+    if (!student?.active || old?.archived || (old?.version ?? 0) !== book.version || (old && ((old.total_pages ?? 0) !== (book.total_pages ?? 0) || old.student_id !== book.student_id || old.title !== book.title || old.curriculum !== book.curriculum || old.course !== book.course || JSON.stringify(old.units) !== JSON.stringify(book.units)))) throw conflict();
+    const saved = { ...book, version: book.version + 1 };
+    const created_at = new Date().toISOString();
+    const record_date = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(new Date());
+    const log: ProgressEntry = { ...(entry ?? { id: crypto.randomUUID(), book_id: book.id, record_date, unit_ids: [], scope: '', homework: '', due_date: null, memo: '단원 상태 변경' }), states: { ...saved.states }, created_at };
+    await result(old ? bs.put(saved) : bs.add(saved));
+    const snapshot = { ...log, units_snapshot: saved.units, total_pages_snapshot: saved.total_pages ?? 0, completed_page: saved.completed_page ?? 0 };
+    await result(tx.objectStore('progressEntries').add(snapshot));
+    return { book: saved, entry: snapshot };
+}
+export async function saveProgressBatch(items: { book: ProgressBook; entry: ProgressEntry }[]) {
+  items.forEach(item => validateProgress(item.book, item.entry));
+  if (!items.length || items.length > 500) throw new Error('Invalid batch');
+  return transaction('readwrite', async tx => {
+    const output = [];
+    for (const item of items) output.push(await saveProgressInTransaction(tx, item.book, item.entry));
+    return output;
+  });
+}
+async function deleteProgress(tx: IDBTransaction, ids: Set<string>) {
+  const books = await result<ProgressBook[]>(tx.objectStore('progressBooks').getAll());
+  const bookIds = new Set(books.filter(b => ids.has(b.student_id)).map(b => b.id));
+  for (const e of await result<ProgressEntry[]>(tx.objectStore('progressEntries').getAll())) if (bookIds.has(e.book_id)) await result(tx.objectStore('progressEntries').delete(e.id));
+  for (const id of bookIds) await result(tx.objectStore('progressBooks').delete(id));
+}
 import type { LessonRecord, ReportRecord } from "../types/report";
 import type { ReportSaveBatch } from "./report-storage";
 import type { WrongAnswerRecord } from "../types/wrong-answer";
@@ -30,7 +137,7 @@ export async function saveStudentDaily(items: StudentDailySave[]): Promise<Stude
 }
 
 const DB_NAME = "cosmath-local-v1";
-const STORES = ["classes", "students", "lessons", "reports", "wrongAnswers", "handoffs", "studentDaily"];
+const STORES = ["classes", "students", "lessons", "reports", "wrongAnswers", "handoffs", "studentDaily", "progressBooks", "progressEntries", "classBooks"];
 interface ClassRow { id: string; name: string }
 interface StudentRow extends Student { class_id: string; active: boolean }
 const conflict = () => new Error("다른 창에서 데이터가 변경되었거나 이미 등록되어 있습니다. 작성 내용을 보관한 뒤 다시 불러와 주세요.");
@@ -38,9 +145,12 @@ const conflict = () => new Error("다른 창에서 데이터가 변경되었거�
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === "undefined") { reject(new Error("이 브라우저에서 IndexedDB를 사용할 수 없습니다. 브라우저 저장소 설정을 확인해 주세요.")); return; }
-    const request = indexedDB.open(DB_NAME, 4);
+    const request = indexedDB.open(DB_NAME, 6);
     request.onupgradeneeded = () => {
       const db = request.result;
+      if (!db.objectStoreNames.contains('classBooks')) db.createObjectStore('classBooks', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('progressBooks')) db.createObjectStore('progressBooks', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('progressEntries')) db.createObjectStore('progressEntries', { keyPath: 'id' });
       if (!db.objectStoreNames.contains("studentDaily")) db.createObjectStore("studentDaily", { keyPath: "id" }).createIndex("student_date", ["student_id", "record_date"], { unique: true });
       if (!db.objectStoreNames.contains("classes")) db.createObjectStore("classes", { keyPath: "id" }).createIndex("name", "name", { unique: true });
       if (!db.objectStoreNames.contains("students")) db.createObjectStore("students", { keyPath: "id" });
@@ -138,6 +248,7 @@ export async function deleteStudent(id: string) {
   await transaction("readwrite", async tx => {
     const students = tx.objectStore("students");
     if (!await result(students.get(id))) throw conflict();
+    await deleteProgress(tx, new Set([id]));
     const reports = await result<ReportRecord[]>(tx.objectStore("reports").getAll());
     const wrongAnswers = await result<WrongAnswerRecord[]>(tx.objectStore("wrongAnswers").getAll());
     for (const report of reports.filter(item => item.student_id === id)) await result(tx.objectStore("reports").delete(report.id));
@@ -151,8 +262,10 @@ export async function deleteClass(id: string) {
   await transaction("readwrite", async tx => {
     const classes = tx.objectStore("classes");
     if (!await result(classes.get(id))) throw conflict();
+    for (const b of await result<ClassBook[]>(tx.objectStore('classBooks').getAll())) if (b.class_id === id) await result(tx.objectStore('classBooks').delete(b.id));
     const students = (await result<StudentRow[]>(tx.objectStore("students").getAll())).filter(item => item.class_id === id);
     const studentIds = new Set(students.map(item => item.id));
+    await deleteProgress(tx, studentIds);
     const lessons = (await result<LessonRecord[]>(tx.objectStore("lessons").getAll())).filter(item => item.class_id === id);
     const lessonIds = new Set(lessons.map(item => item.id));
     const reports = await result<ReportRecord[]>(tx.objectStore("reports").getAll());

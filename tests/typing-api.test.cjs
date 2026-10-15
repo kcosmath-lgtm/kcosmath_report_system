@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
 const { test, beforeEach, afterEach } = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs"), path = require("node:path"), ts = require("typescript"), Module = require("node:module");
 let previousKey;
 beforeEach(() => { previousKey = process.env.GEMINI_API_KEY; process.env.GEMINI_API_KEY = "server-test-key"; });

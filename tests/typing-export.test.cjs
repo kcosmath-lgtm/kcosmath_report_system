@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -246,6 +245,21 @@ test("OCR model is fixed; last partial page keeps left-column capacity", () => {
   assert.deepEqual(pages[0].left.map(p => p.number), ["1", "2"]);
   assert.deepEqual(pages[0].right.map(p => p.number), ["3"]);
 });
+test('Hancom limits attach conditions directly to the native limit operator', async () => {
+  for (const source of [String.raw`\lim_{x\to0}f(x)`, String.raw`\displaystyle\lim_{x\to0}f(x)`, String.raw`\lim\limits_{x\to0}f(x)`, String.raw`\lim_{x\to0^+}f(x)`]) {
+    const script = latexToHancom(source);
+    assert.match(script, /^lim _\{x ->/);
+    assert.ok(!script.includes('{lim}'));
+  }
+  assert.match(latexToHancom(String.raw`a_{n+1}`), /\{a\} _\{n \+ 1\}/);
+  const input = { ...doc, problems: [{ ...doc.problems[0], question: String.raw`$\lim_{x\to0}\frac{\sin x}{x}$` }] };
+  const template = fs.readFileSync(path.resolve(__dirname, '../public/typing/blank.hwpx'));
+  const zip = await zipBlob(await buildHwpx(input, template));
+  const section = parse(await zip.file('Contents/section0.xml').async('string'));
+  const scripts = Array.from(section.getElementsByTagName('hp:script')).map(n => n.textContent);
+  assert.ok(scripts.some(s => /^lim _\{x -> 0\}/.test(s)));
+});
+
 test("nested fractions, roots, limits, cases and matrices become Hancom scripts", () => {
   assert.match(latexToHancom(String.raw`\frac{1}{\sqrt{x^2+1}}`), /over.*sqrt.*\^/);
   assert.match(latexToHancom(String.raw`\sqrt[3]{5}`), /root.*3.*of.*5/);

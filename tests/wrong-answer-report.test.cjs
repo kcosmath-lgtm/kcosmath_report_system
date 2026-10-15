@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-require-imports -- Compile the TypeScript statistics module for Node tests. */
+// Compile the TypeScript statistics module for Node tests.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

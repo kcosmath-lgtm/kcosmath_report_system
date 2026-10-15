@@ -19,3 +19,7 @@
 .records input[type=number]{appearance:textfield;-moz-appearance:textfield}
 .records input[type=number]::-webkit-inner-spin-button,.records input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .bulk{gap:10px 12px}.bulk .statusButtons{gap:6px}.bulk .statusButtons>button{width:32px;height:32px}.bulk>button{border:1px solid #c5d8eb;background:white;font-weight:600}.bulk>button:hover:not(:disabled){background:#e0edfa}
+
+.records .completeWrong{margin-left:6px;border:1px solid #a8d7c1;background:#edf8f2;color:#257751;white-space:nowrap;font-weight:600}.records .completeWrong:hover:not(:disabled){background:#dff2e7}.records .completeWrong:disabled{opacity:1;background:#f1f5f3;color:#73877c;border-color:#d5e2db}
+
+.records tr[data-complete=true]{background:#edf8f1}.records tr[data-complete=false]{background:#fff1f0}.records tr[data-selected=true]{box-shadow:inset 3px 0 #3986bf}.records .rowMemo{min-width:140px;min-height:38px;background:#ffffff99;white-space:normal}

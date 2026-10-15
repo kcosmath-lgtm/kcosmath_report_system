@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-require-imports -- This test installs a CommonJS loader for the TS hook and its mocked network boundary. */
+// This test installs a CommonJS loader for the TS hook and its mocked network boundary.
 const { test, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

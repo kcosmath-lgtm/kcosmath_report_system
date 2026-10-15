@@ -15,6 +15,12 @@ async function storage() {
 }
 
 export async function loadStudents() { return (await storage()).loadStudents(); }
+export async function loadProgress(studentId: string) { return (await storage()).loadProgress(studentId); }
+export async function loadClassBooks(classId: string) { return (await storage()).loadClassBooks(classId); }
+export async function manageClassBook(action: 'save' | 'delete' | 'assign', book: import('../types/progress').ClassBook, ids: string[] = []) { return (await storage()).manageClassBook(action, book, ids); }
+export async function saveProgressBooks(books: import('../types/progress').ProgressBook[]) { return (await storage()).saveProgressBooks(books); }
+export async function saveProgressBatch(items: { book: import('../types/progress').ProgressBook; entry: import('../types/progress').ProgressEntry }[]) { return (await storage()).saveProgressBatch(items); }
+export async function saveProgress(book: import('../types/progress').ProgressBook, entry?: import('../types/progress').ProgressEntry) { return (await storage()).saveProgress(book, entry); }
 export async function updateStudent(id: string, name: string, grade: string, version: number) { const value = await (await storage()).updateStudent(id, name, grade, version); rosterChanged(); return value; }
 export async function loadStudentDaily(month: string) { return (await storage()).loadStudentDaily(month); }
 export async function saveStudentDaily(items: import('../types/student-daily').StudentDailySave[]) { return (await storage()).saveStudentDaily(items); }

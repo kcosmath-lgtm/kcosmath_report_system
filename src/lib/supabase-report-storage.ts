@@ -1,4 +1,49 @@
 import { supabase } from "./supabase";
+import { validateProgress, type ProgressBook, type ProgressEntry, type ClassBook } from '../types/progress';
+
+export async function loadClassBooks(classId: string): Promise<ClassBook[]> {
+  const { data, error } = await supabase.from('cosmath_class_books').select('*').eq('class_id',classId).eq('archived',false).order('title');
+  if (error) throw storageError(error);
+  return (data ?? []) as ClassBook[];
+}
+export async function manageClassBook(action: 'save' | 'delete' | 'assign', book: ClassBook, studentIds: string[] = []): Promise<ClassBook | ProgressBook[]> {
+  if (action === 'save') validateProgress({ ...book, student_id: '', states: {}, completed_page: 0 });
+  const { data, error } = await supabase.rpc('cosmath_manage_class_book', { p_action: action, p_book: book, p_students: studentIds });
+  if (error) throw storageError(error);
+  return data as ClassBook | ProgressBook[];
+}
+
+export async function loadProgress(studentId: string) {
+  const { data, error } = await supabase.from('cosmath_progress_books').select('*').eq('student_id', studentId).eq('archived',false).order('updated_at', { ascending: false });
+  if (error) throw storageError(error);
+  const books = (data ?? []) as ProgressBook[];
+  const entries: ProgressEntry[] = [];
+  if (books.length) for (let offset = 0; ; offset += 500) {
+    const page = await supabase.from('cosmath_progress_entries').select('*').in('book_id', books.map(b => b.id)).order('record_date', { ascending: false }).order('created_at', { ascending: false }).order('id').range(offset, offset + 499);
+    if (page.error) throw storageError(page.error);
+    entries.push(...(page.data ?? []) as ProgressEntry[]);
+    if ((page.data?.length ?? 0) < 500) break;
+  }
+  return { books, entries };
+}
+export async function saveProgress(book: ProgressBook, entry?: ProgressEntry) {
+  validateProgress(book, entry);
+  const { data, error } = await supabase.rpc('cosmath_save_progress', { p_book: book, p_entry: entry ?? null });
+  if (error) throw storageError(error);
+  return data as { book: ProgressBook; entry: ProgressEntry };
+}
+export async function saveProgressBooks(books: ProgressBook[]) {
+  books.forEach(book => validateProgress(book));
+  const { data, error } = await supabase.rpc('cosmath_add_progress_books', { p_books: books });
+  if (error) throw storageError(error);
+  return data as { book: ProgressBook; entry: ProgressEntry }[];
+}
+export async function saveProgressBatch(items: { book: ProgressBook; entry: ProgressEntry }[]) {
+  items.forEach(item => validateProgress(item.book, item.entry));
+  const { data, error } = await supabase.rpc('cosmath_save_progress_batch', { p_items: items });
+  if (error) throw storageError(error);
+  return data as { book: ProgressBook; entry: ProgressEntry }[];
+}
 import type { StudentGroup } from "../types/student";
 import type { LessonRecord, ReportRecord } from "../types/report";
 import type { WrongAnswerRecord } from "../types/wrong-answer";

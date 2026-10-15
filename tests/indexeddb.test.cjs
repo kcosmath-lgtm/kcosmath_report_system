@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-require-imports -- Compile the TS storage adapter and intercept the cloud boundary in Node tests. */
+// Compile the TS storage adapter and intercept the cloud boundary in Node tests.
 const { test, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -32,6 +32,55 @@ async function fixture() {
   await storage.saveReportBatch({ lessons: [lesson], reports: [report] });
   return { group, a, b, lesson, report };
 }
+
+test('progress preserves snapshots, validates outlines, rejects conflicts and cascades deletion', async () => {
+  const { a, group } = await fixture();
+  const { progressPercent } = require('../src/types/progress.ts');
+  const book = { id: crypto.randomUUID(), student_id: a.id, title: '교재', curriculum: '2022 개정', course: '중2', units: [{ id: 'one', group: '식', name: '계산' }, { id: 'two', group: '식', name: '방정식' }], states: {}, version: 0 };
+  await assert.rejects(storage.saveProgressBooks([{ ...book, id: crypto.randomUUID() }, { ...book, id: crypto.randomUUID(), student_id: 'missing' }]));
+  assert.equal((await storage.loadProgress(a.id)).books.length, 0);
+  const first = await storage.saveProgress(book);
+  const e = { id: crypto.randomUUID(), book_id: book.id, record_date: '2026-10-13', unit_ids: ['one'], scope: 'p.1~5', homework: 'p.6~8', due_date: '2026-10-15', memo: '', states: {}, created_at: '' };
+  const second = await storage.saveProgress({ ...first.book, states: { one: '완료' } }, e);
+  await assert.rejects(storage.saveProgressBatch([{book:second.book,entry:{...e,id:crypto.randomUUID()}},{book:first.book,entry:{...e,id:crypto.randomUUID()}}]));
+  assert.equal((await storage.loadProgress(a.id)).books[0].version,2);
+  assert.equal(progressPercent(second.book), 50);
+  assert.equal(progressPercent({ units: [], states: {} }), 0);
+  const data = await storage.loadProgress(a.id);
+  assert.equal(data.entries.length, 2);
+  assert.deepEqual(data.entries.find(r => r.id === first.entry.id).states, {});
+  assert.equal(data.entries.find(r => r.id === e.id).homework, 'p.6~8');
+  await assert.rejects(storage.saveProgress(first.book, { ...e, id: crypto.randomUUID() }));
+  await assert.rejects(storage.saveProgress({ ...second.book, units: [...book.units, { id: 'third', group: '', name: '추가' }] }));
+  await assert.rejects(storage.saveProgress(second.book, { ...e, id: crypto.randomUUID(), due_date: '2026-10-12' }));
+  await assert.rejects(storage.saveProgress({ ...second.book, states: { unknown: '완료' } }));
+  assert.equal((await storage.loadProgress(a.id)).books[0].version, 2);
+  await storage.deleteClass(group.id);
+  assert.deepEqual(await storage.loadProgress(a.id), { books: [], entries: [] });
+});
+
+test('class textbooks assign independently, propagate edits and preserve historical page progress', async () => {
+  const {a,b,group}=await fixture();
+  const template={id:crypto.randomUUID(),class_id:group.id,title:'교재',curriculum:'2022',course:'중2',units:[{id:'one',group:'식',name:'계산'}],total_pages:100,version:0};
+  const saved=await storage.manageClassBook('save',template);
+  assert.equal((await storage.loadClassBooks(group.id)).length,1);
+  const assigned=await storage.manageClassBook('assign',saved,[a.id,b.id]);
+  assert.equal(assigned.length,2);
+  const entry={id:crypto.randomUUID(),book_id:assigned[0].id,record_date:'2026-10-13',unit_ids:[],scope:'p.1~50',homework:'p.51',due_date:null,memo:'',states:{},created_at:''};
+  const progress=await storage.saveProgress({...assigned[0],completed_page:50},entry);
+  const {progressPercent}=require('../src/types/progress.ts');
+  assert.equal(progressPercent(progress.book),50);
+  assert.equal((await storage.loadProgress(b.id)).books[0].completed_page,0);
+  const edited=await storage.manageClassBook('save',{...saved,total_pages:200,title:'수정 교재'});
+  const history=await storage.loadProgress(a.id);
+  assert.equal(history.books[0].title,'수정 교재');
+  assert.equal(history.entries[0].total_pages_snapshot,100);
+  assert.equal(history.entries[0].completed_page,50);
+  await assert.rejects(storage.saveProgress(progress.book));
+  await storage.manageClassBook('delete',edited);
+  assert.equal((await storage.loadClassBooks(group.id)).length,0);
+  assert.deepEqual(await storage.loadProgress(a.id),{books:[],entries:[]});
+});
 
 test('daily records accumulate by date, share homework records, and reject stale batches atomically', async () => {
   const { a } = await fixture();

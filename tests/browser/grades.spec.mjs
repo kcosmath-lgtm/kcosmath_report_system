@@ -8,7 +8,7 @@ test('file chooser focus preserves date, parses grades and persists them', async
  await page.goto('/students');
  await expect(page.getByText('등록된 반이 없습니다.')).toBeVisible();
  await page.evaluate(()=>new Promise((resolve,reject)=>{
-  const request=indexedDB.open('cosmath-local-v1',4);
+  const request=indexedDB.open('cosmath-local-v1',6);
   request.onupgradeneeded=()=>{for(const name of ['classes','students','lessons','reports','wrongAnswers','handoffs','studentDaily'])request.result.createObjectStore(name,{keyPath:'id'});};
   request.onsuccess=()=>{const db=request.result,tx=db.transaction(['classes','students'],'readwrite');tx.objectStore('classes').put({id:'class',name:'테스트 반'});tx.objectStore('students').put({id:'student',class_id:'class',name:'테스트 학생',grade:'중3',active:true,version:1});tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);};request.onerror=()=>reject(request.error);
  }));

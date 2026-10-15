@@ -21,6 +21,9 @@ export function latexToHancom(latex: string): string {
   const visit = (el: Element): string => {
     const cs = children(el), at = (i: number) => cs[i] ? visit(cs[i]) : "";
     const group = (i: number) => `{${at(i)}}`;
+    // A grouped operator ({lim} _{...}) receives a side subscript in Hancom.
+    // Keep the native limit command directly attached to its lower limit.
+    const scriptBase = () => /^(lim|Lim)$/.test(at(0).trim()) ? at(0).trim() : group(0);
     switch (el.localName) {
       case "math": case "mstyle": case "mpadded": return cs.map(visit).join(" ");
       case "semantics": return at(0);
@@ -41,16 +44,16 @@ export function latexToHancom(latex: string): string {
       case "mfrac": return /^0(?:px|em)?$/.test(el.getAttribute("linethickness") ?? "") ? `pile {${at(0)} # ${at(1)}}` : `${group(0)} over ${group(1)}`;
       case "msqrt": return `sqrt {${cs.map(visit).join(" ")}}`;
       case "mroot": return `root ${group(1)} of ${group(0)}`;
-      case "msub": return `${group(0)} _${group(1)}`;
+      case "msub": return `${scriptBase()} _${group(1)}`;
       case "munder": {
         if (el.getAttribute("accentunder") === "true") {
           if (["_", "¯", "‾", "̲"].includes(cs[1]?.textContent ?? "")) return `under ${group(0)}`;
           throw new Error(`한글에서 지원하지 않는 아랫첨자 장식: ${latex}`);
         }
-        return `${group(0)} _${group(1)}`;
+        return `${scriptBase()} _${group(1)}`;
       }
       case "msup": return `${group(0)} ^${group(1)}`;
-      case "msubsup": case "munderover": return `${group(0)} _${group(1)} ^${group(2)}`;
+      case "msubsup": case "munderover": return `${scriptBase()} _${group(1)} ^${group(2)}`;
       case "mover": {
         const accent: Record<string, string> = { "→": "vec", "^": "hat", "ˆ": "hat", "~": "tilde", "˜": "tilde", "¯": "bar", "‾": "bar", "˙": "dot", "¨": "ddot", "⏞": "overbrace" };
         const command = accent[cs[1]?.textContent ?? ""];

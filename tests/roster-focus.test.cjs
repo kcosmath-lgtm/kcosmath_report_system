@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
 const {test}=require('node:test'), assert=require('node:assert/strict');
 const fs=require('node:fs'),ts=require('typescript'),React=require('react');
 const {create,act}=require('react-test-renderer');

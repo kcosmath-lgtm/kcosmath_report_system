@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-require-imports -- Load TSX with a mocked RPC boundary. */
+// Load TSX with a mocked RPC boundary.
 const { test, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

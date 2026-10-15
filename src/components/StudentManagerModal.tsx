@@ -7,6 +7,7 @@ import { ChevronDown, Pencil, Loader2, Plus, RefreshCw, Trash2, UserPlus, Users,
 import { addClass, addStudent, updateStudent, deleteClass, deleteStudent, loadStudents } from "../lib/report-storage";
 import type { StudentGroup } from "../types/student";
 import StudentDailyRecords from "./StudentDailyRecords";
+import StudentProgressTable from "./StudentProgressTable";
 import styles from "./student-manager.module.css";
 
 type Props = { open: boolean; onClose: () => void; onChanged: () => void; mode?: "modal" | "page" };
@@ -14,6 +15,7 @@ type Props = { open: boolean; onClose: () => void; onChanged: () => void; mode?:
 export default function StudentManagerModal({ open, onClose, onChanged, mode = "modal" }: Props) {
   const [editing, setEditing] = useState<{ id: string; name: string; grade: string; version: number } | null>(null);
   const [recordsDirty, setRecordsDirty] = useState(false);
+  const [recordTab, setRecordTab] = useState<'daily' | 'progress'>('daily');
   const [recordRevision, setRecordRevision] = useState(0);
   const [groups, setGroups] = useState<StudentGroup[]>([]);
   const [className, setClassName] = useState("");
@@ -54,11 +56,11 @@ export default function StudentManagerModal({ open, onClose, onChanged, mode = "
   useEffect(() => { if (open) void refresh(); }, [open, refresh]);
   useEffect(() => {
     if (!open || mode !== "modal") return;
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape" && !busy) onClose(); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape" && !busy && !recordsDirty) onClose(); };
     window.addEventListener("keydown", escape);
     dialog.current?.focus();
     return () => window.removeEventListener("keydown", escape);
-  }, [open, busy, onClose, mode]);
+  }, [open, busy, recordsDirty, onClose, mode]);
 
 
   async function mutate(action: () => Promise<void>, message: string) {
@@ -71,11 +73,11 @@ export default function StudentManagerModal({ open, onClose, onChanged, mode = "
   }
 
   if (!open) return null;
-  const content = <div className={mode === "page" ? styles.pageContainer : styles.backdrop} role="presentation" onMouseDown={event => { if (mode === "modal" && event.target === event.currentTarget && !busy) onClose(); }}>
+  const content = <div className={mode === "page" ? styles.pageContainer : styles.backdrop} role="presentation" onMouseDown={event => { if (mode === "modal" && event.target === event.currentTarget && !busy && !recordsDirty) onClose(); }}>
     <div ref={dialog} className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="student-manager-title" tabIndex={-1}>
       <header className={styles.header}>
         <div><span><Users size={18} /></span><div><h2 id="student-manager-title">학생 관리</h2><p>반과 재원생을 등록하고 관리합니다.</p></div></div>
-        {mode === "modal" && <button onClick={onClose} disabled={busy} aria-label="학생 관리 닫기"><X size={20} /></button>}
+        {mode === "modal" && <button onClick={onClose} disabled={busy || recordsDirty} aria-label="학생 관리 닫기"><X size={20} /></button>}
       </header>
 
       <div className={styles.body}>
@@ -103,7 +105,7 @@ export default function StudentManagerModal({ open, onClose, onChanged, mode = "
               <div className={styles.groupRow}><input type="checkbox" aria-label={`${group.group} 학생 전체 선택`} checked={group.students.length > 0 && group.students.every(student => selectedIds.includes(student.id))} ref={input => { if (input) input.indeterminate = group.students.some(student => selectedIds.includes(student.id)) && !group.students.every(student => selectedIds.includes(student.id)); }} onChange={event => { const ids = group.students.map(student => student.id); setSelectedIds(current => event.target.checked ? [...new Set([...current, ...ids])] : current.filter(id => !ids.includes(id))); if (event.target.checked && ids[0]) setSelectedId(ids[0]); }} /><button className={styles.groupToggle} aria-expanded={expandedGroups.includes(group.id)} onClick={() => { setSelectedIds(group.students.map(s => s.id)); setSelectedId(group.students[0]?.id ?? ""); setExpandedGroups(current => current.includes(group.id) ? current.filter(id => id !== group.id) : [...current, group.id]); }}><span>{group.group}</span><small>{group.students.length}</small><ChevronDown size={14} /></button><button className={styles.groupAdd} onClick={() => { setClassId(group.id); setAddingMode("student"); setAddingOpen(true); }} aria-label={`${group.group}에 학생 추가`} title="이 반에 학생 추가"><UserPlus size={14} /></button><button className={styles.groupDelete} disabled={busy} onClick={() => { if (!window.confirm(`[${group.group}] 반을 영구 삭제할까요?\n소속 학생과 수업 보고서, 오답 기록이 모두 삭제되며 복구할 수 없습니다.`)) return; void mutate(() => deleteClass(group.id), `${group.group} 반을 삭제했습니다.`); }} aria-label={`${group.group} 삭제`} title="반 영구 삭제"><Trash2 size={14} /></button></div>
               {expandedGroups.includes(group.id) && (!group.students.length ? <p>등록된 학생 없음</p> : group.students.map(student => <div key={student.id} className={`${styles.studentRow} ${selectedId === student.id ? styles.currentStudent : ""}`}><input type="checkbox" aria-label={`${student.name} 선택`} checked={selectedIds.includes(student.id)} onChange={event => { const next = event.target.checked ? [...new Set([...selectedIds, student.id])] : selectedIds.filter(id => id !== student.id); setSelectedIds(next); setSelectedId(event.target.checked ? student.id : (selectedId === student.id ? next[0] ?? "" : selectedId)); }} /><button className={selectedIds.includes(student.id) ? styles.selectedStudent : ""} aria-current={selectedId === student.id ? "true" : undefined} onClick={() => { setSelectedIds([student.id]); setSelectedId(student.id); }}><span>{student.name.slice(0, 1)}</span><div><strong>{student.name}</strong><small>{student.grade}</small></div></button><button className={styles.studentAction} disabled={busy || recordsDirty} aria-label={`${student.name} 편집`} onClick={() => { setEditing({ id: student.id, name: student.name, grade: student.grade, version: student.version }); }}><Pencil size={14} /></button><button className={styles.studentAction} disabled={busy || recordsDirty} aria-label={`${student.name} 삭제`} onClick={() => { if (window.confirm(`${student.name} 학생과 모든 기록을 영구 삭제할까요?`)) void mutate(() => deleteStudent(student.id), "학생을 삭제했습니다."); }}><Trash2 size={14} /></button></div>))}
             </div>)}</nav>
-            <div className={styles.recordPanel}><StudentDailyRecords studentIds={selectedIds} rosterRevision={recordRevision} onDirtyChange={setRecordsDirty} /></div>
+            <div className={styles.recordPanel}><div className={styles.recordTabs}><button aria-pressed={recordTab === 'daily'} disabled={recordsDirty && recordTab !== 'daily'} onClick={() => setRecordTab('daily')}>출결·숙제·오답·성적</button><button aria-pressed={recordTab === 'progress'} disabled={recordsDirty && recordTab !== 'progress'} onClick={() => setRecordTab('progress')}>진도 관리</button></div>{recordTab === 'daily' ? <StudentDailyRecords studentIds={selectedIds} rosterRevision={recordRevision} onDirtyChange={setRecordsDirty} /> : <StudentProgressTable groups={groups} studentIds={selectedIds} rosterRevision={recordRevision} onDirtyChange={setRecordsDirty} />}</div>
           </div>}
         </section>
       </div>

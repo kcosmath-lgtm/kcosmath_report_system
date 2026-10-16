@@ -32,7 +32,7 @@ export default function ReportSheets({preview:p}:{preview:Preview}){
  const homeworkStatus=wrong?.homework_status?{O:'완료','△':'일부 완료',X:'미완료'}[wrong.homework_status]:'미기록';
  const maxWrong=Math.max(1,...recent.map(r=>r.total_wrong));
  return <article className={styles.sheet} data-sheet>
-  <header className={styles.header}><div><span>COSMATH / DAILY LEARNING</span><b>{dayjs(p.end).format('YYYY.MM.DD')}</b></div><h2>오늘의 배움, 내일의 성장</h2><p>{p.name} <span>{p.grade} · {p.group}</span></p></header>
+  <header className={styles.header}><div><span>DAILY LEARNING REPORT</span><b>{dayjs(p.end).format('YYYY.MM.DD')}</b></div><h2>오늘의 배움, 내일의 성장</h2><p>{p.name} <span>{p.grade} · {p.group}</span></p></header>
   <section className={styles.metrics} aria-label="오늘의 학습 결과">
    <div><span>오늘 출석</span><strong>{daily?.attendance||'미기록'}</strong><small>{daily?.reason||'수업일 기준 출결'}</small></div>
    <div><span>오늘 검사한 숙제</span><strong>{homeworkStatus}</strong><small>숙제 이행 상태</small></div>
@@ -45,6 +45,6 @@ export default function ReportSheets({preview:p}:{preview:Preview}){
   </div>
   <section className={styles.feedback}><h3>오늘의 피드백</h3><p>{memo||'등록된 피드백이 없습니다.'}</p></section>
   <section className={styles.homework}><h3>다음 수업까지 할 일</h3>{homework.length?<>{homework.slice(0,2).map(e=><p key={e.id}><b>{p.books.find(b=>b.id===e.book_id)?.title||'숙제'}</b> · {e.homework}{e.due_date&&<small>제출 {shortDate(e.due_date)}</small>}</p>)}{homework.length>2&&<small>외 {homework.length-2}건의 숙제 · 상세 내용은 진도 기록에서 확인해 주세요.</small>}</>:<p>오늘 새로 등록된 숙제가 없습니다.</p>}</section>
-  <footer className={styles.footer}><span>매일의 배움이 쌓이는 곳 · 일일 학습 보고서</span><b>COSMATH.</b></footer>
+  <footer className={styles.footer}><span>매일의 배움이 쌓이는 곳 · 일일 학습 보고서</span></footer>
  </article>;
 }

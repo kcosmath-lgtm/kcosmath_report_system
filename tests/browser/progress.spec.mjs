@@ -36,6 +36,9 @@ test('class textbook CRUD, modal units and bulk page progress preserve student h
  await page.getByLabel('보고 날짜',{exact:true}).fill('2026-10-13');
  await page.getByLabel('테스트 반 전체 선택',{exact:true}).check();
  await expect(page.locator('[data-report="a"]')).toContainText('방정식 풀이를 스스로 설명했습니다.');
+ await expect(page.locator('[data-report="a"]').getByRole('progressbar',{name:'수정 교재 진도율',exact:true})).toHaveAttribute('aria-valuenow','60');
+ await expect(page.locator('[data-report="b"]').getByRole('progressbar',{name:'수정 교재 진도율',exact:true})).toHaveAttribute('aria-valuenow','50');
+ expect(await page.locator('[data-report="a"] [data-sheet]').evaluate(el=>el.scrollHeight<=el.clientHeight+1)).toBe(true);
  await expect(page.locator('[data-report="a"]')).not.toContainText('오늘은 계산 과정을 꼼꼼히 확인했습니다.');
  await expect(page.locator('[data-report="b"]')).toContainText('오늘은 계산 과정을 꼼꼼히 확인했습니다.');
  await page.goto('/students');await page.getByRole('button',{name:'테스트 반 2',exact:true}).click();await page.getByRole('button',{name:'진도 관리',exact:true}).click();await expect(page.getByRole('progressbar',{name:'학생 A 진행률',exact:true})).toHaveAttribute('value','30');

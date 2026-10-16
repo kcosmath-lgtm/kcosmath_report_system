@@ -5,6 +5,20 @@ import type {WrongAnswerRecord} from '../../../types/wrong-answer';
 import styles from './daily-report.module.css';
 export type Preview={id:string;name:string;grade:string;group:string;start:string;end:string;daily:StudentDailyRecord[];wrong:WrongAnswerRecord[];books:ProgressBook[];entries:ProgressEntry[]};
 const shortDate=(date:string)=>dayjs(date).format('M/D');
+function LessonProgress({entry,book}:{entry:ProgressEntry;book?:ProgressBook}){
+ const totalPages=entry.total_pages_snapshot??0;
+ const units=entry.units_snapshot??book?.units??[];
+ const completed=totalPages?entry.completed_page:units.filter(u=>entry.states[u.id]==='완료').length;
+ const total=totalPages||units.length;
+ if(!total||completed==null)return <small>진도율 미기록</small>;
+ const rate=Math.max(0,Math.min(100,Math.round(completed/total*100)));
+ const label=`${book?.title||'교재'} 진도율`;
+ return <div className={styles.lessonProgress}>
+  <div><span>누적 진도</span><strong>{rate}%</strong></div>
+  <div className={styles.progressTrack} role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={rate}><i style={{width:`${rate}%`}}/></div>
+  <small>{completed} / {total}{totalPages?'쪽 완료':'개 단원 완료'}</small>
+ </div>;
+}
 export default function ReportSheets({preview:p}:{preview:Preview}){
  const daily=p.daily.find(r=>r.record_date===p.end);
  const wrong=p.wrong.find(r=>r.record_date===p.end);
@@ -24,7 +38,7 @@ export default function ReportSheets({preview:p}:{preview:Preview}){
    <div><span>오늘 검사한 숙제</span><strong>{homeworkStatus}</strong><small>숙제 이행 상태</small></div>
    <div><span>오늘 오답 수정</span><strong>{wrong?.total_wrong?`${wrong.corrected_count} / ${wrong.total_wrong}`:wrong?.completed?'완료':wrong?'수량 없음':'미기록'}</strong><small>{wrong?.total_wrong?`수정 완료 · 남은 ${remaining}문제`:wrong?.completed?'완료 표시 · 수량 미입력':'오답 수량 미입력'}</small></div>
   </section>
-  <section className={styles.lessons}><h3>오늘 배운 내용</h3>{lessons.length?<><div className={styles.lessonList}>{lessons.slice(0,3).map(e=><div key={e.id}><b>{p.books.find(b=>b.id===e.book_id)?.title||'교재 기록'}</b><p>{e.scope||'학습 범위 미기록'}</p><small>{e.completed_page!=null?`누적 ${e.completed_page}쪽 완료`:e.unit_ids.length?`${e.unit_ids.length}개 단원 학습`:''}</small></div>)}</div>{lessons.length>3&&<small>외 {lessons.length-3}건의 수업 기록</small>}</>:<p className={styles.empty}>오늘 저장된 교재 진도 기록이 없습니다.</p>}</section>
+  <section className={styles.lessons}><h3>오늘 배운 내용과 진도</h3>{latestLessons.length?<><div className={styles.lessonList}>{latestLessons.slice(0,3).map(e=>{const book=p.books.find(b=>b.id===e.book_id);return <div key={e.id}><b>{book?.title||'교재 기록'}</b><p>{e.scope||'학습 범위 미기록'}</p><LessonProgress entry={e} book={book}/></div>;})}</div>{latestLessons.length>3&&<small>외 {latestLessons.length-3}개 교재의 수업 기록</small>}</>:<p className={styles.empty}>오늘 저장된 교재 진도 기록이 없습니다.</p>}</section>
   <div className={styles.trends}>
    <section><h3>최근 시험 성적</h3><p className={styles.caption}>최근 5회 · 100점 환산</p>{exams.length?<><svg className={styles.lineChart} viewBox="0 0 300 145" role="img" aria-label="최근 시험 5회 성적 추이">{[0,50,100].map(v=><g key={v}><line x1="25" x2="282" y1={115-v*.9} y2={115-v*.9} stroke="#e2e8f0"/><text x="0" y={119-v*.9}>{v}</text></g>)}<polyline points={exams.map((e,i)=>`${exams.length===1?150:40+i/(exams.length-1)*225},${115-e.rate*.9}`).join(' ')} fill="none" stroke="#2864a9" strokeWidth="2.5"/>{exams.map((e,i)=>{const x=exams.length===1?150:40+i/(exams.length-1)*225;return <g key={`${e.date}-${e.id}`}><title>{e.date} {e.name}: {e.score}/{e.max_score}</title><circle cx={x} cy={115-e.rate*.9} r="4" fill="#2864a9"/><text x={x} y={105-e.rate*.9} textAnchor="middle">{e.rate}</text><text x={x} y="136" textAnchor="middle">{shortDate(e.date)}</text></g>;})}</svg><div className={styles.examList}>{exams.map(e=><div key={`${e.date}-${e.id}`}><span>{shortDate(e.date)} · {e.name}</span><b>{e.score} / {e.max_score}</b></div>)}</div></>:<p className={styles.empty}>저장된 시험 성적이 없습니다.</p>}<small className={styles.caption}>시험 범위와 난도가 달라 단순 비교에 주의해 주세요.</small></section>
    <section><h3>날마다 쌓은 오답 정리</h3><p className={styles.caption}>최근 기록 5일 · 진한색: 수정 / 연한색: 남음</p>{recent.length?<div className={styles.bars}>{recent.map(r=><div key={r.id} data-today={r.record_date===p.end} title={`${r.record_date}: 오답 ${r.total_wrong}, 수정 ${r.corrected_count}`}><b>{r.total_wrong}</b><div className={styles.bar} style={{height:Math.max(3,r.total_wrong/maxWrong*110)}}><i style={{height:`${r.total_wrong?r.corrected_count/r.total_wrong*100:0}%`}}/></div><small>{shortDate(r.record_date)}</small><span>{r.corrected_count}개 수정</span></div>)}</div>:<p className={styles.empty}>저장된 오답 기록이 없습니다.</p>}<small className={styles.caption}>보고 날짜까지 기록된 날짜 기준입니다.</small></section>

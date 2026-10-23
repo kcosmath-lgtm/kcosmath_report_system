@@ -285,13 +285,13 @@ export default function ReportPage() {
                     </td>
                   </tr>
 
-                  <tr style={{ minHeight: (reportData.grade?.includes("중") || reportData.grade?.includes("고")) ? '75mm' : '50mm' }}>
+                  <tr style={{ minHeight: (reportData.grade?.includes("중") || reportData.grade?.includes("고")) ? '75mm' : '70mm' }}>
                     <td className="border border-black bg-[#e8f0fe] text-center font-normal text-[14pt]">단원명/진도</td>
                     <td
                       colSpan={6}
                       className="border border-black p-0"
                       style={{
-                        height: (reportData.grade?.includes("중") || reportData.grade?.includes("고")) ? '75mm' : '50mm', 
+                        height: (reportData.grade?.includes("중") || reportData.grade?.includes("고")) ? '75mm' : '70mm', 
                         verticalAlign: 'middle',  
                         textAlign: 'center'       
                       }}
@@ -331,7 +331,7 @@ export default function ReportPage() {
                     </td>
                   </tr>
 
-                  <tr style={{ height: (reportData.grade?.includes("중") || reportData.grade?.includes("고")) ? '20.21mm' : '45.21mm' }}>
+                  <tr style={{ height: (reportData.grade?.includes("중") || reportData.grade?.includes("고")) ? '20.21mm' : '25.21mm' }}>
                     <td className="border border-black bg-[#e8f0fe] text-center font-normal text-[14pt]">
                       {(reportData.grade?.includes("중") || reportData.grade?.includes("고")) ? "전달사항" : "과제 학습"}
                     </td>

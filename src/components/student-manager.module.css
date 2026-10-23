@@ -61,3 +61,54 @@
 .recordPanel{min-width:0;flex:1;padding:0;background:#f8fbff;overflow:auto}.studentRow>.studentAction{flex:0 0 26px;justify-content:center;padding:5px;min-width:26px;color:#7289a2}.editForm{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;padding:16px;border:1px solid #cbdcf0;background:white;border-radius:10px;margin-bottom:16px}.editForm label{display:flex;flex-direction:column;gap:6px;font-size:12px}.editForm input{padding:8px;border:1px solid #cbdcf0;border-radius:6px}.editForm button{padding:8px 12px;color:#2864a9;cursor:pointer}
 .pageContainer{height:calc(100dvh - var(--workspace-header-height))}.studentWorkspace{grid-template-columns:285px minmax(0,1fr)}@media(max-width:760px){.studentWorkspace{grid-template-columns:1fr}.studentNav{max-height:260px}}
 .recordTabs{display:flex;gap:8px;padding:16px 24px 0;flex-wrap:wrap}.recordTabs button{padding:10px 14px;border-radius:8px;background:white;border:1px solid #dce7f2;color:#58718d;font-size:12px;cursor:pointer}.recordTabs button[aria-pressed=true]{background:#e6f0fc;color:#2864a9;font-weight:700}.recordTabs button:disabled{opacity:.5;cursor:default}
+/* Report-style roster presentation; management controls keep their existing handlers. */
+.studentNav { min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 0; border-color: #dfe8f4; background: #fff; color: #415875; }
+.navHeader { flex-shrink: 0; min-height: 80px; display: flex; align-items: center; gap: 12px; padding: 0 22px; border-bottom: 1px solid #e7eef7; }
+.navHeader svg { color: #6b94bb; }
+.navHeader h3 { color: #345170; font-size: 14px; font-weight: 700; }
+.navList { min-height: 0; flex: 1; overflow-y: auto; padding: 16px; }
+.navGroup { overflow: hidden; border: 1px solid #e1eaf5; border-radius: 13px; background: #fff; }
+.navGroup + .navGroup { margin-top: 12px; }
+.groupRow { min-height: 48px; gap: 5px; padding: 10px 12px; border-radius: 0; background: #f5f8fd; }
+.groupRow:hover { background: #edf5ff; }
+.groupRow > input, .studentRow > input { width: 18px; height: 18px; border-color: #c5d4e5; border-radius: 6px; }
+.groupRow > input { margin-right: 0; }
+.navGroup .groupToggle { gap: 4px; padding: 0; color: #416181; font-size: 12px; font-weight: 400; }
+.groupToggle > span { min-width: 0; overflow-wrap: anywhere; }
+.groupToggle:hover { background: transparent; }
+.navGroup .groupToggle small { width: auto; height: auto; background: transparent; color: #416181; font-size: 12px; }
+.groupToggle small::before { content: '('; }.groupToggle small::after { content: ')'; }
+.navGroup .groupAdd, .navGroup .groupDelete { flex-basis: 22px; height: 26px; }
+.studentRow { gap: 7px; margin: 0; padding: 12px; border-top: 1px solid #f0f4f9; border-radius: 0; }
+.studentRow > button { gap: 0; padding: 0; color: #415875; }
+.studentRow > button > span { display: none; }
+.studentRow > button > div { min-width: 0; }
+.studentRow button strong { overflow-wrap: anywhere; font-size: 12px; font-weight: 400; }
+.studentRow button small { color: #7187a0; font-size: 10px; }
+.studentRow:hover { background: #f7faff; }
+.studentRow.currentStudent { background: #edf5ff; box-shadow: inset 3px 0 #6aa3d8; }
+.studentRow.currentStudent button strong { color: #2766a1; font-weight: 700; }
+.studentRow > .studentAction { flex-basis: 22px; min-width: 22px; padding: 4px; }
+.navSelection { flex-shrink: 0; margin: 12px; padding: 15px; border: 1px solid #dceafa; border-radius: 12px; background: #eff6ff; color: #415875; font-size: 12px; }
+.navSelection strong { margin-left: 4px; color: #357bbb; font-size: 16px; }
+@media (max-width: 760px) { .studentNav { max-height: 300px; border-right: 0; border-bottom: 1px solid #dfe8f4; }.navHeader { min-height: 60px; padding: 0 16px; }.navSelection { margin: 8px 12px; padding: 10px 15px; } }
+.navGroup .groupToggle small { display: block; white-space: nowrap; }
+
+.navActions { display: flex; gap: 8px; margin-left: auto; }
+.navActions button { display: grid; place-items: center; padding: 8px; border: 1px solid #dce6f3; border-radius: 11px; background: white; color: #6b94bb; cursor: pointer; }
+.navActions button:hover { background: #edf5ff; }
+.navHeader { gap: 10px; }
+.navHeader h3 { white-space: nowrap; }
+.pageContainer .body { padding: 0; display: flex; flex-direction: column; }
+.pageContainer .listSection { flex: 1; min-height: 0; height: auto; }
+.pageContainer .listTitle { display: none; }
+.pageContainer .studentWorkspace { display: block; height: 100%; border: 0; border-radius: 0; box-shadow: none; padding-left: var(--student-sidebar-width, 300px); transition: padding-left .25s ease; }
+.pageContainer .studentWorkspace[data-sidebar-open="false"] { padding-left: 0; }
+.pageContainer .studentNav { position: fixed; top: 0; left: 0; z-index: 20; width: var(--student-sidebar-width, 300px); height: 100dvh; max-height: none; transition: transform .25s ease, visibility .25s; }
+.pageContainer .studentWorkspace[data-sidebar-open="false"] .studentNav { transform: translateX(-100%); visibility: hidden; }
+.pageContainer .navHeader { min-height: var(--workspace-header-height); padding: 0 16px; }
+.pageContainer .recordPanel { height: 100%; }
+.pageContainer .error, .pageContainer .status, .pageContainer .editForm { flex-shrink: 0; margin-left: var(--student-sidebar-width, 300px); }
+.pageContainer:has(.studentWorkspace[data-sidebar-open="false"]) .error, .pageContainer:has(.studentWorkspace[data-sidebar-open="false"]) .status, .pageContainer:has(.studentWorkspace[data-sidebar-open="false"]) .editForm { margin-left: 0; }
+@media (max-width: 760px) { .pageContainer .studentWorkspace { padding-left: 0; }.pageContainer .studentNav { box-shadow: 12px 0 30px rgb(36 72 110 / .12); }.pageContainer .error, .pageContainer .status, .pageContainer .editForm { margin-left: 0; } }
+@media (prefers-reduced-motion: reduce) { .pageContainer .studentWorkspace, .pageContainer .studentNav { transition: none; } }

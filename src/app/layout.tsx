@@ -5,8 +5,8 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import AuthProvider from "../components/AuthProvider";
 
 export const metadata = {
-  title: "CosMath Report",
-  description: "Student Report System",
+  title: "유니데스크 | UNIDESK",
+  description: "수업과 학원 운영의 모든 흐름을 하나로 연결하는 올인원 워크스페이스",
 };
 
 export default function RootLayout({

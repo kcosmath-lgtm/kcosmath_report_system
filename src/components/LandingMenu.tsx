@@ -22,7 +22,7 @@ export default function LandingMenu({ profile = true }: { profile?: boolean }) {
   return <div className={styles.menu}>
     <button className={`${styles.trigger} ${profile ? styles.profileTrigger : ""}`} onClick={() => setOpen(value => !value)} aria-expanded={open} aria-controls="landing-main-menu" aria-label={open ? "프로필 메뉴 닫기" : "프로필 메뉴 열기"}>{open ? <X size={19} /> : profile ? avatarUrl ? <Image src={avatarUrl} alt="프로필 사진" width={38} height={38} unoptimized /> : <Building2 size={18} /> : <Menu size={23} />}</button>
     {open && <><button className={styles.scrim} aria-label="메뉴 닫기" onClick={() => setOpen(false)} /><div ref={panel} id="landing-main-menu" className={styles.panel} tabIndex={-1}>
-      <small>COSMATH WORKSPACE</small><h2>어떤 일을 시작할까요?</h2>
+      <small>UNIDESK WORKSPACE</small><h2>어떤 일을 시작할까요?</h2>
       <Link href="/students" onClick={() => setOpen(false)}><span><UserRoundCog size={21} /></span><div><strong>학생 관리</strong><p>학생 등록과 출석·오답·숙제·성적을 관리합니다.</p></div></Link>
       <Link href="/report" onClick={() => setOpen(false)}><span><FileText size={21} /></span><div><strong>보고서 작성</strong><p>수업 내용과 학생별 보고서를 작성합니다.</p></div></Link>
       <Link href="/report/new" onClick={() => setOpen(false)}><span><FileText size={21} /></span><div><strong>보고서 작성 (new)</strong><p>학습 기록과 교재 진도를 모아 성장 보고서를 만듭니다.</p></div></Link>

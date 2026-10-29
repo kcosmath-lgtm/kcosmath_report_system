@@ -1,31 +1,549 @@
-﻿.sheet{box-sizing:border-box;width:var(--report-width,794px);min-height:var(--report-height,1123px);padding:32px 36px;background:#f7f9fd;color:#263c59;font:12px/1.65 Arial,"Malgun Gothic",sans-serif;display:flex;flex-direction:column;gap:20px;overflow-wrap:anywhere;box-shadow:0 4px 24px #24372b12;margin-bottom:24px}.header{background:#23478e;color:white;padding:22px 24px;border-radius:16px}.header>div{display:flex;justify-content:space-between;gap:12px;font-size:10px}.header h2{font-size:26px;font-weight:800;margin:12px 0}.header p{font-size:20px;font-weight:700}.header p span{font-size:12px;font-weight:400;margin-left:12px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}.card{background:white;border:1px solid #e0e7f1;box-shadow:0 2px 8px #263c5905;border-radius:14px;padding:18px;min-width:0;break-inside:avoid}.card h3{border-left:3px solid #2864a9;padding-left:8px;font-size:14px;font-weight:700;margin:0 0 14px}.wide{grid-column:1/-1}.card p{white-space:pre-wrap;margin:6px 0}.card small{font-size:10px;color:#75869b}.card svg{display:block;width:100%;height:145px}.card svg text{font-size:10px;fill:#60758e}.card table{border-collapse:collapse;width:100%;font-size:11px;table-layout:fixed}.card td{padding:8px 4px;border-bottom:1px solid #e8edf5;vertical-align:top}.metrics{display:flex;gap:16px;flex-wrap:wrap;align-items:center}.metrics span,.metrics small{display:block}.metrics strong{display:block;font-size:27px;color:#2864a9;font-weight:800}.metrics strong small{display:inline;margin-left:3px}.metrics>div{flex:1;min-width:65px}.bars>div{display:grid;grid-template-columns:65px 1fr 60px;align-items:center;gap:8px;margin:12px 0;font-size:10px}.bars>div>div{height:9px;background:#e1eaf7;border-radius:8px;overflow:hidden}.bars i{display:block;height:100%;background:#3478c8;border-radius:8px}.bars b{text-align:right}.task,.tasks{padding-top:8px;margin-top:8px;border-top:1px solid #e8edf5}.note{padding:12px;border-radius:8px;background:#eef4fc;border-left:3px solid #3478c8;margin-top:8px}.footer{margin-top:auto;display:flex;justify-content:space-between;gap:12px;padding-top:16px;border-top:1px solid #dce6f2;color:#75869b;font-size:10px}
-:global([data-orientation=landscape]) .sheet{padding:24px 32px;gap:16px}:global([data-orientation=landscape]) .header{padding:14px 22px}:global([data-orientation=landscape]) .header h2{font-size:23px;margin:6px 0}
-@media screen{:global([data-active=true]) .sheet{zoom:var(--preview-scale,1)}}
-@media print{.sheet{width:100%;min-height:265mm;padding:0;box-shadow:none;margin:0;break-after:page;page:portraitReport;print-color-adjust:exact;-webkit-print-color-adjust:exact}:global([data-orientation=landscape]) .sheet{min-height:186mm;padding:0;page:landscapeReport}.card{break-inside:avoid}.sheet:last-child{break-after:auto}}
-:global([data-orientation=landscape]) .grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+.sheet{
+ box-sizing:border-box;
+ width:var(--report-width,794px);
+ min-height:var(--report-height,1123px);
+ font-family:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Malgun Gothic",sans-serif;
+ display:flex;
+ flex-direction:column;
+ overflow-wrap:anywhere;
+ box-shadow:0 4px 24px rgba(15,23,42,0.08);
+ margin-bottom:24px;
+}
 
-/* Illustrated learning notebook: each subject has its own visual rhythm. */
-.notebook{background:#faf7ee;color:#354c60;padding:30px 38px;gap:18px}.notebook .header{position:relative;isolation:isolate;background:transparent;color:#294f74;border-radius:0;padding:4px 0 22px;border-bottom:1px solid #d8d8c9;min-height:190px}.notebook .header>div{font-size:9px;letter-spacing:1px;position:relative;z-index:1}.notebook .header h2{font-size:34px;line-height:1.23;letter-spacing:-1.4px;margin:22px 0 16px;max-width:65%;font-weight:850}.notebook .header p{font-size:21px;position:relative;z-index:1}.headerCaption{display:block;font-size:10px;color:#7c877f;margin-top:6px}.heroArt{position:absolute;right:-8px;bottom:8px;width:285px;height:auto;z-index:-1;object-fit:contain}.notebook .grid{gap:14px 18px}.notebook .card{position:relative;box-shadow:none;border:0;border-radius:0;padding:14px 16px;background:transparent;min-width:0}.notebook .card h3{display:flex;align-items:center;gap:8px;border:0;padding:0;font-size:13px;margin-bottom:12px;color:#35536a}.sectionNumber{margin-left:auto;font-size:10px;font-weight:400;letter-spacing:1px;color:#8a9a9b}.notebook .card[data-kind=attendance]{background:#e9eee2;border-radius:34px 10px 26px 10px}.notebook .card[data-kind=homework]{background:#f5e8d3;border-radius:9px 28px 9px 24px}.notebook .card[data-kind=grades]{border-top:2px solid #648ba9;border-bottom:1px solid #d5dfdf;padding:15px 5px;background:transparent}.notebook .card[data-kind=wrong]{background:#e8eff1;border-radius:18px}.notebook .card[data-kind=progress]{padding-right:85px;border-top:1px dashed #bdcbbb}.notebook .card[data-kind=feedback]{background:#fffdf5;box-shadow:2px 4px 0 #dedcc94d;border-radius:2px 2px 16px 2px;padding-bottom:50px;transform:rotate(-.5deg)}.notebook .card[data-kind=feedback]:before{content:"";position:absolute;top:-5px;left:24px;width:64px;height:13px;background:#b9ccba80;transform:rotate(-4deg)}.notebook .metrics strong{font-size:30px;line-height:1.3;color:#355f7a}.notebook .metrics span{color:#667c76;font-size:11px}.notebook .card[data-emphasis=true] h3{font-size:16px}.card[data-emphasis=true] .metrics strong{font-size:44px}.card[data-emphasis=true] svg{height:170px}.notebook .card[data-kind=grades][data-emphasis=true] .metrics{justify-content:space-around}.notebook .task,.notebook .tasks{border-color:#d7dfd2}.notebook .card[data-kind=feedback] .task{border:0;padding:0}.notebook .bars i{background:#6b93a4}.notebook .bars>div>div{background:#d6e2e2}.growthArt{width:88px;height:auto;position:absolute;right:-2px;top:32px}.memoArt{width:85px;height:auto;position:absolute;right:6px;bottom:-7px;transform:rotate(5deg);pointer-events:none}.notebook .footer{position:relative;border-top:1px solid #d8d8c9;padding-top:12px;padding-right:50px;color:#758579}.footerArt{position:absolute;right:0;bottom:-4px;width:34px;height:auto}.notebook .note{background:#edf1e7;border-left-color:#8ba18c}
-:global([data-orientation=landscape]) .notebook .header{min-height:132px;padding-bottom:14px}:global([data-orientation=landscape]) .notebook .header h2{font-size:29px;margin:12px 0}:global([data-orientation=landscape]) .notebook .heroArt{width:240px;right:30px;bottom:-4px}:global([data-orientation=landscape]) .notebook .grid{gap:14px}:global([data-orientation=landscape]) .notebook .card{padding:12px}:global([data-orientation=landscape]) .notebook .card[data-kind=progress]{padding-right:78px}:global([data-orientation=landscape]) .notebook .card[data-kind=feedback]{padding-bottom:44px}
-@media print{.notebook{padding:0;background:#faf7ee}.notebook .header h2{font-size:29px}.notebook .heroArt{width:250px}.notebook .header{min-height:170px}:global([data-orientation=landscape]) .notebook{padding:0}.notebook .card{break-inside:avoid;transform:none}}
-.featuredContent{display:flex;align-items:center;gap:24px}.featuredScore{flex:0 0 145px;border-right:1px solid #d5dfdf;padding-right:20px}.featuredScore>span{display:block;font-size:11px;color:#68818a}.featuredScore strong{display:block;font-size:64px;line-height:1.3;color:#355f7a;letter-spacing:-2px;font-weight:800}.featuredScore strong small{font-size:16px;letter-spacing:0;margin-left:4px}.featuredContent>div:last-child{flex:1;min-width:0}.featuredScore>small{display:block;margin-top:4px}
+@media screen{
+ :global([data-active=true]) .sheet{
+  zoom:var(--preview-scale,1);
+ }
+}
 
-/* Five distinct reading patterns, independent of their color palettes. */
-.sheet[data-theme=summary]{background:#fffdf9;color:#243747;gap:24px}.sheet[data-theme=summary] .header{background:transparent;color:#243747;padding:12px 0 22px;border-radius:0;border-bottom:3px solid #243747}.sheet[data-theme=summary] .header h2{font-size:34px;letter-spacing:-1.5px}.sheet[data-theme=summary] .card{border:0;box-shadow:none;border-radius:0;background:transparent;border-bottom:1px solid #e0e2dc}.sheet[data-theme=summary] .card[data-emphasis=true]{background:#edf1e7;border-radius:22px;padding:24px}.sheet[data-theme=summary] .metrics strong{font-size:38px;color:#3e5a49}.sheet[data-theme=summary] .card[data-emphasis=true] .metrics strong{font-size:64px}.sheet[data-theme=summary] .card[data-kind=feedback]{border-left:3px solid #8b9b72;background:#f5f4ec}.sheet[data-theme=summary] h3{border:0;padding:0}.sectionNumber{margin-left:auto}.card h3:has(.sectionNumber){display:flex;align-items:center}
-.sheet[data-theme=timeline]{background:#f4f7f0;color:#3c5149}.sheet[data-theme=timeline] .header{background:transparent;color:#3c5149;border-radius:0;border-bottom:1px solid #b8c9b6;padding:10px 0 22px}.sheet[data-theme=timeline] .header h2{font-size:32px}.sheet[data-theme=timeline] .grid{position:relative;margin-left:15px;padding-left:25px;border-left:2px solid #b3c6ac}.sheet[data-theme=timeline] .card{position:relative;background:#ffffffa6;border:0;box-shadow:none;border-radius:0 20px 20px 20px}.sheet[data-theme=timeline] .card:before{content:"";position:absolute;left:-34px;top:20px;width:15px;height:15px;background:#69866a;border:4px solid #f4f7f0;border-radius:50%}.sheet[data-theme=timeline] h3{border:0;color:#48674d;padding:0}.timelineDate{display:block;margin:-5px 0 10px;color:#667a66!important;letter-spacing:1px}.sheet[data-theme=timeline] .growthArt{width:80px;top:8px;right:16px}.sheet[data-theme=timeline] .card[data-kind=progress]{padding-right:110px}.sheet[data-theme=timeline] .memoArt{display:none}.sheet[data-theme=timeline] .footerArt{width:30px}
-.sheet[data-theme=briefing]{background:white;color:#20324a;gap:22px}.sheet[data-theme=briefing] .header{background:#172e4b;border-radius:0;padding:20px 24px;border-bottom:5px solid #77a8bd}.sheet[data-theme=briefing] .header h2{font-size:34px;letter-spacing:2px}.sheet[data-theme=briefing] .card{background:transparent;box-shadow:none;border:0;border-bottom:1px solid #cbd5df;border-radius:0;padding:16px 2px}.sheet[data-theme=briefing] h3{border:0;padding:0;letter-spacing:1px}.sheet[data-theme=briefing] .card[data-emphasis=true]{border-top:2px solid #20324a}.sheet[data-theme=briefing] .featuredScore strong{font-size:76px;color:#172e4b}.sheet[data-theme=briefing] td{padding:12px 8px}.sheet[data-theme=briefing] .card[data-kind=feedback]{background:#edf2f6;padding:18px}
-.sheet[data-theme=planner]{background:#f8f6ef;color:#4a514a}.sheet[data-theme=planner] .header{background:transparent;color:#4a514a;border-radius:0;padding:6px 0 20px;border-bottom:2px solid #b6beae}.sheet[data-theme=planner] .header h2{font-size:32px}.sheet[data-theme=planner] .grid{gap:20px}.sheet[data-theme=planner] .card{position:relative;border:1px solid #e3e2d7;border-radius:3px;background:repeating-linear-gradient(#fffdf7 0px,#fffdf7 27px,#dfe5dc 28px);padding:20px;box-shadow:3px 4px 0 #e6e5da}.sheet[data-theme=planner] .card[data-kind=progress]{padding-right:90px;border-top:6px solid #8ba28b}.sheet[data-theme=planner] .card[data-kind=homework]{border-top:6px solid #d6ab77}.sheet[data-theme=planner] h3{border:0;padding:0;color:#526450}.sheet[data-theme=planner] .card[data-kind=homework] h3:before{content:'□';font-size:20px;color:#ae8758;margin-right:8px}.sheet[data-theme=planner] .memoArt{width:72px;bottom:-12px}.sheet[data-theme=planner] .card[data-kind=feedback]{padding-bottom:42px}.sheet[data-theme=planner] .footerArt{width:30px}
-.sheet[data-theme=letter]{background:#fcf8f0;color:#615044;padding:40px 48px;gap:28px}.sheet[data-theme=letter] .header{background:transparent;color:#615044;border-radius:0;border-bottom:1px solid #d2c3af;padding:8px 0 24px}.sheet[data-theme=letter] .header h2{font-size:34px;font-family:Georgia,"Malgun Gothic",serif;font-weight:600;letter-spacing:-1px;margin:30px 0 16px}.sheet[data-theme=letter] .card{background:transparent;border:0;border-radius:0;box-shadow:none;padding:14px 0;border-bottom:1px solid #e6dccf}.sheet[data-theme=letter] h3{border:0;padding:0;color:#8a725c;font-size:12px}.sheet[data-theme=letter] .card[data-kind=feedback]{padding:22px 24px 65px;background:#fffdf7;border-radius:0 0 22px 0;box-shadow:3px 4px 0 #e8dfd180}.sheet[data-theme=letter] .card[data-kind=feedback] .task{border:0}.sheet[data-theme=letter] .card[data-kind=feedback] p{font-size:16px;line-height:2.1}.sheet[data-theme=letter] .card[data-kind=progress]{padding-right:110px}.sheet[data-theme=letter] .growthArt{width:86px;top:16px;right:5px}.sheet[data-theme=letter] .memoArt{width:95px;bottom:-10px}.sheet[data-theme=letter] .metrics strong{font-size:25px;color:#71634f}.sheet[data-theme=letter] .footer{border-color:#d2c3af;color:#8d7c67;padding-right:50px}.sheet[data-theme=letter] .footerArt{width:40px}
-@media print{.sheet[data-theme=letter]{padding:0}.sheet[data-theme=summary] .header h2,.sheet[data-theme=timeline] .header h2,.sheet[data-theme=briefing] .header h2,.sheet[data-theme=planner] .header h2,.sheet[data-theme=letter] .header h2{font-size:28px}}
-.card{position:relative}.footer:has(.footerArt){position:relative;padding-right:50px}
-.sheet[data-theme=planner] .grid{grid-template-columns:repeat(2,minmax(0,1fr))}.sheet[data-theme=planner] .card{padding:14px 18px}.sheet[data-theme=planner] .card svg{height:130px}.sheet[data-theme=planner] .card[data-kind=feedback]{padding-bottom:30px}
+@media print{
+ .sheet{
+  width:100%;
+  min-height:265mm;
+  padding:0!important;
+  box-shadow:none;
+  margin:0;
+  break-after:page;
+  page:portraitReport;
+  print-color-adjust:exact;
+  -webkit-print-color-adjust:exact;
+ }
+ :global([data-orientation=landscape]) .sheet{
+  min-height:186mm;
+  padding:0!important;
+  page:landscapeReport;
+ }
+ .sheet:last-child{
+  break-after:auto;
+ }
+}
 
-/* Dedicated palettes and unique artwork for each report theme. */
-.themeHeroArt{position:absolute;right:2px;bottom:9px;width:205px;height:auto;object-fit:contain;pointer-events:none}.header:has(.themeHeroArt){position:relative;min-height:160px;padding-right:215px!important}.header:has(.themeHeroArt)>div{margin-right:-205px;position:relative;z-index:1}.header:has(.themeHeroArt) h2{font-size:30px!important;letter-spacing:-1px!important}.sheet:not([data-theme=notebook]) .metrics strong,.sheet:not([data-theme=notebook]) .featuredScore strong{color:var(--accent)}.sheet:not([data-theme=notebook]) .bars i{background:var(--accent)}
-.sheet[data-theme=summary]{background:#fff6f1;color:#623b35}.sheet[data-theme=summary] .header{color:#934635;border-color:#dc7d66}.sheet[data-theme=summary] .card{border-color:#efd4c8}.sheet[data-theme=summary] .card[data-emphasis=true]{background:#ffe0d3}.sheet[data-theme=summary] h3{color:#934635}.sheet[data-theme=summary] .card[data-kind=feedback]{background:#fff0e4;border-color:#db967a}.sheet[data-theme=summary] .footer{border-color:#ecc6b8;color:#956c5d}.sheet[data-theme=summary] .sectionNumber{color:#b78672}.sheet[data-theme=summary] .bars>div>div{background:#f0d4c8}
-.sheet[data-theme=timeline]{background:#edfaf7;color:#265c58}.sheet[data-theme=timeline] .header{color:#186f69;border-color:#88c9bf}.sheet[data-theme=timeline] .grid{border-color:#74bdb0}.sheet[data-theme=timeline] .card:before{background:#25998c;border-color:#edfaf7}.sheet[data-theme=timeline] h3{color:#176f67}.sheet[data-theme=timeline] .card{background:#ffffffd9}.sheet[data-theme=timeline] .timelineDate{color:#448e84!important}.sheet[data-theme=timeline] .card[data-kind=progress]{padding-right:18px}.sheet[data-theme=timeline] .footer{border-color:#a5d8ce;color:#528c83}.sheet[data-theme=timeline] .bars>div>div{background:#cae9e2}
-.sheet[data-theme=briefing]{background:#f8f5ff;color:#493665}.sheet[data-theme=briefing] .header{background:#eee5fc;color:#4d267f;border-color:#a180d0;border-radius:16px 4px 16px 4px}.sheet[data-theme=briefing] .card{border-color:#d8c9ed}.sheet[data-theme=briefing] .card[data-emphasis=true]{border-top-color:#8b60c0}.sheet[data-theme=briefing] h3{color:#6d4699}.sheet[data-theme=briefing] .card[data-kind=feedback]{background:#eee5f8}.sheet[data-theme=briefing] .footer{border-color:#d8c9ed;color:#8972a1}.sheet[data-theme=briefing] .bars>div>div{background:#e1d3f3}
-.sheet[data-theme=planner]{background:#fffbed;color:#344579}.sheet[data-theme=planner] .header{color:#244bb6;border-color:#e1ba3e}.sheet[data-theme=planner] .card{background:repeating-linear-gradient(#fffefa 0px,#fffefa 27px,#e8e7d1 28px);border-color:#e2daa8;box-shadow:3px 4px 0 #eee4b7}.sheet[data-theme=planner] .card[data-kind=progress]{padding-right:18px;border-top-color:#416bd0}.sheet[data-theme=planner] .card[data-kind=homework]{border-top-color:#efc53c}.sheet[data-theme=planner] h3{color:#3454a2}.sheet[data-theme=planner] .card[data-kind=homework] h3:before{color:#b58d10}.sheet[data-theme=planner] .footer{border-color:#dcd0a0;color:#888252}.sheet[data-theme=planner] .bars>div>div{background:#dee5fa}
-.sheet[data-theme=letter]{background:#fff2f5;color:#6f4453}.sheet[data-theme=letter] .header{color:#9a3c5a;border-color:#e5b4c5}.sheet[data-theme=letter] .card{border-color:#edcbd8}.sheet[data-theme=letter] h3{color:#ae6880}.sheet[data-theme=letter] .card[data-kind=feedback]{background:#fffafd;box-shadow:3px 4px 0 #eec7d480;padding-bottom:28px}.sheet[data-theme=letter] .card[data-kind=feedback] p{color:#734756}.sheet[data-theme=letter] .card[data-kind=progress]{padding-right:0}.sheet[data-theme=letter] .footer{border-color:#e4b5c6;color:#a27487;padding-right:0}.sheet[data-theme=letter] .bars>div>div{background:#f0d6e0}
-:global([data-orientation=landscape]) .header:has(.themeHeroArt){min-height:144px}:global([data-orientation=landscape]) .themeHeroArt{width:205px;right:20px}
-@media print{.header:has(.themeHeroArt){min-height:145px}.themeHeroArt{width:185px}.sheet[data-theme=letter] .header h2{margin:18px 0 12px}}
+/* ============================================================================
+ * 3가지 분위기 테마 변수 및 외곽 프레임 정의
+ * 1) miricheck (하늘색 체크리스트 분위기)
+ * 2) mirireport (노란색 인포그래픽 분위기)
+ * 3) mirigraph (파스텔 라벤더·핑크 성취도 분위기)
+ * ============================================================================ */
+.sheet[data-theme=miricheck]{
+ --theme-border:#68a4f1;
+ --theme-soft-border:#cfe3fb;
+ --theme-head-bg:#68a4f1;
+ --theme-head-text:#ffffff;
+ --theme-th-bg:#eaf3fe;
+ --theme-th-text:#2b6cb0;
+ --theme-accent:#2b6cb0;
+ --theme-stamp-ring:#ef4444;
+ --theme-stamp-bg:#fff5f5;
+ --theme-bar:#68a4f1;
+ --theme-line:#1e40af;
+ --theme-Radius:8px;
+ background:#eef5fd;
+ padding:22px;
+ color:#1e3a5f;
+}
+.sheet[data-theme=miricheck] .sheetInner{
+ background:#ffffff;
+ border:2px solid #9bc5f4;
+ border-radius:14px;
+ padding:26px 28px;
+ display:flex;
+ flex-direction:column;
+ gap:14px;
+ flex:1;
+ box-sizing:border-box;
+}
+
+.sheet[data-theme=mirireport]{
+ --theme-border:#1e293b;
+ --theme-soft-border:#cbd5e1;
+ --theme-head-bg:#fef08a;
+ --theme-head-text:#0f172a;
+ --theme-th-bg:#fef9c3;
+ --theme-th-text:#1e293b;
+ --theme-accent:#b45309;
+ --theme-stamp-ring:#1e293b;
+ --theme-stamp-bg:#fef08a;
+ --theme-bar:#facc15;
+ --theme-line:#1e293b;
+ --theme-Radius:0px;
+ background:#ffffff;
+ padding:24px 28px;
+ color:#1e293b;
+}
+.sheet[data-theme=mirireport] .sheetInner{
+ background:#ffffff;
+ border:2px solid #1e293b;
+ padding:22px 24px;
+ display:flex;
+ flex-direction:column;
+ gap:14px;
+ flex:1;
+ box-sizing:border-box;
+}
+
+.sheet[data-theme=mirigraph]{
+ --theme-border:#dbe4ff;
+ --theme-soft-border:#e2e8f0;
+ --theme-head-bg:#5c7cfa;
+ --theme-head-text:#ffffff;
+ --theme-th-bg:#eef2ff;
+ --theme-th-text:#3b5bdb;
+ --theme-accent:#3b5bdb;
+ --theme-stamp-ring:#ec4899;
+ --theme-stamp-bg:#fdf2f8;
+ --theme-bar:#5c7cfa;
+ --theme-line:#db2777;
+ --theme-Radius:14px;
+ background:#fdf2f8;
+ padding:26px 30px;
+ color:#1e293b;
+}
+.sheet[data-theme=mirigraph] .sheetInner{
+ display:flex;
+ flex-direction:column;
+ gap:14px;
+ flex:1;
+ box-sizing:border-box;
+}
+
+/* ============================================================================
+ * 분위기별 상단 헤더 & 메타 바
+ * ============================================================================ */
+/* 1) 하늘색 체크리스트 헤더 */
+.miriCheckHeader{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #68a4f1;padding-bottom:10px}
+.miriCheckEngTitle{display:block;font-size:34px;font-weight:900;color:#2b6cb0;letter-spacing:-0.8px;line-height:1.05;font-family:Georgia,"Pretendard Variable","Malgun Gothic",serif}
+.miriCheckHeader h2{font-size:14.5px;font-weight:700;color:#5a7d9a;margin:5px 0 0;letter-spacing:-0.2px}
+.miriHeaderIconWrap{display:flex;align-items:flex-start;gap:6px}
+.miriSparkleIcon{color:#60a5fa;margin-top:2px}
+.miriHeaderBadgeIcon{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#e0effe 0%,#bae0fd 100%);border:1.5px solid #7ab3f2;color:#2b6cb0;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 10px rgba(104,164,241,0.16)}
+.miriMetaBar{display:grid;grid-template-columns:1.25fr 1fr;gap:12px}
+.miriMetaItem{display:grid;grid-template-columns:104px 1fr;border:1.5px solid #68a4f1;border-radius:7px;overflow:hidden;background:#ffffff}
+.miriMetaLabel{background:#68a4f1;color:#ffffff;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;gap:5px;padding:7px 6px}
+.miriMetaValue{padding:7px 12px;font-size:12.5px;font-weight:700;color:#1e3a5f;display:flex;align-items:center}
+
+/* 2) 노란색 인포그래픽 헤더 */
+.miriYellowHeader{background:#fef08a;border:1.5px solid #1e293b;padding:16px 20px 14px;text-align:center}
+.miriYellowHeader h2{font-size:24px;font-weight:900;color:#0f172a;margin:0 0 5px;letter-spacing:-0.8px}
+.miriYellowHeader p{font-size:11.5px;font-weight:700;color:#334155;margin:0 0 10px}
+.miriYellowStudentPill{display:inline-flex;align-items:center;gap:6px;background:#ffffff;border:1.5px solid #1e293b;padding:5px 18px;font-size:12px;font-weight:600;color:#0f172a}
+
+/* 3) 파스텔 성취도 헤더 */
+.miriGraphHeader{display:flex;justify-content:space-between;align-items:flex-end;padding:2px 4px 6px}
+.miriGraphEyebrow{display:block;font-size:10.5px;font-weight:800;letter-spacing:2px;color:#4f75ff;margin-bottom:4px}
+.miriGraphHeader h2{font-size:30px;font-weight:900;color:#2b50aa;margin:0;letter-spacing:-1px}
+.miriGraphMetaLines{display:flex;flex-direction:column;gap:5px;min-width:235px;font-size:12px;color:#3b5bdb}
+.miriGraphMetaLines>div{border-bottom:1.5px dotted #93c5fd;padding-bottom:3px;display:flex;gap:8px}
+.miriGraphMetaLines b{color:#1e293b}
+
+/* ============================================================================
+ * 공통 모듈 카드 & 그리드 (테마 변수에 따라 자동 스타일링)
+ * ============================================================================ */
+.periodBody{display:flex;flex-direction:column;gap:14px;flex:1}
+.dayStampGrid{display:grid;grid-template-columns:1fr 1fr 1.15fr;gap:12px}
+.twoColGrid{display:grid;grid-template-columns:1.08fr 1fr;gap:12px;flex:1}
+.moduleCard{
+ border:1.5px solid var(--theme-border);
+ border-radius:var(--theme-Radius,8px);
+ background:#ffffff;
+ overflow:hidden;
+ display:flex;
+ flex-direction:column;
+}
+.sheet[data-theme=mirigraph] .moduleCard{
+ box-shadow:0 4px 14px rgba(79,117,255,0.06);
+}
+.moduleHeader{
+ background:var(--theme-head-bg);
+ color:var(--theme-head-text);
+ font-size:12.5px;
+ font-weight:800;
+ padding:8px 12px;
+ margin:0;
+ display:flex;
+ align-items:center;
+ gap:6px;
+ border-bottom:1.5px solid var(--theme-border);
+}
+.sheet[data-theme=miricheck] .moduleHeader,
+.sheet[data-theme=mirigraph] .moduleHeader{
+ border-bottom:0;
+}
+.headerStatRight{
+ margin-left:auto;
+ font-size:11px;
+ font-weight:700;
+ opacity:0.92;
+}
+.moduleContent{
+ padding:12px 14px;
+ display:flex;
+ flex-direction:column;
+ gap:10px;
+ flex:1;
+}
+.moduleCaption{
+ display:block;
+ text-align:center;
+ font-size:10.5px;
+ font-weight:600;
+ color:#64748b;
+ padding:0 10px 9px;
+ margin-top:auto;
+}
+
+/* ============================================================================
+ * [A] 일간 보고서: 도장(Stamp) 배지 & 당일 카운터 & 당일 성적 카드
+ * ============================================================================ */
+.stampRow{
+ display:flex;
+ align-items:center;
+ justify-content:center;
+ gap:14px;
+ padding:14px 10px 8px;
+ flex:1;
+}
+.stampCircle{
+ width:52px;
+ height:52px;
+ border-radius:50%;
+ border:1.5px dashed var(--theme-soft-border);
+ display:flex;
+ flex-direction:column;
+ align-items:center;
+ justify-content:center;
+ font-size:13px;
+ font-weight:800;
+ color:#94a3b8;
+ position:relative;
+ box-sizing:border-box;
+}
+.stampWide{
+ width:56px;
+ height:52px;
+ border-radius:12px;
+}
+.stampWide strong{font-size:15px;line-height:1.1}
+.stampWide small{font-size:9.5px;font-weight:700}
+.stampActive{
+ border:2.5px solid var(--theme-stamp-ring);
+ background:var(--theme-stamp-bg);
+ color:var(--theme-stamp-ring);
+ box-shadow:0 0 0 3px rgba(239,68,68,0.08);
+ transform:rotate(-4deg);
+}
+.sheet[data-theme=mirireport] .stampActive{
+ color:#0f172a;
+ box-shadow:2px 2px 0 #1e293b;
+}
+.stampCheck{
+ position:absolute;
+ top:-5px;
+ right:-5px;
+ background:var(--theme-stamp-ring);
+ color:#ffffff;
+ border-radius:50%;
+ padding:1px;
+}
+.dayWrongCounter{
+ display:flex;
+ align-items:center;
+ justify-content:space-around;
+ padding:14px 10px 8px;
+ flex:1;
+ text-align:center;
+}
+.dayWrongCounter span{display:block;font-size:10px;font-weight:700;color:#64748b;margin-bottom:2px}
+.dayWrongCounter strong{font-size:20px;font-weight:900;color:#1e293b}
+.dayWrongCounter strong small{font-size:10px;font-weight:700;margin-left:2px}
+.dayWrongCounter i{font-style:normal;color:#94a3b8;font-weight:800}
+.accentNum{color:var(--theme-accent)!important}
+
+.nextHwCallout{
+ margin-top:auto;
+ background:var(--theme-th-bg);
+ border:1px solid var(--theme-soft-border);
+ border-radius:8px;
+ padding:10px 12px;
+}
+.nextHwTitle{
+ display:flex;
+ align-items:center;
+ gap:5px;
+ font-size:11px;
+ font-weight:800;
+ color:var(--theme-th-text);
+ margin-bottom:5px;
+}
+.nextHwCallout p{margin:3px 0;font-size:11.5px;font-weight:600}
+.hwBookTag{
+ display:inline-block;
+ background:#ffffff;
+ border:1px solid var(--theme-border);
+ padding:1px 6px;
+ border-radius:4px;
+ font-size:10.5px;
+ font-weight:800;
+ margin-right:4px;
+}
+
+.dayExamList{display:flex;flex-direction:column;gap:9px}
+.dayExamCard{
+ display:flex;
+ align-items:center;
+ justify-content:space-between;
+ gap:12px;
+ border:1px solid var(--theme-soft-border);
+ border-radius:8px;
+ padding:10px 12px;
+ background:#f8fafc;
+}
+.dayExamLeft{display:flex;flex-direction:column;gap:2px;min-width:0}
+.dayExamTag{font-size:10px;font-weight:800;color:var(--theme-accent)}
+.dayExamLeft strong{font-size:13.5px;font-weight:800;color:#0f172a}
+.dayExamLeft small{font-size:10.5px;color:#64748b}
+.dayExamScoreBox{
+ text-align:right;
+ flex-shrink:0;
+ background:#ffffff;
+ border:1.5px solid var(--theme-border);
+ border-radius:8px;
+ padding:6px 12px;
+}
+.dayExamScoreBox b{display:block;font-size:21px;font-weight:900;color:var(--theme-accent);line-height:1.1}
+.dayExamScoreBox b small{font-size:11px;margin-left:2px}
+.dayExamScoreBox span{display:block;font-size:9.5px;color:#64748b;font-weight:600}
+
+/* ============================================================================
+ * [B] 주간 보고서: 월~일 7일 매트릭스 표 & 주간 비교표
+ * ============================================================================ */
+.weeklyMatrixTable{
+ width:100%;
+ border-collapse:collapse;
+ font-size:11.5px;
+ table-layout:fixed;
+}
+.weeklyMatrixTable th{
+ background:var(--theme-th-bg);
+ color:var(--theme-th-text);
+ padding:7px 4px;
+ border-bottom:1.5px solid var(--theme-border);
+ border-right:1px solid var(--theme-soft-border);
+}
+.weeklyMatrixTable th:last-child{border-right:0}
+.weeklyMatrixTable th b{display:block;font-size:11.5px;font-weight:800}
+.weeklyMatrixTable th small{display:block;font-size:9.5px;opacity:0.8;font-weight:600}
+.weeklyMatrixTable td{
+ padding:8px 4px;
+ border-bottom:1px solid var(--theme-soft-border);
+ border-right:1px solid var(--theme-soft-border);
+ vertical-align:middle;
+}
+.weeklyMatrixTable td:last-child{border-right:0}
+.weeklyMatrixTable tr:last-child td{border-bottom:0}
+.matrixRowLabel{
+ font-weight:800;
+ font-size:11px;
+ background:#f8fafc;
+ text-align:center;
+ color:#334155;
+}
+.statusPill{
+ display:inline-block;
+ padding:2px 7px;
+ border-radius:999px;
+ font-size:10.5px;
+ font-weight:800;
+}
+.pillGood{background:#dcfce7;color:#15803d}
+.pillWarn{background:#fef3c7;color:#b45309}
+.pillBad{background:#fee2e2;color:#b91c1c}
+.dashCell{color:#cbd5e1;font-weight:700}
+
+.weeklyScoreSummary{
+ margin-top:auto;
+ display:flex;
+ justify-content:space-around;
+ background:var(--theme-th-bg);
+ border-radius:7px;
+ padding:8px 10px;
+ font-size:11.5px;
+ color:var(--theme-th-text);
+}
+.weeklyScoreSummary b{font-weight:900;margin-left:3px}
+
+/* ============================================================================
+ * [C] 월간 보고서: 월간 출결 캘린더 & 성적 추이 & 누적 게이지
+ * ============================================================================ */
+.monthCalGrid{
+ display:grid;
+ grid-template-columns:repeat(7,minmax(0,1fr));
+ gap:4px;
+}
+.calWeekday{
+ text-align:center;
+ font-size:10px;
+ font-weight:800;
+ padding:4px 0;
+ background:var(--theme-th-bg);
+ color:var(--theme-th-text);
+ border-radius:4px;
+}
+.calEmptyCell{
+ height:32px;
+ background:#f8fafc;
+ border-radius:4px;
+ opacity:0.45;
+}
+.calDayCell{
+ height:32px;
+ border:1px solid var(--theme-soft-border);
+ border-radius:5px;
+ padding:2px 4px;
+ display:flex;
+ flex-direction:column;
+ justify-content:space-between;
+ background:#ffffff;
+ box-sizing:border-box;
+}
+.calDayNum{font-size:9.5px;font-weight:700;color:#475569;line-height:1}
+.calAttMark{font-size:9px;font-weight:800;text-align:right;line-height:1}
+.calAttGood{background:#ecfdf5;border-color:#86efac}
+.calAttGood .calAttMark{color:#15803d}
+.calAttWarn{background:#fffbeb;border-color:#fde047}
+.calAttWarn .calAttMark{color:#b45309}
+.calAttBad{background:#fef2f2;border-color:#fca5a5}
+.calAttBad .calAttMark{color:#b91c1c}
+.calLegendBar{
+ margin-top:auto;
+ display:flex;
+ justify-content:center;
+ gap:14px;
+ padding-top:6px;
+ border-top:1px dashed var(--theme-soft-border);
+ font-size:10.5px;
+ color:#475569;
+}
+.calLegendBar span{display:inline-flex;align-items:center;gap:4px}
+.dotGood,.dotWarn,.dotBad{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dotGood{background:#22c55e}
+.dotWarn{background:#f59e0b}
+.dotBad{background:#ef4444}
+
+.monthTrendSvg{width:100%;height:150px;display:block}
+.miriBlockBarList{display:flex;flex-direction:column;gap:9px;justify-content:center;flex:1}
+.miriBlockBarRow{display:flex;flex-direction:column;gap:4px;padding-bottom:7px;border-bottom:1px dashed var(--theme-soft-border)}
+.miriBlockBarRow:last-child{border-bottom:0;padding-bottom:0}
+.miriBlockBarLabel{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:800}
+.miriBlockBarLabel b{background:var(--theme-head-bg);color:var(--theme-head-text);border:1px solid var(--theme-border);padding:1px 6px;border-radius:4px;font-size:10.5px}
+.courseTag{margin-left:auto;font-size:10px;color:#64748b;font-weight:600}
+.miriCubeTrack{display:grid;grid-template-columns:repeat(10,1fr);gap:3px}
+.miriCubeOn,.miriCubeOff{display:block;height:11px;border-radius:2px}
+.miriCubeOn{background:var(--theme-bar);border:1px solid var(--theme-border)}
+.miriCubeOff{background:#f1f5f9;border:1px solid #cbd5e1}
+.miriBlockBarRow small{font-size:10px;color:#64748b}
+
+.monthGaugeGroup{display:flex;flex-direction:column;gap:14px;justify-content:center;flex:1}
+.monthGaugeItem{
+ border:1px solid var(--theme-soft-border);
+ border-radius:8px;
+ padding:11px 12px;
+ background:#f8fafc;
+}
+.monthGaugeHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.monthGaugeHead b{font-size:12px;font-weight:800;color:#1e293b}
+.monthGaugeHead strong{font-size:16px;font-weight:900;color:var(--theme-accent)}
+.monthGaugeBar{height:10px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin-bottom:6px}
+.monthGaugeBar i{display:block;height:100%;background:var(--theme-bar);border-radius:999px}
+.monthGaugeItem small{display:block;font-size:10.5px;color:#64748b}
+
+/* ============================================================================
+ * 공통 데이터 테이블 & 빈 상태
+ * ============================================================================ */
+.dataTable{width:100%;border-collapse:collapse;font-size:11.5px;table-layout:fixed}
+.dataTable th{
+ background:var(--theme-th-bg);
+ color:var(--theme-th-text);
+ font-size:10.5px;
+ font-weight:800;
+ padding:6px 8px;
+ border-bottom:1.5px solid var(--theme-border);
+ text-align:left;
+}
+.dataTable td{
+ padding:7px 8px;
+ border-bottom:1px solid var(--theme-soft-border);
+ vertical-align:middle;
+}
+.dataTable tr:last-child td{border-bottom:0}
+.tableBookTitle{display:block;font-weight:800;color:#0f172a}
+.tableSubScope{display:block;font-size:10.5px;color:#64748b;margin-top:1px}
+.inlineCheckBadge{display:inline-flex;align-items:center;gap:5px;justify-content:center}
+.inlineCheckBadge em{font-style:normal;font-size:10px;font-weight:800;color:var(--theme-th-text);background:var(--theme-th-bg);padding:2px 6px;border-radius:999px}
+.checkSquare{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border:1.5px solid var(--theme-border);border-radius:4px;background:#ffffff;color:#ef4444}
+.checkSquareOn{background:#fff5f5}
+.emptyCell{text-align:center;color:#94a3b8;padding:18px 8px!important}
+.emptyBox{
+ flex:1;
+ display:flex;
+ flex-direction:column;
+ align-items:center;
+ justify-content:center;
+ text-align:center;
+ gap:4px;
+ padding:18px 12px;
+ border:1px dashed var(--theme-soft-border);
+ border-radius:8px;
+ color:#64748b;
+ background:#f8fafc;
+}
+.emptyBox p{margin:0;font-size:12px;font-weight:700}
+.emptyBox small{font-size:10.5px;color:#94a3b8}
+.mutedText{color:#94a3b8;font-size:11px;margin:0}
+
+/* ============================================================================
+ * 분위기별 하단 선생님 피드백 영역
+ * ============================================================================ */
+/* 1) 하늘색 체크리스트 피드백 */
+.miriFeedbackBox{display:grid;grid-template-columns:114px 1fr;border:1.5px solid #68a4f1;border-radius:8px;overflow:hidden;background:#ffffff;margin-top:auto}
+.miriFeedbackLabel{background:#68a4f1;color:#ffffff;font-weight:800;font-size:12.5px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;text-align:center;line-height:1.35;padding:12px 8px}
+.miriFeedbackBody{padding:9px 14px 10px;display:flex;flex-direction:column;gap:3px}
+.miriFeedbackSub{font-size:10px;font-weight:800;color:#68a4f1}
+.miriRuledLines p{margin:0;padding:5px 0;border-bottom:1px solid #cfe3fb;font-size:11.5px;color:#1e3a5f;line-height:1.4}
+.miriRuledLines p b{color:#2b6cb0}
+.miriMutedLine{color:#7890ab;font-size:11px;display:inline-flex;align-items:center;gap:5px}
+
+/* 2) 노란색 인포그래픽 피드백 */
+.miriYellowTakeaway{background:#fefce8;border:1.5px solid #1e293b;padding:12px 14px;margin-top:auto;display:flex;flex-direction:column;gap:7px}
+.miriYellowSecTitle{font-size:13px;font-weight:900;color:#0f172a;margin:0}
+.miriTakeawayList p{margin:3px 0;font-size:11.5px;line-height:1.5;color:#1e293b;display:flex;align-items:flex-start;gap:6px}
+.miriCheckIconGreen{color:#16a34a;flex-shrink:0;margin-top:2px}
+.miriConclusionPill{display:flex;align-items:center;gap:7px;background:#fef08a;border:1.3px solid #1e293b;border-radius:7px;padding:6px 11px;font-size:11.5px;color:#0f172a}
+.miriBulbIcon{color:#ca8a04;flex-shrink:0}
+
+/* 3) 파스텔 성취도 피드백 */
+.miriGraphCard{background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 4px 14px rgba(79,117,255,0.07);border:1.5px solid #dbe4ff;margin-top:auto}
+.miriGraphCardHead{background:#5c7cfa;color:#ffffff;font-size:13px;font-weight:800;text-align:center;padding:9px 14px}
+.miriGraphCommentBody{padding:12px 16px;display:flex;flex-direction:column;gap:6px}
+.miriGraphCommentBody p{margin:0;font-size:11.5px;line-height:1.55;color:#334155;padding-bottom:5px;border-bottom:1px dashed #e2e8f0;display:flex;align-items:flex-start;gap:6px}
+.miriGraphCommentBody p:last-child{border-bottom:0;padding-bottom:0}
+.miriCommentIcon{color:#5c7cfa;flex-shrink:0;margin-top:3px}

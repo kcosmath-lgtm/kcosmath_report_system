@@ -1,8 +1,17 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { BookOpen, Calendar, Check, History, ListChecks, Plus, RotateCcw, Save } from 'lucide-react';
+import { BookOpen, Calendar, Check, History, ListChecks, RotateCcw, Save } from 'lucide-react';
 import { loadClassBooks, loadProgress, manageClassBook, saveProgressBatch } from '../lib/report-storage';
-import { progressPercent, type ClassBook, type ProgressBook, type ProgressEntry } from '../types/progress';
+import {
+  completedBookProblems,
+  progressPercent,
+  resolveRangeSummary,
+  syncUnitStatesFromPage,
+  totalBookProblems,
+  type ClassBook,
+  type ProgressBook,
+  type ProgressEntry,
+} from '../types/progress';
 import type { StudentGroup } from '../types/student';
 import ProgressDialog from './ProgressDialog';
 import ProgressUnitEditor from './ProgressUnitEditor';
@@ -170,8 +179,33 @@ function ProgressRow({
   }
 
   const pct = book ? progressPercent(book) : 0;
-  const activeUnits = book?.units.filter(u => book.states[u.id] === '진행 중').map(u => u.name) ?? [];
+  const totalProbs = book ? totalBookProblems(book) : 0;
+  const doneProbs = book ? completedBookProblems(book) : 0;
+  const activeUnitObjects = book?.units.filter(u => book.states[u.id] === '진행 중') ?? [];
+  const activeUnits = activeUnitObjects.map(u => {
+    const meta: string[] = [];
+    if (u.start_page && u.end_page) meta.push(`p.${u.start_page}~${u.end_page}`);
+    if (u.start_problem && u.end_problem) meta.push(`#${u.start_problem}~${u.end_problem}`);
+    return meta.length > 0 ? `${u.name}(${meta.join('·')})` : u.name;
+  });
   const doneUnitCount = book?.units.filter(u => book.states[u.id] === '완료').length ?? 0;
+
+  function parseShorthand(raw: string) {
+    if (!book) return null;
+    const trimmed = raw.trim();
+    const pageMatch = trimmed.match(/^(?:p\.?\s*)?(\d+)\s*[~-]\s*(\d+)\s*p?$/i);
+    if (pageMatch) {
+      return resolveRangeSummary(book.units, 'page', Number(pageMatch[1]), Number(pageMatch[2]));
+    }
+    const probMatch = trimmed.match(/^#\s*(\d+)\s*[~-]\s*(\d+)(?:번)?$/);
+    if (probMatch) {
+      return resolveRangeSummary(book.units, 'problem', Number(probMatch[1]), Number(probMatch[2]));
+    }
+    return null;
+  }
+
+  const scopeSuggestion = parseShorthand(scope);
+  const homeworkSuggestion = parseShorthand(homework);
 
   return (
     <tr>
@@ -241,7 +275,8 @@ function ProgressRow({
                     value={book.completed_page ?? 0}
                     onChange={e => {
                       const nextPage = Math.max(0, Math.min(book.total_pages!, Number(e.target.value) || 0));
-                      setDraft({ ...book, completed_page: nextPage });
+                      const nextStates = syncUnitStatesFromPage(book.units, book.states, nextPage);
+                      setDraft({ ...book, completed_page: nextPage, states: nextStates });
                       setDirty(true);
                     }}
                   />
@@ -257,6 +292,11 @@ function ProgressRow({
               >
                 <ListChecks size={12} /> 단원 ({doneUnitCount}/{book.units.length})
               </button>
+              {totalProbs > 0 && (
+                <span className={styles.problemProgressPill} title="완료 문항 수 / 교재 총 문항 수 (추정)">
+                  {doneProbs.toLocaleString()}/{totalProbs.toLocaleString()}문항
+                </span>
+              )}
             </div>
           </div>
         ) : (
@@ -275,8 +315,25 @@ function ProgressRow({
               setScope(e.target.value);
               setDirty(true);
             }}
-            placeholder={book ? '오늘 나간 진도 (예: p.42~48)' : '교재 연결 필요'}
+            placeholder={book ? '예: 26~41 또는 #133~250 입력 시 자동 변환' : '교재 연결 필요'}
           />
+          {scopeSuggestion && scopeSuggestion.label !== scope && (
+            <button
+              type="button"
+              className={styles.shorthandSuggestBtn}
+              onClick={() => {
+                setScope(scopeSuggestion.label);
+                if (book && scopeSuggestion.endPage) {
+                  const clamped = book.total_pages ? Math.min(book.total_pages, scopeSuggestion.endPage) : scopeSuggestion.endPage;
+                  const nextStates = syncUnitStatesFromPage(book.units, book.states, clamped);
+                  setDraft({ ...book, completed_page: clamped, states: nextStates });
+                }
+                setDirty(true);
+              }}
+            >
+              자동완성: {scopeSuggestion.label}
+            </button>
+          )}
           {book && (
             <small className={styles.prevHint}>
               {activeUnits.length > 0
@@ -300,8 +357,20 @@ function ProgressRow({
               setHomework(e.target.value);
               setDirty(true);
             }}
-            placeholder={book ? '부여할 과제 (예: 워크북 p.20~24)' : '교재 연결 필요'}
+            placeholder={book ? '예: 26~35 또는 #133~200 입력 시 자동 변환' : '교재 연결 필요'}
           />
+          {homeworkSuggestion && homeworkSuggestion.label !== homework && (
+            <button
+              type="button"
+              className={styles.shorthandSuggestBtn}
+              onClick={() => {
+                setHomework(homeworkSuggestion.label);
+                setDirty(true);
+              }}
+            >
+              자동완성: {homeworkSuggestion.label}
+            </button>
+          )}
           {book && (
             <small className={styles.prevHint}>
               {lastEntryWithHomework ? `직전 과제: ${lastEntryWithHomework.homework}` : '기록된 직전 과제 없음'}
@@ -515,11 +584,34 @@ export default function StudentProgressTable({
         if (!r) return;
         const baseBook = assignedMap[id] ?? r.book!;
         const nextPatch: { book?: ProgressBook; scope?: string; homework?: string; feedback?: string } = {};
-        if (bulkScope.trim()) nextPatch.scope = bulkScope.trim();
-        if (bulkHomework.trim()) nextPatch.homework = bulkHomework.trim();
+
+        const expandShorthand = (raw: string) => {
+          const t = raw.trim();
+          const pm = t.match(/^(?:p\.?\s*)?(\d+)\s*[~-]\s*(\d+)\s*p?$/i);
+          if (pm) return resolveRangeSummary(baseBook.units, 'page', Number(pm[1]), Number(pm[2]));
+          const prm = t.match(/^#\s*(\d+)\s*[~-]\s*(\d+)(?:번)?$/);
+          if (prm) return resolveRangeSummary(baseBook.units, 'problem', Number(prm[1]), Number(prm[2]));
+          return null;
+        };
+
+        let autoEndPage: number | undefined;
+        if (bulkScope.trim()) {
+          const resolved = expandShorthand(bulkScope);
+          nextPatch.scope = resolved && resolved.matchedUnits.length > 0 ? resolved.label : bulkScope.trim();
+          if (resolved?.endPage) autoEndPage = resolved.endPage;
+        }
+        if (bulkHomework.trim()) {
+          const resolved = expandShorthand(bulkHomework);
+          nextPatch.homework = resolved && resolved.matchedUnits.length > 0 ? resolved.label : bulkHomework.trim();
+        }
         if (bulkFeedback.trim()) nextPatch.feedback = bulkFeedback.trim();
-        if (bulkPage.trim() !== '') nextPatch.book = { ...baseBook, completed_page: Number(bulkPage) };
-        else if (assignedMap[id]) nextPatch.book = baseBook;
+        const targetPage = bulkPage.trim() !== '' ? Number(bulkPage) : autoEndPage;
+        if (targetPage !== undefined && (!baseBook.total_pages || targetPage <= baseBook.total_pages)) {
+          const nextStates = syncUnitStatesFromPage(baseBook.units, baseBook.states, targetPage);
+          nextPatch.book = { ...baseBook, completed_page: targetPage, states: nextStates };
+        } else if (assignedMap[id]) {
+          nextPatch.book = baseBook;
+        }
         r.patch(nextPatch);
       });
     }

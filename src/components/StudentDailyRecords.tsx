@@ -2,8 +2,23 @@
 
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import dayjs from 'dayjs';
-import { Plus, Trash2, Check, Award, Calendar, Save } from 'lucide-react';
-import { loadStudents, loadStudentDaily, loadWrongAnswers, saveStudentDaily } from '../lib/report-storage';
+import { Plus, Trash2, Check, Award, Calendar, Save, LayoutGrid, Table as TableIcon, MessageSquare } from 'lucide-react';
+import {
+  loadStudents,
+  loadStudentDaily,
+  loadWrongAnswers,
+  saveStudentDaily,
+  loadProgress,
+  saveProgressBatch,
+} from '../lib/report-storage';
+import {
+  completedBookProblems,
+  progressPercent,
+  totalBookProblems,
+  unitProblemCount,
+  type ProgressBook,
+  type UnitStatus,
+} from '../types/progress';
 import type { StudentGroup } from '../types/student';
 import type { Attendance, DailyExam, StudentDailySave } from '../types/student-daily';
 import { wrongAnswerStatus } from '../types/student-daily';
@@ -132,10 +147,15 @@ export default function StudentDailyRecords({
   const [bulkExamName, setBulkExamName] = useState('단원평가');
   const [bulkExamScope, setBulkExamScope] = useState('');
   const [bulkExamMax, setBulkExamMax] = useState(100);
+  const [layoutMode, setLayoutMode] = useState<'cards' | 'table'>('cards');
+  const [progressBooks, setProgressBooks] = useState<Record<string, ProgressBook>>({});
+  const [dirtyBooks, setDirtyBooks] = useState<string[]>([]);
+  const [openUnitStudentId, setOpenUnitStudentId] = useState<string | null>(null);
+  const [openMemoIds, setOpenMemoIds] = useState<string[]>([]);
 
   useEffect(() => {
-    onDirtyChange?.(dirty.length > 0 || busy);
-  }, [dirty.length, busy, onDirtyChange]);
+    onDirtyChange?.(dirty.length > 0 || dirtyBooks.length > 0 || busy);
+  }, [dirty.length, dirtyBooks.length, busy, onDirtyChange]);
 
   useEffect(() => {
     if (!dateReady) return;
@@ -186,7 +206,25 @@ export default function StudentDailyRecords({
           }))
         );
         setDirty([]);
+        setDirtyBooks([]);
         setFailed(false);
+        const allStudents = roster.flatMap(g => g.students);
+        if ( typeof loadProgress === 'function' ) {
+          void Promise.all(
+            allStudents.map(s =>
+              loadProgress(s.id)
+                .then(data => [s.id, data.books[0]] as const)
+                .catch(() => [s.id, undefined] as const)
+            )
+          ).then(entries => {
+            if (cancelled) return;
+            const map: Record<string, ProgressBook> = {};
+            for (const [id, b] of entries) {
+              if (b) map[id] = b;
+            }
+            setProgressBooks(map);
+          });
+        }
       })
       .catch(e => {
         if (!cancelled) {
@@ -291,6 +329,59 @@ export default function StudentDailyRecords({
     }));
   }
 
+  function cycleUnitStateFor(studentId: string, unitId: string) {
+    const book = progressBooks[studentId];
+    if (!book) return;
+    const order: UnitStatus[] = ['미시작', '진행 중', '완료'];
+    const current = book.states[unitId] ?? '미시작';
+    const nextState = order[(order.indexOf(current) + 1) % order.length];
+    const nextStates: Record<string, UnitStatus> = { ...book.states, [unitId]: nextState };
+
+    let nextCompletedPage = book.completed_page;
+    const donePages = book.units
+      .filter(u => nextStates[u.id] === '완료' && u.end_page)
+      .map(u => u.end_page!);
+    if (donePages.length > 0) {
+      nextCompletedPage = Math.max(...donePages);
+    } else if (book.units.every(u => (nextStates[u.id] ?? '미시작') === '미시작')) {
+      nextCompletedPage = 0;
+    }
+
+    setProgressBooks(prev => ({
+      ...prev,
+      [studentId]: { ...book, states: nextStates, completed_page: nextCompletedPage },
+    }));
+    setDirtyBooks(prev => (prev.includes(studentId) ? prev : [...prev, studentId]));
+    setMessage('');
+  }
+
+  function renderSparkline(scores: number[]) {
+    const ptsList = scores.length >= 2 ? scores : scores.length === 1 ? [scores[0], scores[0]] : [75, 80, 85];
+    const min = Math.min(...ptsList) - 5;
+    const max = Math.max(...ptsList) + 5;
+    const coords = ptsList.map((v, i) => {
+      const x = 6 + (i / Math.max(1, ptsList.length - 1)) * 68;
+      const y = 28 - ((v - min) / Math.max(1, max - min)) * 20;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+    const last = coords[coords.length - 1].split(',');
+    const up = ptsList[ptsList.length - 1] >= ptsList[0];
+    const stroke = scores.length === 0 ? '#94a3b8' : up ? '#10b981' : '#f59e0b';
+    return (
+      <svg width="80" height="34" viewBox="0 0 80 34" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
+        <polyline
+          points={coords.join(' ')}
+          stroke={stroke}
+          strokeWidth="2.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeDasharray={scores.length === 0 ? '3 3' : undefined}
+        />
+        <circle cx={last[0]} cy={last[1]} r="3.2" fill={stroke} />
+      </svg>
+    );
+  }
+
   async function save() {
     setBusy(true);
     setMessage('');
@@ -301,13 +392,45 @@ export default function StudentDailyRecords({
           ...students.filter(s => rows[s.id]?.daily.version === 0 || rows[s.id]?.wrong.version === 0).map(s => s.id),
         ]),
       ];
-      const saved = await saveStudentDaily(ids.map(id => rows[id]));
-      setRows(current => ({ ...current, ...Object.fromEntries(saved.map(r => [r.daily.student_id, r])) }));
-      setHistory(current => [
-        ...current.filter(r => !saved.some(s => s.daily.student_id === r.daily.student_id && s.daily.record_date === r.daily.record_date)),
-        ...saved,
-      ]);
-      setDirty([]);
+      if (ids.length > 0) {
+        const saved = await saveStudentDaily(ids.map(id => rows[id]));
+        setRows(current => ({ ...current, ...Object.fromEntries(saved.map(r => [r.daily.student_id, r])) }));
+        setHistory(current => [
+          ...current.filter(r => !saved.some(s => s.daily.student_id === r.daily.student_id && s.daily.record_date === r.daily.record_date)),
+          ...saved,
+        ]);
+        setDirty([]);
+      }
+      if (dirtyBooks.length > 0 && typeof saveProgressBatch === 'function') {
+        const validBooks = dirtyBooks.map(id => progressBooks[id]).filter(Boolean);
+        if (validBooks.length > 0) {
+          const savedBooks = await saveProgressBatch(
+            validBooks.map(book => ({
+              book,
+              entry: {
+                id: crypto.randomUUID(),
+                book_id: book.id,
+                record_date: date,
+                unit_ids: book.units.filter(u => book.states[u.id] === '진행 중').map(u => u.id),
+                scope: '',
+                homework: '',
+                due_date: null,
+                memo: '',
+                states: book.states,
+                created_at: '',
+              },
+            }))
+          );
+          setProgressBooks(prev => {
+            const next = { ...prev };
+            for (const item of savedBooks) {
+              next[item.book.student_id] = item.book;
+            }
+            return next;
+          });
+        }
+        setDirtyBooks([]);
+      }
       setMessage('저장했습니다. 이전 날짜의 기록은 그대로 보존됩니다.');
     } catch (e) {
       setMessage(e instanceof Error ? e.message : '저장하지 못했습니다.');
@@ -318,21 +441,80 @@ export default function StudentDailyRecords({
 
   const unsavedDefaults = students.some(s => rows[s.id]?.daily.version === 0 || rows[s.id]?.wrong.version === 0);
   const attendedCount = students.filter(s => rows[s.id]?.daily.attendance === '출석').length;
+  const lateCount = students.filter(s => rows[s.id]?.daily.attendance === '지각').length;
+  const absentCount = students.filter(s => rows[s.id]?.daily.attendance === '결석').length;
+  const attPct = students.length > 0 ? Math.round((attendedCount / students.length) * 100) : 0;
+
   const hwDoneCount = students.filter(s => rows[s.id]?.wrong.homework_status === 'O').length;
+  const hwPartCount = students.filter(s => rows[s.id]?.wrong.homework_status === '△').length;
+  const hwMissCount = students.filter(s => rows[s.id]?.wrong.homework_status === 'X').length;
+  const hwDonePct = students.length > 0 ? Math.round((hwDoneCount / students.length) * 100) : 0;
+  const hwPartPct = students.length > 0 ? Math.round((hwPartCount / students.length) * 100) : 0;
+  const hwMissPct = Math.max(0, 100 - hwDonePct - hwPartPct);
+
   const examStudentCount = students.filter(s => (rows[s.id]?.daily.exams.length ?? 0) > 0).length;
   const examTotalCount = students.reduce((acc, s) => acc + (rows[s.id]?.daily.exams.length ?? 0), 0);
+
+  const studentBooks = students.map(s => progressBooks[s.id]).filter((b): b is ProgressBook => Boolean(b));
+  const avgBookPct =
+    studentBooks.length > 0
+      ? Math.round(studentBooks.reduce((acc, b) => acc + progressPercent(b), 0) / studentBooks.length)
+      : 0;
+  const avgDoneProblems =
+    studentBooks.length > 0
+      ? Math.round(studentBooks.reduce((acc, b) => acc + completedBookProblems(b), 0) / studentBooks.length)
+      : 0;
+  const avgTotalProblems =
+    studentBooks.length > 0
+      ? Math.round(studentBooks.reduce((acc, b) => acc + totalBookProblems(b), 0) / studentBooks.length)
+      : 0;
+  const primaryBookTitle = studentBooks[0]?.title ?? '배정된 주력 교재';
+
+  const allRecentScores = students.flatMap(s => {
+    const todayScores = (rows[s.id]?.daily.exams ?? []).map(e => Math.round((e.score / Math.max(1, e.max_score)) * 100));
+    const histScores = history
+      .filter(h => h.daily.student_id === s.id && h.daily.record_date !== date)
+      .flatMap(h => h.daily.exams.map(e => Math.round((e.score / Math.max(1, e.max_score)) * 100)));
+    return [...histScores, ...todayScores];
+  });
+  const classAvgScore =
+    allRecentScores.length > 0
+      ? Math.round(allRecentScores.reduce((a, b) => a + b, 0) / allRecentScores.length)
+      : 0;
 
   return (
     <section className={styles.records} aria-label="학생 날짜별 기록">
       <div className={styles.toolbar}>
         <div>
-          <h2>{viewMode === 'exams' ? '당일 시험 · 성적 일괄 관리' : '학생별 출결 · 숙제 · 오답 기록'}</h2>
+          <h2>{viewMode === 'exams' ? '당일 시험 · 성적 일괄 관리' : '학생 인포그래픽 & 원클릭 관리'}</h2>
           <p>
             {viewMode === 'exams'
               ? '반 전체 또는 선택한 학생에게 시험을 일괄 생성하고, 표에서 바로 점수와 피드백을 입력합니다.'
-              : '학생별 출결 상태, 숙제 수행도, 오답 클리닉 문항 수를 한 화면에서 쾌적하게 기록합니다.'}
+              : '복잡한 입력창 없이 원클릭 캡슐 버튼과 도넛·스파크라인 인포그래픽으로 학생 상태를 관리합니다.'}
           </p>
         </div>
+        {viewMode === 'daily' && (
+          <div className={styles.viewModeSwitch} role="group" aria-label="화면 보기 방식">
+            <button
+              type="button"
+              className={styles.viewModeBtn}
+              aria-pressed={layoutMode === 'cards'}
+              onClick={() => setLayoutMode('cards')}
+            >
+              <LayoutGrid size={13} style={{ display: 'inline', marginRight: 4, verticalAlign: '-2px' }} />
+              인포그래픽 카드형
+            </button>
+            <button
+              type="button"
+              className={styles.viewModeBtn}
+              aria-pressed={layoutMode === 'table'}
+              onClick={() => setLayoutMode('table')}
+            >
+              <TableIcon size={13} style={{ display: 'inline', marginRight: 4, verticalAlign: '-2px' }} />
+              상세 표 보기
+            </button>
+          </div>
+        )}
         <div className={styles.kpiPills}>
           <span>대상 <b>{students.length}명</b></span>
           {viewMode === 'exams' ? (
@@ -355,7 +537,7 @@ export default function StudentDailyRecords({
             value={date}
             disabled={busy || loading}
             onChange={e => {
-              if (!e.target.value || (dirty.length && !confirm('저장하지 않은 내용을 버리고 날짜를 바꿀까요?'))) return;
+              if (!e.target.value || ((dirty.length || dirtyBooks.length) && !confirm('저장하지 않은 내용을 버리고 날짜를 바꿀까요?'))) return;
               setLoading(true);
               setMessage('');
               setDate(e.target.value);
@@ -380,26 +562,24 @@ export default function StudentDailyRecords({
             </select>
           </label>
         )}
-        <button disabled={busy || loading || failed || (!dirty.length && !unsavedDefaults)} onClick={() => void save()}>
+        <button disabled={busy || loading || failed || (!dirty.length && !dirtyBooks.length && !unsavedDefaults)} onClick={() => void save()}>
           <Save size={15} /> {busy ? '저장 중…' : '기록 저장'}
         </button>
       </div>
 
-      {viewMode === 'exams' && (
-        <StudentGrades
-          groups={groups}
-          history={history.filter(r => !studentIds || !studentIds.length || studentIds.includes(r.daily.student_id))}
-          blocked={busy || loading || failed || dirty.length > 0}
-          show={showGrades}
-          setShow={setShowGrades}
-          onBusyChange={setBusy}
-          onSaved={importDate => {
-            setLoading(true);
-            setDate(importDate);
-            setReload(v => v + 1);
-          }}
-        />
-      )}
+      <StudentGrades
+        groups={groups}
+        history={history.filter(r => !studentIds || !studentIds.length || studentIds.includes(r.daily.student_id))}
+        blocked={busy || loading || failed || dirty.length > 0 || dirtyBooks.length > 0}
+        show={showGrades}
+        setShow={setShowGrades}
+        onBusyChange={setBusy}
+        onSaved={importDate => {
+          setLoading(true);
+          setDate(importDate);
+          setReload(v => v + 1);
+        }}
+      />
 
       {message && (
         <p role="status" className={styles.message} data-error={failed || undefined}>
@@ -631,28 +811,482 @@ export default function StudentDailyRecords({
           </fieldset>
         )
       ) : (
-        <fieldset disabled={busy || failed} className={styles.fullWidthLayout}>
-          {students.length > 0 && (
-            <div className={styles.quickBulkBar}>
-              <div className={styles.quickBulkActions}>
-                <span className={styles.quickBulkTag}>빠른 일괄 처리</span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    targetStudents.forEach(s => edit(s.id, r => ({ ...r, daily: { ...r.daily, attendance: '출석' } })))
-                  }
-                >
-                  <Check size={13} /> {checkedStudents.length > 0 ? `선택 ${checkedStudents.length}명 출석` : `전체 ${students.length}명 전원 출석`}
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    targetStudents.forEach(s => edit(s.id, r => ({ ...r, wrong: { ...r.wrong, homework_status: 'O' } })))
-                  }
-                >
-                  <Check size={13} /> {checkedStudents.length > 0 ? `선택 ${checkedStudents.length}명 숙제완료` : `전체 ${students.length}명 전원 숙제완료`}
-                </button>
+        !showGrades && (
+          <fieldset disabled={busy || failed} className={styles.fullWidthLayout}>
+            {students.length > 0 && (
+              <div className={styles.bentoSummaryGrid}>
+                {/* Bento Card 1: Attendance Donut Ring */}
+                <div className={styles.bentoCard}>
+                  <div className={styles.donutWrap}>
+                    <svg className={styles.donutSvg} viewBox="0 0 56 56" aria-hidden="true">
+                      <circle cx="28" cy="28" r="22" stroke="#e2e8f0" strokeWidth="6" fill="none" />
+                      <circle
+                        cx="28"
+                        cy="28"
+                        r="22"
+                        stroke="#10b981"
+                        strokeWidth="6"
+                        strokeLinecap="round"
+                        strokeDasharray="138.2"
+                        strokeDashoffset={(138.2 * (1 - attPct / 100)).toFixed(1)}
+                        className={styles.donutRingAnim}
+                        fill="none"
+                      />
+                    </svg>
+                    <span className={styles.donutText}>{attPct}%</span>
+                  </div>
+                  <div className={styles.bentoInfo}>
+                    <div className={styles.bentoLabelRow}>
+                      <span className={styles.bentoLabel}>오늘 출석률</span>
+                      <button
+                        type="button"
+                        className={styles.bentoQuickBtn}
+                        onClick={() =>
+                          targetStudents.forEach(s => edit(s.id, r => ({ ...r, daily: { ...r.daily, attendance: '출석' } })))
+                        }
+                      >
+                        전원 출석 ✓
+                      </button>
+                    </div>
+                    <div className={styles.bentoMainStat}>
+                      출석 {attendedCount} · 지각 {lateCount} · 결석 {absentCount}
+                    </div>
+                    <div className={styles.bentoLegend}>
+                      <span>
+                        <i className={styles.legendDot} style={{ background: '#10b981' }} />
+                        출석
+                      </span>
+                      <span>
+                        <i className={styles.legendDot} style={{ background: '#f59e0b' }} />
+                        지각
+                      </span>
+                      <span>
+                        <i className={styles.legendDot} style={{ background: '#f43f5e' }} />
+                        결석
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bento Card 2: Homework & Clinic Stacked Bar */}
+                <div className={styles.bentoCardCol}>
+                  <div className={styles.bentoLabelRow}>
+                    <span className={styles.bentoLabel}>숙제 & 오답 달성 분포</span>
+                    <button
+                      type="button"
+                      className={styles.bentoQuickBtn}
+                      onClick={() =>
+                        targetStudents.forEach(s => edit(s.id, r => ({ ...r, wrong: { ...r.wrong, homework_status: 'O' } })))
+                      }
+                    >
+                      전원 숙제완료 ✓
+                    </button>
+                  </div>
+                  <div className={styles.stackedBarTrack}>
+                    <div className={styles.stackedBarSeg} style={{ width: `${hwDonePct}%`, background: '#3b82f6' }} />
+                    <div className={styles.stackedBarSeg} style={{ width: `${hwPartPct}%`, background: '#fbbf24' }} />
+                    <div className={styles.stackedBarSeg} style={{ width: `${hwMissPct}%`, background: '#f43f5e' }} />
+                  </div>
+                  <div className={styles.bentoLegend} style={{ justifyContent: 'space-between', marginTop: 2 }}>
+                    <span>🔵 완료 {hwDoneCount}명 ({hwDonePct}%)</span>
+                    <span>🟠 일부 {hwPartCount}명</span>
+                    <span>🔴 미제출 {hwMissCount}명</span>
+                  </div>
+                </div>
+
+                {/* Bento Card 3: Textbook Progress & Exam Trend Sparkline */}
+                <div className={styles.bentoCard}>
+                  <div className={styles.bentoInfo}>
+                    <div className={styles.bentoLabel}>{primaryBookTitle} 평균 진도</div>
+                    <div className={styles.bentoMainStat}>
+                      {avgBookPct}%{' '}
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>
+                        ({avgDoneProblems}/{avgTotalProblems}문항)
+                      </span>
+                    </div>
+                    <div className={styles.bentoLegend} style={{ color: '#059669' }}>
+                      {classAvgScore > 0 ? `▲ 최근 시험 평균 ${classAvgScore}점` : '● 학생 카드에서 원클릭 관리'}
+                    </div>
+                  </div>
+                  {renderSparkline(allRecentScores.slice(-6))}
+                </div>
               </div>
+            )}
+
+            {layoutMode === 'cards' ? (
+              <>
+                <div className={styles.infographicGrid}>
+                  {students.map(s => {
+                    const r = rows[s.id];
+                    if (!r) return null;
+                    const isDirty = dirty.includes(s.id) || dirtyBooks.includes(s.id);
+                    const att = r.daily.attendance;
+                    const attTone = att === '출석' ? 'emerald' : att === '지각' ? 'amber' : 'rose';
+                    const hw = r.wrong.homework_status ?? 'O';
+                    const hwTone = hw === 'O' ? 'blue' : hw === '△' ? 'amber' : 'rose';
+                    const hwLabel = hw === 'O' ? '숙제 완료 O' : hw === '△' ? '숙제 일부 △' : '숙제 미제출 X';
+
+                    const wrongTotal = r.wrong.total_wrong;
+                    const wrongDone = r.wrong.corrected_count;
+                    const wrongPct =
+                      r.wrong.completed || (wrongTotal > 0 && wrongDone >= wrongTotal)
+                        ? 100
+                        : wrongTotal > 0
+                        ? Math.round((wrongDone / wrongTotal) * 100)
+                        : 0;
+
+                    const histExams = history
+                      .filter(h => h.daily.student_id === s.id && h.daily.record_date !== date)
+                      .sort((a, b) => a.daily.record_date.localeCompare(b.daily.record_date))
+                      .flatMap(h => h.daily.exams.map(e => Math.round((e.score / Math.max(1, e.max_score)) * 100)));
+                    const todayExams = r.daily.exams.map(e => Math.round((e.score / Math.max(1, e.max_score)) * 100));
+                    const studentScores = [...histExams, ...todayExams].slice(-5);
+                    const lastScore = studentScores.length > 0 ? studentScores[studentScores.length - 1] : null;
+                    const isScoreUp =
+                      studentScores.length >= 2 ? studentScores[studentScores.length - 1] >= studentScores[0] : true;
+
+                    const book = progressBooks[s.id];
+                    const bookPct = book ? progressPercent(book) : 0;
+                    const bookDoneQ = book ? completedBookProblems(book) : 0;
+                    const bookTotalQ = book ? totalBookProblems(book) : 0;
+                    const isUnitPopoverOpen = openUnitStudentId === s.id;
+                    const isMemoOpen = openMemoIds.includes(s.id) || Boolean(r.daily.reason || r.wrong.memo);
+
+                    return (
+                      <article key={s.id} className={styles.studentCard} data-dirty={isDirty || undefined}>
+                        {/* Card Top Row: Avatar + Name + Big Capsule Buttons */}
+                        <div className={styles.cardTopRow}>
+                          <div className={styles.studentIdentity}>
+                            <div className={styles.avatarBadge}>{s.name.slice(0, 1)}</div>
+                            <div>
+                              <strong>
+                                {s.name}
+                                {isDirty ? <em className={styles.dirtyDot}> · 수정됨</em> : ''}
+                              </strong>
+                              <small>{s.grade}</small>
+                            </div>
+                          </div>
+                          <div className={styles.capsuleGroup}>
+                            <button
+                              type="button"
+                              className={styles.capsuleBtn}
+                              data-tone={attTone}
+                              aria-label={`${s.name} 출결 상태 전환 (현재 ${att})`}
+                              onClick={() => {
+                                const nextAtt = attendance[(attendance.indexOf(att) + 1) % attendance.length];
+                                edit(s.id, cur => ({ ...cur, daily: { ...cur.daily, attendance: nextAtt } }));
+                              }}
+                            >
+                              ● {att}
+                            </button>
+                            <button
+                              type="button"
+                              className={styles.capsuleBtn}
+                              data-tone={hwTone}
+                              aria-label={`${s.name} 숙제 상태 전환 (현재 ${hw})`}
+                              onClick={() => {
+                                const order: ('O' | '△' | 'X')[] = ['O', '△', 'X'];
+                                const nextHw = order[(order.indexOf(hw) + 1) % order.length];
+                                edit(s.id, cur => ({ ...cur, wrong: { ...cur.wrong, homework_status: nextHw } }));
+                              }}
+                            >
+                              {hwLabel}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Middle 2-Column Infographic Widgets */}
+                        <div className={styles.cardWidgetGrid}>
+                          {/* Widget 1: Wrong Answer Donut Ring + Stepper Buttons */}
+                          <div className={styles.miniWidget}>
+                            <div>
+                              <div className={styles.widgetTitle}>오답 클리닉</div>
+                              <div className={styles.widgetValue}>
+                                {wrongDone}/{wrongTotal}문항 <span>({wrongPct}%)</span>
+                              </div>
+                              <div className={styles.widgetControls}>
+                                <button
+                                  type="button"
+                                  className={styles.stepBtn}
+                                  title="수정 오답 -1"
+                                  onClick={() =>
+                                    edit(s.id, cur => {
+                                      const nextDone = Math.max(0, cur.wrong.corrected_count - 1);
+                                      return {
+                                        ...cur,
+                                        wrong: {
+                                          ...cur.wrong,
+                                          corrected_count: nextDone,
+                                          completed: cur.wrong.total_wrong > 0 && nextDone === cur.wrong.total_wrong,
+                                        },
+                                      };
+                                    })
+                                  }
+                                >
+                                  -
+                                </button>
+                                <button
+                                  type="button"
+                                  className={styles.stepBtn}
+                                  title="수정 오답 +1"
+                                  onClick={() =>
+                                    edit(s.id, cur => {
+                                      const nextTotal = Math.max(cur.wrong.total_wrong, cur.wrong.corrected_count + 1);
+                                      const nextDone = Math.min(nextTotal, cur.wrong.corrected_count + 1);
+                                      return {
+                                        ...cur,
+                                        wrong: {
+                                          ...cur.wrong,
+                                          total_wrong: nextTotal,
+                                          corrected_count: nextDone,
+                                          completed: nextTotal > 0 && nextDone === nextTotal,
+                                        },
+                                      };
+                                    })
+                                  }
+                                >
+                                  +
+                                </button>
+                                <button
+                                  type="button"
+                                  className={styles.stepBtn}
+                                  title="전체 오답 문항 +3"
+                                  onClick={() =>
+                                    edit(s.id, cur => {
+                                      const nextTotal = cur.wrong.total_wrong + 3;
+                                      return {
+                                        ...cur,
+                                        wrong: {
+                                          ...cur.wrong,
+                                          total_wrong: nextTotal,
+                                          completed: false,
+                                        },
+                                      };
+                                    })
+                                  }
+                                >
+                                  문항+3
+                                </button>
+                                <button
+                                  type="button"
+                                  className={styles.donePillBtn}
+                                  onClick={() =>
+                                    edit(s.id, cur => {
+                                      const nextTotal = cur.wrong.total_wrong > 0 ? cur.wrong.total_wrong : 5;
+                                      return {
+                                        ...cur,
+                                        wrong: {
+                                          ...cur.wrong,
+                                          total_wrong: nextTotal,
+                                          corrected_count: nextTotal,
+                                          completed: true,
+                                        },
+                                      };
+                                    })
+                                  }
+                                >
+                                  완료✓
+                                </button>
+                              </div>
+                            </div>
+                            <div className={styles.miniDonutWrap}>
+                              <svg className={styles.donutSvg} viewBox="0 0 44 44" aria-hidden="true">
+                                <circle cx="22" cy="22" r="17" stroke="#e2e8f0" strokeWidth="5" fill="none" />
+                                <circle
+                                  cx="22"
+                                  cy="22"
+                                  r="17"
+                                  stroke={wrongPct === 100 ? '#10b981' : '#3b82f6'}
+                                  strokeWidth="5"
+                                  strokeLinecap="round"
+                                  strokeDasharray="106.8"
+                                  strokeDashoffset={(106.8 * (1 - wrongPct / 100)).toFixed(1)}
+                                  className={styles.donutRingAnim}
+                                  fill="none"
+                                />
+                              </svg>
+                              <span className={styles.miniDonutText}>{wrongPct}%</span>
+                            </div>
+                          </div>
+
+                          {/* Widget 2: Recent Exam Trend Sparkline + Quick Score Stepper */}
+                          <div className={styles.miniWidget}>
+                            <div>
+                              <div className={styles.widgetTitle}>최근 시험 추이</div>
+                              <div className={styles.widgetValue}>{lastScore !== null ? `${lastScore}점` : '미응시'}</div>
+                              <div className={styles.trendSub} data-up={isScoreUp}>
+                                {lastScore !== null ? (isScoreUp ? '▲ 상승세' : '▼ 보충 필요') : '버튼으로 즉시 기록'}
+                              </div>
+                              <div className={styles.widgetControls}>
+                                {r.daily.exams.length > 0 ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className={styles.stepBtn}
+                                      onClick={() => {
+                                        const lastEx = r.daily.exams[r.daily.exams.length - 1];
+                                        examChangeFor(s.id, lastEx.id, { score: Math.max(0, lastEx.score - 5) });
+                                      }}
+                                    >
+                                      -5점
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className={styles.stepBtn}
+                                      onClick={() => {
+                                        const lastEx = r.daily.exams[r.daily.exams.length - 1];
+                                        examChangeFor(s.id, lastEx.id, { score: Math.min(lastEx.max_score, lastEx.score + 5) });
+                                      }}
+                                    >
+                                      +5점
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button type="button" className={styles.donePillBtn} onClick={() => addExamFor(s.id)}>
+                                    + 오늘 시험
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            {renderSparkline(studentScores)}
+                          </div>
+                        </div>
+
+                        {/* Bottom Textbook Segmented Progress Infographic Bar */}
+                        {book ? (
+                          <div
+                            className={styles.bookProgressBox}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => setOpenUnitStudentId(isUnitPopoverOpen ? null : s.id)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setOpenUnitStudentId(isUnitPopoverOpen ? null : s.id);
+                              }
+                            }}
+                          >
+                            <div className={styles.bookHeaderRow}>
+                              <span className={styles.bookTitleText}>📘 {book.title}</span>
+                              <span className={styles.bookMetaText}>
+                                {bookPct}% ({bookDoneQ}/{bookTotalQ}문항) · 단원 버튼 {isUnitPopoverOpen ? '닫기 ▴' : '열기 ▸'}
+                              </span>
+                            </div>
+                            <div className={styles.unitSegmentGrid}>
+                              {book.units.map(u => {
+                                const st = book.states[u.id] ?? '미시작';
+                                return <div key={u.id} title={`${u.name} (${st})`} className={styles.unitSegment} data-state={st} />;
+                              })}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className={styles.bookProgressBox} style={{ cursor: 'default' }}>
+                            <div className={styles.bookHeaderRow} style={{ marginBottom: 0 }}>
+                              <span className={styles.bookTitleText} style={{ color: '#64748b' }}>
+                                📘 배정된 교재가 없습니다 (진도 관리 탭에서 시판 교재 1초 배정)
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Expandable One-Click Unit Capsule Popover */}
+                        {book && isUnitPopoverOpen && (
+                          <div className={styles.unitPopoverBox}>
+                            <div className={styles.unitPopoverHead}>
+                              <strong>원클릭 단원 진도 블록 ({book.title})</strong>
+                              <button
+                                type="button"
+                                className={styles.stepBtn}
+                                onClick={() => setOpenUnitStudentId(null)}
+                              >
+                                닫기 ✕
+                              </button>
+                            </div>
+                            <div className={styles.unitCapsuleList}>
+                              {book.units.map(u => {
+                                const st = book.states[u.id] ?? '미시작';
+                                const qCount = unitProblemCount(u);
+                                const badge = st === '완료' ? '🟩 완료' : st === '진행 중' ? '🟦 진행중' : '⬜ 예정';
+                                return (
+                                  <button
+                                    type="button"
+                                    key={u.id}
+                                    className={styles.unitCapsuleBtn}
+                                    data-state={st}
+                                    onClick={() => cycleUnitStateFor(s.id, u.id)}
+                                  >
+                                    <span>{u.name}</span>
+                                    {qCount > 0 && <span style={{ opacity: 0.75 }}>({qCount}문항)</span>}
+                                    <span>{badge}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Optional Collapsible Memo Drawer (keeps text inputs hidden unless needed) */}
+                        <div className={styles.cardFooterBar}>
+                          <button
+                            type="button"
+                            className={styles.memoPillToggle}
+                            onClick={() =>
+                              setOpenMemoIds(prev => (prev.includes(s.id) ? prev.filter(id => id !== s.id) : [...prev, s.id]))
+                            }
+                          >
+                            <MessageSquare size={12} style={{ display: 'inline', marginRight: 4, verticalAlign: '-2px' }} />
+                            {isMemoOpen ? '메모 접기 ▴' : '출결 사유 · 코멘트 메모 ▾'}
+                          </button>
+                        </div>
+                        {isMemoOpen && (
+                          <div className={styles.memoDrawer}>
+                            <input
+                              type="text"
+                              className={styles.examTableInput}
+                              aria-label={`${s.name} 출결 사유`}
+                              value={r.daily.reason}
+                              onChange={e => edit(s.id, v => ({ ...v, daily: { ...v.daily, reason: e.target.value } }))}
+                              placeholder="지각·결석 사유 또는 수업 메모"
+                            />
+                            <input
+                              type="text"
+                              className={styles.examTableInput}
+                              aria-label={`${s.name} 비고`}
+                              value={r.wrong.memo}
+                              onChange={e => edit(s.id, v => ({ ...v, wrong: { ...v.wrong, memo: e.target.value } }))}
+                              placeholder="오답·숙제 코멘트 입력"
+                            />
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
+                {!students.length && <p className={styles.emptyNotice}>왼쪽 목록에서 반 또는 학생을 선택해 주세요.</p>}
+              </>
+            ) : (
+              <>
+                {students.length > 0 && (
+                  <div className={styles.quickBulkBar}>
+                    <div className={styles.quickBulkActions}>
+                      <span className={styles.quickBulkTag}>빠른 일괄 처리</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          targetStudents.forEach(s => edit(s.id, r => ({ ...r, daily: { ...r.daily, attendance: '출석' } })))
+                        }
+                      >
+                        <Check size={13} /> {checkedStudents.length > 0 ? `선택 ${checkedStudents.length}명 출석` : `전체 ${students.length}명 전원 출석`}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          targetStudents.forEach(s => edit(s.id, r => ({ ...r, wrong: { ...r.wrong, homework_status: 'O' } })))
+                        }
+                      >
+                        <Check size={13} /> {checkedStudents.length > 0 ? `선택 ${checkedStudents.length}명 숙제완료` : `전체 ${students.length}명 전원 숙제완료`}
+                      </button>
+                    </div>
               {checkedStudents.length > 0 && (
                 <div className={styles.bulkInline}>
                   <strong>{checkedStudents.length}명 상세 일괄 적용:</strong>
@@ -867,7 +1501,10 @@ export default function StudentDailyRecords({
             </table>
             {!students.length && <p className={styles.emptyNotice}>왼쪽 목록에서 반 또는 학생을 선택해 주세요.</p>}
           </div>
-        </fieldset>
+              </>
+            )}
+          </fieldset>
+        )
       )}
     </section>
   );

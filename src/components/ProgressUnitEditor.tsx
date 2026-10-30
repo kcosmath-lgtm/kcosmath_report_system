@@ -1,10 +1,33 @@
 'use client';
 import { useState } from 'react';
-import { Check, ListChecks } from 'lucide-react';
-import { progressPercent, type ProgressBook, type UnitStatus } from '../types/progress';
+import { Calculator, Check, ListChecks } from 'lucide-react';
+import {
+  completedBookProblems,
+  progressPercent,
+  resolveRangeSummary,
+  syncUnitStatesFromPage,
+  totalBookProblems,
+  totalBookTypes,
+  unitProblemCount,
+  type ProgressBook,
+  type ProgressUnit,
+  type UnitStatus,
+} from '../types/progress';
 import styles from './student-progress.module.css';
 
 const UNIT_STATES: UnitStatus[] = ['미시작', '진행 중', '완료'];
+
+function formatUnitScopeText(u: ProgressUnit): string {
+  const parts: string[] = [u.name];
+  if (u.start_page && u.end_page) parts.push(`p.${u.start_page}~${u.end_page}`);
+  const cnt = unitProblemCount(u);
+  if (u.start_problem && u.end_problem) {
+    parts.push(`(${u.start_problem}~${u.end_problem}번${cnt > 0 ? `, ${cnt}문항` : ''})`);
+  } else if (cnt > 0) {
+    parts.push(`(${cnt}문항)`);
+  }
+  return parts.join(' ');
+}
 
 export default function ProgressUnitEditor({
   book,
@@ -34,7 +57,27 @@ export default function ProgressUnitEditor({
   const [draftFeedback, setDraftFeedback] = useState(feedback);
   const [feedbackEdited, setFeedbackEdited] = useState(false);
 
+  // Smart range calculator state
+  const [rangeMode, setRangeMode] = useState<'page' | 'problem'>('page');
+  const [rangeStart, setRangeStart] = useState('');
+  const [rangeEnd, setRangeEnd] = useState('');
+
   const currentPct = progressPercent({ ...book, states, completed_page: page });
+  const totalProbs = totalBookProblems(book);
+  const doneProbs = completedBookProblems({ ...book, states, completed_page: page });
+  const totalTypes = totalBookTypes(book);
+  const hasRichMeta = book.units.some(u => u.start_page || u.problem_count || u.start_problem);
+
+  const rangePreview =
+    rangeStart && rangeEnd
+      ? resolveRangeSummary(book.units, rangeMode, Number(rangeStart), Number(rangeEnd))
+      : null;
+
+  function handlePageChange(nextPage: number) {
+    const clamped = book.total_pages ? Math.max(0, Math.min(book.total_pages, nextPage)) : Math.max(0, nextPage);
+    setPage(clamped);
+    setStates(prev => syncUnitStatesFromPage(book.units, prev, clamped));
+  }
 
   return (
     <form
@@ -49,7 +92,11 @@ export default function ProgressUnitEditor({
       <div className={styles.unitEditorHeader}>
         <div>
           <h4>{book.title}</h4>
-          <p>{count}명의 단원별 진행 상태와 완료 페이지를 설정합니다.</p>
+          <p>
+            {count}명의 단원별 진행 상태와 완료 페이지를 설정합니다.
+            {totalProbs > 0 ? ` · 누적 약 ${doneProbs.toLocaleString()} / ${totalProbs.toLocaleString()}문항` : ''}
+            {totalTypes > 0 ? ` · 총 ${totalTypes}개 유형` : ''}
+          </p>
         </div>
         <div className={styles.unitEditorPct}>
           <span>예상 진도율</span>
@@ -59,7 +106,7 @@ export default function ProgressUnitEditor({
 
       {!!book.total_pages && (
         <div className={styles.unitPageRow}>
-          <span>완료 페이지</span>
+          <span>완료 페이지 (입력 시 단원 상태 자동 연동)</span>
           <div className={styles.pageInputGroup}>
             <input
               aria-label="완료 페이지"
@@ -68,10 +115,87 @@ export default function ProgressUnitEditor({
               max={book.total_pages}
               required
               value={page}
-              onChange={e => setPage(Number(e.target.value))}
+              onChange={e => handlePageChange(Number(e.target.value))}
             />
             <span>/ {book.total_pages} 페이지</span>
           </div>
+        </div>
+      )}
+
+      {onDetails && hasRichMeta && (
+        <div className={styles.smartCalcBox}>
+          <div className={styles.smartCalcTop}>
+            <span className={styles.smartCalcTitle}>
+              <Calculator size={14} /> 페이지·문항 번호로 진도/숙제 자동 산출
+            </span>
+            <div className={styles.smartCalcModeSwitch}>
+              <button
+                type="button"
+                data-active={rangeMode === 'page' || undefined}
+                onClick={() => setRangeMode('page')}
+              >
+                페이지 (p.) 기준
+              </button>
+              <button
+                type="button"
+                data-active={rangeMode === 'problem' || undefined}
+                onClick={() => setRangeMode('problem')}
+              >
+                문항 번호 (#) 기준
+              </button>
+            </div>
+          </div>
+          <div className={styles.smartCalcControls}>
+            <div className={styles.smartCalcInputs}>
+              <input
+                type="number"
+                min={1}
+                value={rangeStart}
+                onChange={e => setRangeStart(e.target.value)}
+                placeholder={rangeMode === 'page' ? '시작 p (예: 26)' : '시작 번호 (예: 133)'}
+                aria-label="범위 시작"
+              />
+              <span>~</span>
+              <input
+                type="number"
+                min={1}
+                value={rangeEnd}
+                onChange={e => setRangeEnd(e.target.value)}
+                placeholder={rangeMode === 'page' ? '끝 p (예: 41)' : '끝 번호 (예: 250)'}
+                aria-label="범위 끝"
+              />
+            </div>
+            <div className={styles.smartCalcActions}>
+              <button
+                type="button"
+                className={styles.primaryActionBtn}
+                disabled={!rangePreview}
+                onClick={() => {
+                  if (!rangePreview) return;
+                  setDraftScope(rangePreview.label);
+                  if (rangePreview.endPage) handlePageChange(rangePreview.endPage);
+                }}
+              >
+                진도 범위로 적용
+              </button>
+              <button
+                type="button"
+                className={styles.secondaryActionBtn}
+                disabled={!rangePreview}
+                onClick={() => {
+                  if (!rangePreview) return;
+                  setDraftHomework(rangePreview.label);
+                }}
+              >
+                숙제 범위로 적용
+              </button>
+            </div>
+          </div>
+          {rangePreview && (
+            <p className={styles.smartCalcPreview}>
+              산출 결과: <b>{rangePreview.label}</b>
+            </p>
+          )}
         </div>
       )}
 
@@ -84,7 +208,7 @@ export default function ProgressUnitEditor({
               maxLength={2000}
               value={draftScope}
               onChange={e => setDraftScope(e.target.value)}
-              placeholder="예: II. 이차방정식 p.42~48"
+              placeholder="예: 02. 단항식의 계산 p.26~41 (133~250번, 118문항)"
             />
           </label>
           <label>
@@ -94,7 +218,7 @@ export default function ProgressUnitEditor({
               maxLength={2000}
               value={draftHomework}
               onChange={e => setDraftHomework(e.target.value)}
-              placeholder="예: 워크북 p.20~24"
+              placeholder="예: 02. 단항식의 계산 p.26~35 (133~200번)"
             />
           </label>
         </div>
@@ -137,24 +261,64 @@ export default function ProgressUnitEditor({
       <div className={styles.unitList}>
         {book.units.map(u => {
           const current = states[u.id] ?? '미시작';
+          const cnt = unitProblemCount(u);
           return (
             <div className={styles.unitRow} key={u.id}>
               <div className={styles.unitTitle}>
                 {u.group && <small>{u.group}</small>}
                 <span>{u.name}</span>
+                {(u.start_page || cnt > 0 || u.type_count || u.step_detail) && (
+                  <div className={styles.unitMetaBadges}>
+                    {u.start_page && u.end_page && <span>p.{u.start_page}~{u.end_page}</span>}
+                    {u.start_problem && u.end_problem && <span>#{u.start_problem}~{u.end_problem}</span>}
+                    {cnt > 0 && <span>{cnt}문항</span>}
+                    {u.type_count && <span>{u.type_count}유형</span>}
+                    {u.step_detail && <span>{u.step_detail}</span>}
+                  </div>
+                )}
               </div>
-              <div className={styles.unitStatePills} role="group" aria-label={`${u.name} 진도 상태`}>
-                {UNIT_STATES.map((st, idx) => (
-                  <button
-                    key={st}
-                    type="button"
-                    data-state={idx}
-                    aria-pressed={current === st}
-                    onClick={() => setStates({ ...states, [u.id]: st })}
-                  >
-                    {st}
-                  </button>
-                ))}
+              <div className={styles.unitRightControls}>
+                {onDetails && (u.start_page || cnt > 0) && (
+                  <div className={styles.unitQuickScopeBtns}>
+                    <button
+                      type="button"
+                      title="이 단원을 오늘 진도 범위로 넣기"
+                      onClick={() => {
+                        setDraftScope(formatUnitScopeText(u));
+                        setStates(prev => ({ ...prev, [u.id]: prev[u.id] === '완료' ? '완료' : '진행 중' }));
+                        if (u.end_page && u.end_page > page) setPage(u.end_page);
+                      }}
+                    >
+                      진도 지정
+                    </button>
+                    <button
+                      type="button"
+                      title="이 단원을 오늘 숙제 범위로 넣기"
+                      onClick={() => setDraftHomework(formatUnitScopeText(u))}
+                    >
+                      숙제 지정
+                    </button>
+                  </div>
+                )}
+                <div className={styles.unitStatePills} role="group" aria-label={`${u.name} 진도 상태`}>
+                  {UNIT_STATES.map((st, idx) => (
+                    <button
+                      key={st}
+                      type="button"
+                      data-state={idx}
+                      aria-pressed={current === st}
+                      onClick={() => {
+                        const nextStates = { ...states, [u.id]: st };
+                        setStates(nextStates);
+                        if (st === '완료' && u.end_page && u.end_page > page) {
+                          setPage(u.end_page);
+                        }
+                      }}
+                    >
+                      {st}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           );

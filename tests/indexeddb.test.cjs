@@ -186,3 +186,65 @@ test('unavailable IndexedDB reports an error without falling back to Supabase', 
   await assert.rejects(storage.loadStudents(), /IndexedDB/);
   assert.equal(cloudImports, 0);
 });
+
+test('commercial textbook catalog preserves page/problem/type metadata and resolves smart progress ranges', async () => {
+  const { a, group } = await fixture();
+  const {
+    totalBookProblems,
+    totalBookTypes,
+    completedBookProblems,
+    syncUnitStatesFromPage,
+    resolveRangeSummary,
+  } = require('../src/types/progress.ts');
+  const { TEXTBOOK_CATALOG, formatUnitToTextLine, parseTextLineToUnit } = require('../src/constants/textbookCatalog.ts');
+
+  const ssen21 = TEXTBOOK_CATALOG.find(item => item.id === 'ssen-m2-1');
+  assert.ok(ssen21);
+  assert.equal(ssen21.total_pages, 216);
+
+  const units = ssen21.units.map((u, idx) => ({ id: `u-${idx + 1}`, ...u }));
+  const classBook = await storage.manageClassBook('save', {
+    id: crypto.randomUUID(),
+    class_id: group.id,
+    title: ssen21.title,
+    curriculum: ssen21.curriculum,
+    course: ssen21.course,
+    total_pages: ssen21.total_pages,
+    units,
+    version: 0,
+  });
+
+  assert.equal(totalBookProblems(classBook), 1312);
+  assert.equal(totalBookTypes(classBook), 172);
+
+  // Round-trip text line formatting and parsing
+  const formatted = formatUnitToTextLine(units[0]);
+  const parsed = parseTextLineToUnit(formatted, units, new Set());
+  assert.equal(parsed.id, units[0].id);
+  assert.equal(parsed.start_page, 8);
+  assert.equal(parsed.end_page, 25);
+  assert.equal(parsed.problem_count, 132);
+  assert.equal(parsed.type_count, 18);
+
+  // Page range resolution & unit state sync
+  const rangeByPage = resolveRangeSummary(units, 'page', 26, 41);
+  assert.ok(rangeByPage);
+  assert.equal(rangeByPage.matchedUnits.length, 1);
+  assert.equal(rangeByPage.matchedUnits[0].name, '02. 단항식의 계산');
+  assert.equal(rangeByPage.estimatedProblems, 118);
+
+  const rangeByProb = resolveRangeSummary(units, 'problem', 133, 250);
+  assert.ok(rangeByProb);
+  assert.equal(rangeByProb.matchedUnits[0].name, '02. 단항식의 계산');
+  assert.equal(rangeByProb.estimatedProblems, 118);
+  assert.equal(rangeByProb.endPage, 41);
+
+  const syncedStates = syncUnitStatesFromPage(units, {}, 30);
+  assert.equal(syncedStates['u-1'], '완료');
+  assert.equal(syncedStates['u-2'], '진행 중');
+  assert.equal(syncedStates['u-3'], '미시작');
+
+  const [assigned] = await storage.manageClassBook('assign', classBook, [a.id]);
+  const doneCount = completedBookProblems({ ...assigned, states: syncedStates, completed_page: 41 });
+  assert.equal(doneCount, 132 + 118);
+});

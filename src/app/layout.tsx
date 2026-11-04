@@ -3,6 +3,7 @@ import "./globals.css";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import AuthProvider from "../components/AuthProvider";
+import GlobalAiAssistant from "../components/ai/GlobalAiAssistant";
 
 export const metadata = {
   title: "유니데스크 | UNIDESK",
@@ -18,7 +19,10 @@ export default function RootLayout({
     <html lang="ko">
       {/* font-sans 클래스를 추가하여 globals.css에서 설정한 폰트를 불러옵니다 */}
       <body className="antialiased font-sans">
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          {children}
+          <GlobalAiAssistant />
+        </AuthProvider>
         <Analytics />
         <SpeedInsights />
       </body>

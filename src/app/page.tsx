@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowUpRight, BookOpen, ClipboardPenLine, FileText, ScanText, UserRoundCog } from "lucide-react";
+import { ArrowUpRight, ClipboardPenLine, FileText, Sparkles, UserRoundCog } from "lucide-react";
 import LandingAuthNav from "../components/LandingAuthNav";
 import CosmicHeroCanvas from "../components/CosmicHeroCanvas";
 import StickyOrbitShowcase from "../components/StickyOrbitShowcase";
@@ -90,17 +90,17 @@ export default function LandingPage() {
                 </div>
               </Link>
 
-              <Link href="/typing" className={`${styles.card} ${styles.cardGlowBlue}`}>
+              <Link href="/ai-studio" className={`${styles.card} ${styles.cardGlowBlue}`}>
                 <div className={styles.cardTop}>
                   <span className={`${styles.cardIcon} ${styles.iconBlue}`}>
-                    <ScanText size={24} aria-hidden="true" />
+                    <Sparkles size={24} aria-hidden="true" />
                   </span>
-                  <span className={styles.badgeNew}>AI ENGINE</span>
+                  <span className={styles.badgeNew}>AI STUDIO</span>
                 </div>
-                <h3>시험지 타이핑 스튜디오</h3>
-                <p>스캔 시험지의 수식과 문항을 추출해 한글(HWPX)·Word·PDF로 즉시 변환합니다.</p>
+                <h3>AI 스튜디오</h3>
+                <p>채팅으로 수학 문제를 제작·변형하고, 알지오매스형 함수·기하 도형 작도와 시험지 타이핑(HWPX·Word·PDF)을 한곳에서 진행합니다.</p>
                 <div className={styles.cardFooter}>
-                  <span>타이핑 스튜디오 진입</span>
+                  <span>AI 스튜디오 열기</span>
                   <ArrowUpRight size={19} aria-hidden="true" />
                 </div>
               </Link>
@@ -116,21 +116,6 @@ export default function LandingPage() {
                 <p>오늘의 수업 진도와 과제, 학생별 전달사항을 기록하고 이미지로 내려받습니다.</p>
                 <div className={styles.cardFooter}>
                   <span>일일 보고서 작성</span>
-                  <ArrowUpRight size={19} aria-hidden="true" />
-                </div>
-              </Link>
-
-              <Link href="/question-bank" className={`${styles.card} ${styles.cardGlowBlue}`}>
-                <div className={styles.cardTop}>
-                  <span className={`${styles.cardIcon} ${styles.iconBlue}`}>
-                    <BookOpen size={24} aria-hidden="true" />
-                  </span>
-                  <span className={styles.badgeCore}>ARCHIVE</span>
-                </div>
-                <h3>모의고사 문제은행</h3>
-                <p>고1·고2·고3 연도별 수학 모의고사 기출 문제지와 해설 아카이브를 탐색합니다.</p>
-                <div className={styles.cardFooter}>
-                  <span>기출 아카이브 탐색</span>
                   <ArrowUpRight size={19} aria-hidden="true" />
                 </div>
               </Link>

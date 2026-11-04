@@ -15,6 +15,7 @@ export async function POST(req: NextRequest) {
   if (membership.error || !membership.data) return NextResponse.json({ error: "학원 가입이 필요합니다." }, { status: 403 });
   const access = await client.rpc("cosmath_has_typing_access");
   if (access.error || access.data !== true) return NextResponse.json({ error: "시험지 타이핑 사용 권한이 없습니다. 관리자에게 권한을 요청해 주세요." }, { status: 403 });
+  await client.rpc("cosmath_consume_ai_quota", { p_action: "typing_ocr", p_units: 5 });
   const requestId = crypto.randomUUID();
   let stage = "request";
   const fail = (code: string, message: string, status = 502, details: Record<string, string | number> = {}) => {

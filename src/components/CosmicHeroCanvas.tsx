@@ -22,8 +22,6 @@ interface FloatingShape {
   color: string;
   angle: number;
   vAngle: number;
-  scale: number;
-  vScale: number;
 }
 
 export default function CosmicHeroCanvas() {
@@ -67,8 +65,6 @@ export default function CosmicHeroCanvas() {
         color: "#FF6B8B",
         angle: 0,
         vAngle: 0.0009,
-        scale: 1,
-        vScale: 0,
       },
       {
         id: 1,
@@ -83,8 +79,6 @@ export default function CosmicHeroCanvas() {
         color: "#38BDF8",
         angle: 0.35,
         vAngle: -0.001,
-        scale: 1,
-        vScale: 0,
       },
       {
         id: 2,
@@ -99,8 +93,6 @@ export default function CosmicHeroCanvas() {
         color: "#4ADE80",
         angle: -0.25,
         vAngle: 0.0011,
-        scale: 1,
-        vScale: 0,
       },
       {
         id: 3,
@@ -115,8 +107,6 @@ export default function CosmicHeroCanvas() {
         color: "#FACC15",
         angle: 0.15,
         vAngle: -0.0009,
-        scale: 1,
-        vScale: 0,
       },
     ];
 
@@ -194,7 +184,6 @@ export default function CosmicHeroCanvas() {
       ctx.save();
       ctx.translate(s.px, s.py);
       ctx.rotate(s.angle);
-      ctx.scale(s.scale, s.scale);
       ctx.fillStyle = s.color;
       ctx.lineJoin = "round";
 
@@ -293,7 +282,6 @@ export default function CosmicHeroCanvas() {
             s.vx += nx * 0.32;
             s.vy += ny * 0.32;
           }
-          s.vScale = 0.05;
         }
 
         // Clamp max speed so movement stays slow and calm
@@ -318,21 +306,17 @@ export default function CosmicHeroCanvas() {
         if (s.px < minX) {
           s.px = minX;
           s.vx = Math.abs(s.vx) * 0.78;
-          s.vScale = 0.05;
         } else if (s.px > maxX) {
           s.px = maxX;
           s.vx = -Math.abs(s.vx) * 0.78;
-          s.vScale = 0.05;
         }
 
         if (s.py < minY) {
           s.py = minY;
           s.vy = Math.abs(s.vy) * 0.78;
-          s.vScale = 0.05;
         } else if (s.py > maxY) {
           s.py = maxY;
           s.vy = -Math.abs(s.vy) * 0.78;
-          s.vScale = 0.05;
         }
 
         // Shape-to-shape collisions
@@ -360,14 +344,8 @@ export default function CosmicHeroCanvas() {
               b.vx += p * nx * 0.75;
               b.vy += p * ny * 0.75;
             }
-            s.vScale = 0.07;
-            b.vScale = 0.07;
           }
         }
-
-        s.vScale += (1 - s.scale) * 0.15;
-        s.vScale *= 0.76;
-        s.scale += s.vScale;
 
         s.angle += s.vAngle;
         s.vAngle *= 0.99;

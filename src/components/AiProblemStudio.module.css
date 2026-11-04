@@ -1,0 +1,1360 @@
+.studioShell {
+  display: flex;
+  width: 100%;
+  height: 820px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 20px;
+  overflow: hidden;
+  color: #0d0d0d;
+  font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif;
+}
+
+.studioFullScreen {
+  height: 100vh;
+  border: none;
+  border-radius: 0;
+}
+
+/* 1. Left ChatGPT-Style Sidebar */
+.sidebar {
+  width: 260px;
+  min-width: 260px;
+  background: #f9f9f9;
+  border-right: 1px solid #ececec;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 8px;
+  user-select: none;
+}
+
+.sidebarHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px 10px;
+}
+
+.brandTitle {
+  text-decoration: none;
+  color: #0d0d0d;
+  font-size: 15px;
+}
+
+.brandTitle strong {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.sidebarHeaderBtns {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.iconBtn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: #5d5d5d;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.iconBtn:hover {
+  background: #ececec;
+  color: #0d0d0d;
+}
+
+.sidebarSearchBox {
+  padding: 0 8px 8px;
+}
+
+.sidebarSearchBox input {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid #dcdcdc;
+  background: #ffffff;
+  font-size: 12.5px;
+  outline: none;
+}
+
+.sidebarNav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 12px;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #1f1f1f;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.navItem:hover {
+  background: #efefef;
+}
+
+.navItemActive {
+  background: #eaeaea;
+  font-weight: 600;
+}
+
+.recentSection {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding-top: 8px;
+  border-top: 1px solid #efefef;
+}
+
+.sectionLabel {
+  padding: 6px 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #8e8ea0;
+}
+
+.threadList {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.emptyThreads {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.threadItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  font-size: 13px;
+  color: #2d2d2d;
+  cursor: pointer;
+}
+
+.threadItem:hover {
+  background: #efefef;
+}
+
+.threadItemActive {
+  background: #e8e8e8;
+  font-weight: 600;
+}
+
+.threadIcon {
+  flex-shrink: 0;
+  color: #7c7c8a;
+}
+
+.threadTitle {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.threadDeleteBtn {
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  padding: 2px;
+  border-radius: 5px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.threadItem:hover .threadDeleteBtn {
+  opacity: 1;
+}
+
+.threadDeleteBtn:hover {
+  color: #dc2626;
+}
+
+.sidebarFooter {
+  margin-top: auto;
+  padding: 10px 8px 4px;
+  border-top: 1px solid #ececec;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.accountProfile {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.accountAvatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.accountMeta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.accountMeta strong {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #111827;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountMeta small {
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.classicSwitchPill {
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid #dcdcdc;
+  background: #ffffff;
+  color: #111827;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.classicSwitchPill:hover {
+  background: #f3f4f6;
+}
+
+/* 2. Center Main Chat Viewport (#ffffff) */
+.mainViewport {
+  flex: 1;
+  min-width: 0;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.topHeader {
+  height: 56px;
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.topHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.modelLabel {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1f2937;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+
+.topHeaderRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.quotaPill {
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: #f3f6ff;
+  border: 1px solid #dbeafe;
+  color: #1e40af;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.headerCanvasBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #111827;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.headerCanvasBtnActive {
+  background: #111827;
+  border-color: #111827;
+  color: #ffffff;
+}
+
+/* Empty Centered State ("오늘은 무엇을 해볼까요?") */
+.emptyStage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 24px 80px;
+}
+
+.emptyHeading {
+  margin: 0 0 28px;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: #0d0d0d;
+  text-align: center;
+}
+
+/* Rounded Pill Composer (Centered & Docked) */
+.composerContainer {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.composerCentered {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.composerDocked {
+  padding: 10px 20px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.attachmentStrip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  flex-wrap: wrap;
+}
+
+.attachmentItems {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.attachmentChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.attachmentChip button {
+  border: none;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+}
+
+.extractNowBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: none;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pillForm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 10px 8px 12px;
+  border-radius: 999px;
+  border: 1px solid #e2e2e2;
+  background: #ffffff;
+  box-shadow: 0 4px 22px rgba(0, 0, 0, 0.06);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pillForm:focus-within {
+  border-color: #c7c7c7;
+  box-shadow: 0 6px 26px rgba(0, 0, 0, 0.09);
+}
+
+.attachPlusBtn {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: #374151;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.attachPlusBtn:hover {
+  background: #f3f4f6;
+}
+
+.pillInput {
+  flex: 1;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  font-size: 15px;
+  line-height: 1.45;
+  color: #0d0d0d;
+  font-family: inherit;
+  max-height: 120px;
+}
+
+.pillInput::placeholder {
+  color: #9ca3af;
+}
+
+.modeDropdownWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.modeChevron {
+  opacity: 0.7;
+}
+
+.modeMenuPopover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 248px;
+  padding: 6px;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 50;
+}
+
+.modeMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 11px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.modeMenuItem:hover {
+  background: #f3f4f6;
+}
+
+.modeMenuItemActive {
+  background: #eff6ff;
+}
+
+.modeMenuIcon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: #f3f4f6;
+  color: #1f2937;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.modeMenuItemActive .modeMenuIcon {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.modeMenuText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.modeMenuText strong {
+  font-size: 13px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.modeMenuText small {
+  font-size: 11px;
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modeMenuCheck {
+  color: #2563eb;
+  flex-shrink: 0;
+}
+
+.toolPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  color: #374151;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.toolPill:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.toolPillActive {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.sendCircleBtn {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: none;
+  background: #2563eb;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.14s ease, opacity 0.14s ease;
+}
+
+.sendCircleBtn:disabled {
+  background: #e5e7eb;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.composerSubBar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.gradeSubjectRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gradeSubjectRow select {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  color: #4b5563;
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+}
+
+.starterChips {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.starterChips button {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #374151;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.starterChips button:hover {
+  background: #f9fafb;
+  border-color: #d1d5db;
+}
+
+/* Active Chat Stream */
+.chatScrollArea {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 24px 24px;
+}
+
+.chatColumn {
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.msgGroup {
+  display: flex;
+  flex-direction: column;
+}
+
+.msgGroupUser {
+  align-items: flex-end;
+}
+
+.msgGroupAssistant {
+  align-items: stretch;
+}
+
+.userBubble {
+  max-width: 78%;
+  padding: 12px 18px;
+  border-radius: 22px;
+  background: #f4f4f4;
+  color: #0d0d0d;
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+
+.userBubble p {
+  margin: 0;
+}
+
+.msgAttachments {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #2563eb;
+}
+
+.assistantBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.assistantHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.assistantBadge {
+  font-size: 12px;
+  font-weight: 700;
+  color: #2563eb;
+}
+
+.assistantText {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.65;
+  color: #111827;
+}
+
+.problemCardStack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.problemCard {
+  padding: 18px 20px;
+  border-radius: 18px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.problemCardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.problemMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.metaBadge {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.metaPoints {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #b45309;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.metaSource {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.problemCardBtns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cardSmallBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #374151;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cardPrimaryBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border-radius: 8px;
+  border: none;
+  background: #111827;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cardPrimaryBtnDone {
+  background: #059669;
+}
+
+.problemStem {
+  font-size: 15px;
+  line-height: 1.7;
+  color: #0f172a;
+}
+
+.problemFigureWrap {
+  display: flex;
+  justify-content: center;
+  padding: 10px;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid #f1f5f9;
+}
+
+.problemFigure {
+  max-width: 300px;
+  width: 100%;
+  height: auto;
+}
+
+.problemBox {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+}
+
+.problemBoxTitle {
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 6px;
+}
+
+.problemBoxBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13.5px;
+}
+
+.problemChoices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+  font-size: 14px;
+}
+
+.problemChoiceItem {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.problemFooter {
+  border-top: 1px solid #f1f5f9;
+  padding-top: 8px;
+}
+
+.solutionToggle {
+  border: none;
+  background: transparent;
+  color: #2563eb;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+
+.solutionBox {
+  margin-top: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  font-size: 13.5px;
+  line-height: 1.65;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.busyIndicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 600;
+  align-self: flex-start;
+}
+
+.spin {
+  animation: spinAnim 1s linear infinite;
+}
+
+@keyframes spinAnim {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 3. Right Split Canvas Drawer */
+.canvasDrawer {
+  width: 460px;
+  min-width: 460px;
+  border-left: 1px solid #ececec;
+  background: #fbfbfb;
+  display: flex;
+  flex-direction: column;
+}
+
+.canvasHeader {
+  height: 56px;
+  padding: 0 14px;
+  border-bottom: 1px solid #ececec;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #ffffff;
+}
+
+.canvasTabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.canvasTabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.canvasTabActive {
+  background: #eff6ff !important;
+  color: #1d4ed8 !important;
+}
+
+.canvasBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.examToolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.examTitleInput {
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.examExportRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.exportBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 11px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.exportPrimaryBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 13px;
+  border-radius: 8px;
+  border: none;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.examPreviewPaper {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 16px;
+  min-height: 420px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+}
+
+.examPaperHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 2px solid #111827;
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+  font-size: 12px;
+}
+
+.examPaperHeader strong {
+  font-size: 15px;
+}
+
+.examEmptyState {
+  padding: 32px 16px;
+  text-align: center;
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.loadRecentBtn {
+  margin-top: 10px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.examProblemsList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.examProblemItem {
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.examProblemTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12.5px;
+}
+
+.examProblemTop button {
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+}
+
+.examProblemText {
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.examProblemThumb {
+  max-width: 180px;
+  height: auto;
+  align-self: center;
+}
+
+/* Geometry Plotter Drawer */
+.geoPresetBar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.geoPresetChip,
+.geoPresetChipActive {
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.geoPresetChipActive {
+  background: #111827;
+  border-color: #111827;
+  color: #ffffff;
+}
+
+.geoSvgStage {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 8px;
+  display: flex;
+  justify-content: center;
+}
+
+.geoSvgStage svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.geoActionRow {
+  display: flex;
+}
+
+.geoActionRow button {
+  width: 100%;
+}
+
+.geoFormGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #ffffff;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+}
+
+.geoFormGrid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.geoFormGrid input {
+  padding: 6px 9px;
+  border-radius: 7px;
+  border: 1px solid #d1d5db;
+  font-size: 12.5px;
+}
+
+.inlineInputs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inlineInputs input[type="text"],
+.inlineInputs input:not([type="checkbox"]) {
+  width: 100%;
+}
+
+.geoJsonDetails {
+  font-size: 12px;
+}
+
+.geoJsonDetails textarea {
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  font-family: monospace;
+  font-size: 11.5px;
+}
+
+/* Library Drawer */
+.librarySwitch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  background: #efefef;
+  padding: 4px;
+  border-radius: 10px;
+}
+
+.librarySwitch button {
+  padding: 7px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.libSwitchActive {
+  background: #ffffff !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.vaultList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vaultCard {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vaultCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: #6b7280;
+}
+
+.vaultCardActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vaultCardActions button {
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.vaultCardQuestion {
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.mockArchiveList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mockFilterRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mockFilterRow input {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  font-size: 12.5px;
+}
+
+.mockExamTitle {
+  font-size: 13.5px;
+  color: #111827;
+}
+
+.mockSpawnBtn {
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid #dbeafe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+@media (max-width: 1024px) {
+  .sidebar {
+    display: none;
+  }
+  .canvasDrawer {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 100%;
+    max-width: 420px;
+    z-index: 20;
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12);
+  }
+  .inlineTools span {
+    display: none;
+  }
+}

@@ -17,6 +17,7 @@ import { storageError } from "../../lib/supabase-report-storage";
 import { COLUMN_HEIGHT, hasStatementChoices, formatTableCell, formatChoiceContent, choiceRowsEnabled, formatBoxContent, choiceLabels, examPages, normalizeProblems, sampleProblems, type ExamDocument, type ExamProblem, type ExamTable } from "../../lib/typing-model";
 import { cropFigure, paddedFigureBox, imageData, readSource, type SourcePage } from "../../lib/typing-upload";
 import { buildDocx, buildHwpx, downloadBlob, prepareExportDocument } from "../../lib/typing-export";
+import { sendAiCopilotMessage, loadGeneratedProblems, type AiCopilotAction, type GeneratedMathProblem } from "../../lib/ai-copilot";
 import styles from "./typing.module.css";
 
 function PaperTitle({ text }: { text: string }) {
@@ -89,6 +90,8 @@ function TypingWorkspace() {
   const [busy, setBusy] = useState(""), [message, setMessage] = useState(""), [error, setError] = useState("");
   const [saved, setSaved] = useState<Saved[]>([]), [active, setActive] = useState<Saved | null>(null);
   const [dirty, setDirty] = useState(false), [draftReady, setDraftReady] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState(""), [aiBusy, setAiBusy] = useState(false);
+  const [vaultProblems, setVaultProblems] = useState<GeneratedMathProblem[]>([]), [showVault, setShowVault] = useState(false);
   const measurement = useRef<HTMLDivElement>(null);
   const [heights, setHeights] = useState<Record<string, number>>({});
   const preview = useRef<HTMLDivElement>(null), stop = useRef(false), mounted = useRef(true);
@@ -122,6 +125,82 @@ function TypingWorkspace() {
   }
 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; stop.current = true; }; }, []);
+  useEffect(() => {
+    const onAiTyping = (e: Event) => {
+      const detail = (e as CustomEvent<Extract<AiCopilotAction, { type: "typing_update_problems" }>>).detail;
+      if (!detail || !Array.isArray(detail.problems)) return;
+      change(current => {
+        if (detail.mode === "replace_all") {
+          return {
+            ...current,
+            ...(detail.title ? { title: detail.title } : {}),
+            problems: normalizeProblems(detail.problems),
+          };
+        }
+        if (detail.mode === "update_by_number") {
+          const map = new Map(detail.problems.map(p => [String(p.number), p]));
+          return {
+            ...current,
+            problems: current.problems.map(existing => {
+              const patch = map.get(String(existing.number));
+              if (!patch) return existing;
+              return {
+                ...existing,
+                points: patch.points ?? existing.points,
+                question: patch.question || existing.question,
+                boxContent: patch.boxContent ?? existing.boxContent,
+                choices: Array.isArray(patch.choices) ? patch.choices : existing.choices,
+              };
+            }),
+          };
+        }
+        const incoming = normalizeProblems(detail.problems).map((p, idx) => ({
+          ...p,
+          id: crypto.randomUUID(),
+          number: String(current.problems.length + idx + 1),
+          ...(detail.problems[idx]?.figure ? { figure: detail.problems[idx].figure } : {}),
+        }));
+        return {
+          ...current,
+          problems: [...current.problems, ...incoming],
+        };
+      });
+      setTab("edit");
+      setMessage("AI 코파일럿이 시험지 문항을 편집했습니다.");
+    };
+    window.addEventListener("cosmath-ai-typing-action", onAiTyping);
+    return () => window.removeEventListener("cosmath-ai-typing-action", onAiTyping);
+  }, []);
+
+  async function runTypingAiChat(customPrompt?: string) {
+    const text = (customPrompt ?? aiPrompt).trim();
+    if (!text || aiBusy) return;
+    setAiPrompt("");
+    setAiBusy(true);
+    setError("");
+    try {
+      const res = await sendAiCopilotMessage({
+        prompt: text,
+        mode: "typing",
+        pathname: "/typing",
+        contextData: {
+          title: doc.title,
+          problems: doc.problems.map(p => ({
+            number: p.number,
+            points: p.points,
+            question: p.question,
+            boxContent: p.boxContent,
+            choices: p.choices,
+          })),
+        },
+      });
+      setMessage(res.reply);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "AI 편집 요청에 실패했습니다.");
+    } finally {
+      setAiBusy(false);
+    }
+  }
   useEffect(() => {
     const node = preview.current; if (!node) return;
     const observer = new ResizeObserver(entries => node.style.setProperty("--paper-scale", String(Math.min(1, entries[0].contentRect.width / 794))));
@@ -293,6 +372,7 @@ function TypingWorkspace() {
   return <main className={styles.app}>
     <header className={styles.header}><Link href="/" className={styles.brand}><Image src={logo} alt="COSMATH MATH ACADEMY" priority/><span>WORKSPACE</span></Link><div className={styles.headerRight}><LandingMenu/></div></header>
     <section className={styles.top}><div><p>EXAM STUDIO</p><h1>시험지 타이핑 <span>수학을 선명하게, 준비는 간편하게.</span></h1><small>PDF·이미지를 문항으로 옮기고, 편집 가능한 시험지로 완성하세요.</small></div><div className={styles.exports}>
+      <Link href="/ai-studio" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "0 14px", height: 38, borderRadius: 9, background: "#0c1029", color: "#38bdf8", fontSize: 12.5, fontWeight: 800, textDecoration: "none" }}>✦ AI 스튜디오 (채팅 모드)</Link>
       <button disabled={!!busy || !doc.problems.length} onClick={() => void save()}><Save size={16}/>학원 저장</button>
       <button disabled={!!busy || !doc.problems.length} onClick={() => void exportFile("docx")}><FileDown size={16}/>Word</button>
       <button disabled={!!busy || !doc.problems.length} onClick={() => void exportFile("hwpx")}><FileDown size={16}/>한글 HWPX</button>
@@ -308,6 +388,85 @@ function TypingWorkspace() {
             {!!sources.length && <><div className={styles.sourceToolbar}><strong>{sources.length}쪽</strong><button onClick={() => setSources(prev => prev.map(s => ({ ...s, selected: s.status !== "done" })))}>미인식 모두 선택</button><button onClick={() => { setSources([]); setSourceId(""); }}>원본 비우기</button></div><div className={styles.sourceList}>{sources.map((s, i) => <div key={s.id}><input type="checkbox" aria-label={`${s.name} 인식 선택`} checked={s.selected} disabled={s.status === "done"} onChange={e => setSources(prev => prev.map(p => p.id === s.id ? { ...p, selected: e.target.checked } : p))}/><button data-active={s.id === currentSource?.id} onClick={() => setSourceId(s.id)}>{i + 1}. {s.name}<small>{s.status === "done" ? "인식 완료" : s.status === "error" ? s.error : "인식 대기"}</small></button></div>)}</div><button className={styles.recognize} onClick={() => void extract()}><ScanText size={17}/>선택 페이지 인식</button>{currentSource && <a href={currentSource.image} target="_blank" rel="noreferrer" title="원본 크게 보기"><img className={styles.sourceImage} src={currentSource.image} alt={currentSource.name}/></a>}</>}
             <button className={styles.sample} onClick={() => { if (doc.problems.length && !confirm("현재 문항 뒤에 예시 4문항을 추가할까요?")) return; change(d => ({ ...d, problems: [...d.problems, ...sampleProblems.map(p => ({ ...p, id: crypto.randomUUID() }))] })); setTab("edit"); }}>예시 시험지 4문항으로 시작 →</button>
           </> : <>
+            <section style={{ padding: "12px", borderRadius: 12, background: "#0c1029", color: "#fff", marginBottom: 12, display: "grid", gap: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <strong style={{ fontSize: 12.5, color: "#38bdf8" }}>✦ AI 타이핑 코파일럿 채팅</strong>
+                <button
+                  type="button"
+                  style={{ fontSize: 11, padding: "3px 8px", borderRadius: 999, background: "rgba(255,255,255,0.12)", color: "#fff", border: 0, cursor: "pointer" }}
+                  onClick={() => {
+                    if (!showVault) void loadGeneratedProblems().then(setVaultProblems);
+                    setShowVault(v => !v);
+                  }}
+                >
+                  {showVault ? "보관함 닫기" : `AI 문항 보관함 (${vaultProblems.length || "+"})`}
+                </button>
+              </div>
+              {showVault && (
+                <div style={{ maxHeight: 160, overflowY: "auto", background: "rgba(255,255,255,0.06)", borderRadius: 8, padding: 8, display: "grid", gap: 6 }}>
+                  {vaultProblems.length === 0 ? (
+                    <small style={{ color: "#94a3b8" }}>저장된 AI 제작 문항이 없습니다. 기출·AI 문제 제작소에서 문항을 만들어 보세요.</small>
+                  ) : (
+                    vaultProblems.map(vp => (
+                      <div key={vp.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 11.5 }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          [고{vp.grade}] {vp.title}
+                        </span>
+                        <button
+                          type="button"
+                          style={{ flexShrink: 0, padding: "2px 8px", borderRadius: 6, background: "#38bdf8", color: "#0c1029", fontWeight: 800, border: 0, cursor: "pointer" }}
+                          onClick={() => {
+                            change(d => ({
+                              ...d,
+                              problems: [
+                                ...d.problems,
+                                {
+                                  id: crypto.randomUUID(),
+                                  number: String(d.problems.length + 1),
+                                  points: vp.difficulty === "킬러" || vp.difficulty === "상" ? "4점" : "3점",
+                                  sourceYear: vp.sourceLabel.slice(0, 20),
+                                  sourceSchool: `고${vp.grade} ${vp.subject}`.slice(0, 80),
+                                  question: vp.question,
+                                  boxContent: vp.boxContent || "",
+                                  choices: vp.choices || [],
+                                  ...(vp.figure ? { figure: vp.figure } : {}),
+                                },
+                              ],
+                            }));
+                            setMessage(`'${vp.title}' 문항을 시험지에 추가했습니다.`);
+                          }}
+                        >
+                          ＋ 삽입
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  value={aiPrompt}
+                  onChange={e => setAiPrompt(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void runTypingAiChat();
+                    }
+                  }}
+                  placeholder="예: 1번 수식 다듬어줘 / 이차함수 쌍둥이 문제 추가해줘"
+                  aria-label="AI 타이핑 지시 입력"
+                  style={{ flex: 1, minWidth: 0, height: 34, borderRadius: 8, border: "1px solid rgba(255,255,255,0.2)", padding: "0 10px", fontSize: 12, background: "rgba(255,255,255,0.1)", color: "#fff" }}
+                />
+                <button
+                  type="button"
+                  disabled={aiBusy || !aiPrompt.trim()}
+                  onClick={() => void runTypingAiChat()}
+                  style={{ height: 34, padding: "0 12px", borderRadius: 8, background: "#38bdf8", color: "#0c1029", fontWeight: 800, fontSize: 12, border: 0, cursor: "pointer" }}
+                >
+                  {aiBusy ? "생성중" : "AI 실행"}
+                </button>
+              </div>
+            </section>
             <div className={styles.editTools}><button onClick={() => change(d => ({ ...d, problems: [...d.problems, { id: crypto.randomUUID(), number: String(d.problems.length + 1), points: "", question: "문제 내용을 입력하세요.", boxContent: "", choices: [] }] }))}><Plus size={15}/>문항 추가</button><button onClick={() => change(d => ({ ...d, problems: d.problems.map((p, i) => ({ ...p, number: String(i + 1) })) }))}>번호 정리</button></div>
             <p className={styles.help}>수식은 $x^2$처럼 입력하고, 독립 수식은 $$…$$로 감싸세요. 노란 수식은 문법 확인이 필요합니다.</p>
             {!doc.problems.length && <p className={styles.emptyEditor}>원본을 인식하거나 문항을 직접 추가해 주세요.</p>}

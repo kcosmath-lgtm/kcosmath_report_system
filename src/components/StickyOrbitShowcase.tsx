@@ -381,13 +381,6 @@ export default function StickyOrbitShowcase() {
           ctx.arc(0, 0, baseR * 0.92, 0, Math.PI * 2);
           ctx.fill();
 
-          ctx.save();
-          ctx.rotate(-t * 0.6);
-          ctx.fillStyle = "#0C1029";
-          const sq = baseR * 0.68;
-          ctx.fillRect(-sq / 2, -sq / 2, sq, sq);
-          ctx.restore();
-
           ctx.fillStyle = "#FFFFFF";
           ctx.beginPath();
           ctx.arc(0, 0, Math.max(2, baseR * 0.2 + Math.sin(t * 3) * 2), 0, Math.PI * 2);

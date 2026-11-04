@@ -413,6 +413,7 @@ export async function sendAiCopilotMessage(params: {
   mode?: "general" | "typing" | "problem_studio" | "report_template";
   pathname?: string;
   contextData?: Record<string, unknown>;
+  history?: Array<{ role: string; content: string }>;
   imageBase64?: string;
   imageMimeType?: string;
 }): Promise<AiCopilotResponse> {
@@ -452,6 +453,7 @@ export async function sendAiCopilotMessage(params: {
       pathname: params.pathname ?? (typeof window !== "undefined" ? window.location.pathname : "/"),
       roster: rosterSummary,
       contextData: params.contextData ?? {},
+      history: params.history ?? [],
       imageBase64: params.imageBase64,
       imageMimeType: params.imageMimeType,
     }),

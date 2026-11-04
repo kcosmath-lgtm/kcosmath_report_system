@@ -513,6 +513,7 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
         prompt: enrichedPrompt,
         mode: activeMode === "typing" ? "typing" : activeMode === "default" ? "general" : "problem_studio",
         pathname: "/ai-studio",
+        history: messages.slice(-8).map(m => ({ role: m.role, content: m.content })),
       });
 
       const createdProblems: GeneratedMathProblem[] = [];

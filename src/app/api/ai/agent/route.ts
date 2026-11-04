@@ -309,9 +309,69 @@ function buildSmartFallbackResponse(body: {
     };
   }
 
+  // Friendly everyday small talk & casual conversation fallback
+  if (/^(안녕|하이|헬로|반가워|좋은\s*아침|좋은\s*저녁|계세요|있어)/i.test(prompt)) {
+    return {
+      reply: "안녕하세요 선생님! 오늘 하루는 어떠신가요? 수업 준비나 문제 출제 말고도 편하게 아무 이야기나 나누셔도 좋습니다 😊",
+      actions: [],
+    };
+  }
+
+  if (/배고|메뉴|저녁|점심|야식|뭐\s*먹|맛집|식사/.test(prompt)) {
+    return {
+      reply:
+        "수업하시느라 에너지 소모가 크셨을 텐데 든든하게 챙겨 드셔야죠! 오늘 같은 날은 **따끈한 국물 요리(샤브샤브·칼국수)**나 **매콤달콤한 제육볶음·닭갈비**, 가볍게 드시려면 **포케나 초밥** 어떠신가요? 선생님은 지금 어떤 종류가 가장 당기세요?",
+      actions: [],
+    };
+  }
+
+  if (/피곤|힘들|지쳐|졸려|퇴근|집에\s*가고|살려줘|스트레스/.test(prompt)) {
+    return {
+      reply:
+        "선생님 오늘도 정말 고생 많으셨습니다 😢 학생들 챙기고 수업 준비하시느라 체력이 많이 떨어지셨을 것 같아요. 잠깐 스트레칭하시면서 따뜻한 차나 커피 한 잔 마시며 숨 좀 돌리세요! 귀찮은 문제 제작이나 타이핑 작업은 저한테 다 맡기시고요.",
+      actions: [],
+    };
+  }
+
+  if (/심심|재밌는|농담|유머|웃긴|썰/.test(prompt)) {
+    return {
+      reply:
+        "수학 선생님들만 웃는 짧은 농담 하나 드릴게요!\n\n> **Q.** 수학자가 가장 좋아하는 파이는?\n> **A.** 애플파이도 호박파이도 아닌 **$3.141592\\dots$ ($\\pi$)** 🥧\n\n너무 썰렁했나요? ㅎㅎ 오늘 학원에서 있었던 재밌는 에피소드가 있다면 들려주세요!",
+      actions: [],
+    };
+  }
+
+  if (/커피|아아|아메리카노|카페인|차\s*한잔/.test(prompt)) {
+    return {
+      reply: "수업 전후엔 역시 시원한 아이스 아메리카노 한 잔이 최고죠 ☕ 오늘 카페인 충전은 충분히 하셨나요?",
+      actions: [],
+    };
+  }
+
+  if (/고마워|감사|최고|잘했어|굿|좋아|오케이|ㅋㅋ|ㅎㅎ/.test(prompt)) {
+    return {
+      reply: "도움이 되었다니 기쁩니다! 😊 언제든 편하게 말 걸어 주세요.",
+      actions: [],
+    };
+  }
+
+  if (/날씨|비\s*오|추워|더워|봄|여름|가을|겨울/.test(prompt)) {
+    return {
+      reply: "요즘 일교차가 꽤 있어서 감기 조심하셔야 해요! 교실 공기도 건조할 수 있으니 물 자주 챙겨 드시고요 💧",
+      actions: [],
+    };
+  }
+
+  if (/누구|정체|이름이\s*뭐|뭐\s*할\s*수/.test(prompt)) {
+    return {
+      reply:
+        "저는 유니데스크 **AI 스튜디오 파트너**입니다! 평소엔 선생님과 편하게 일상 대화나 고민 상담, 수업 아이디어 이야기를 나누고, 필요하실 땐 **수학 문제 제작·도형 작도·시험지 타이핑·학생 기록**까지 도와드리고 있어요.",
+      actions: [],
+    };
+  }
+
   return {
-    reply:
-      "유니데스크 AI 코파일럿입니다! 어느 화면에서든 자연어로 명령해 보세요.\n\n- **학생·출결·성적**: *\"오늘 전원 출석, 숙제 O로 체크해줘\"*, *\"김민준 단원평가 92점 입력해줘\"*\n- **기출 · AI 문제 제작소**: *\"고2 수열 등차수열의 합 4점짜리 변형 문제 만들어줘\"*\n- **시험지 타이핑**: *\"4번 문제 아래에 이차방정식 쌍둥이 문제 추가해줘\"*\n- **성장 보고서 템플릿**: *\"성적 그래프가 강조된 우주 테마 템플릿으로 짜줘\"*",
+    reply: `말씀하신 "${prompt}"에 대해 함께 이야기해 볼까요? 😊\n평범한 일상 잡담이나 고민, 수업 아이디어부터 수학 문제 제작·도형 작도까지 무엇이든 편하게 말씀해 주세요!`,
     actions,
   };
 }
@@ -369,16 +429,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ...fallback, quota: quotaSnapshot });
     }
 
-    const systemInstruction = `당신은 수학 학원 올인원 워크스페이스 '유니데스크(UNIDESK)'의 통합 AI 에이전트입니다.
-사용자의 요청에 따라 친절한 한국어 답변(reply)과 함께 실제 시스템을 조작하는 액션 배열(actions)을 JSON으로 반환하세요.
-모든 수학 수식은 표준 LaTeX($...$ 또는 $$...$$)로 작성하세요.
+    const systemInstruction = `당신은 수학 학원 올인원 워크스페이스 '유니데스크(UNIDESK)'의 친근하고 똑똑한 AI 파트너입니다.
+사용자의 요청에 따라 자연스럽고 다정한 한국어 답변(reply)과 필요한 경우에만 시스템을 조작하는 액션 배열(actions)을 JSON으로 반환하세요.
+
+[대화 원칙]
+- 사용자가 인사, 일상적인 잡담(식사 메뉴, 피곤함, 날씨, 농담, 고민 상담 등), 가벼운 질문, 일반 대화를 건네면 ChatGPT처럼 공감하고 재치 있고 자연스럽게 대화하세요. 이때 actions는 빈 배열([])로 반환하고, 절대로 기능 안내 매뉴얼을 기계적으로 나열하지 마세요.
+- 수학 질문이나 개념 설명을 요청하면 표준 LaTeX($...$ 또는 $$...$$) 수식을 사용해 친절하게 설명하세요.
+- 사용자가 명시적으로 문제 제작/변형, 도형 작도, 시험지 타이핑, 학생 출결/성적 기록, 인수인계 메모, 보고서 템플릿 수정을 요청할 때만 아래 actions 배열에 해당 작업 객체를 담아 반환하세요.
 
 현재 모드: ${mode}
 현재 경로: ${body.pathname || "/"}
 현재 학원 반/학생 명단: ${JSON.stringify(body.roster || []).slice(0, 2000)}
 현재 화면 컨텍스트: ${JSON.stringify(body.contextData || {}).slice(0, 4000)}
+최근 대화 내역: ${JSON.stringify(body.history || []).slice(0, 3000)}
 
-가능한 action 객체 형식:
+가능한 action 객체 형식 (시스템 조작이 필요한 경우에만 포함, 일반 대화 시에는 actions: []):
 1. 반 생성: {"type":"add_class","name":"고1 심화반"}
 2. 학생 등록: {"type":"add_student","className":"고1 심화반","name":"김민준","grade":"고1"}
 3. 출결·숙제·오답·성적 기록: {"type":"record_daily","studentName":"김민준(또는 전체)","className":"선택사항","attendance":"출석|지각|결석|조퇴","homework":"O|△|X","totalWrong":5,"correctedCount":5,"examName":"단원평가","examScore":92,"examMaxScore":100,"memo":""}
@@ -443,7 +508,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ...fallback, quota: quotaSnapshot });
     }
 
-    const parsed = JSON.parse(rawText);
+    let parsed: { reply?: unknown; actions?: unknown };
+    try {
+      const cleaned = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+      parsed = JSON.parse(cleaned);
+    } catch {
+      parsed = { reply: rawText.trim(), actions: [] };
+    }
     return NextResponse.json({
       reply: typeof parsed.reply === "string" ? parsed.reply : "요청하신 작업을 완료했습니다.",
       actions: Array.isArray(parsed.actions) ? parsed.actions : [],

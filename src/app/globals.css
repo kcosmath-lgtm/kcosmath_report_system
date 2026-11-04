@@ -1,6 +1,6 @@
 @font-face {
     font-family: 'Hamchorom Dotum';
-    src: url('https://fastly.jsdelivr.net/gh/projectnoonnu/noonfonts_one@1.0/HamchoromDotum.woff') format('woff');
+    src: local('함초롬돋움'), local('HCR Dotum'), local('Hamchorom Dotum');
     font-weight: normal;
     font-style: normal;
 }

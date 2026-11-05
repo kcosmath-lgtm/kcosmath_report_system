@@ -155,40 +155,16 @@ export async function loadGeneratedProblems(): Promise<GeneratedMathProblem[]> {
       // Fallback to localStorage
     }
   }
-  let localItems: GeneratedMathProblem[] = [];
   try {
     const raw = typeof window !== "undefined" ? localStorage.getItem(LOCAL_PROBLEMS_KEY) : null;
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) localItems = parsed as GeneratedMathProblem[];
+      if (Array.isArray(parsed)) return parsed as GeneratedMathProblem[];
     }
   } catch {
     // Ignore
   }
-
-  let extractedMockItems: GeneratedMathProblem[] = [];
-  if (typeof window !== "undefined") {
-    try {
-      const res = await fetch("/api/mock-exams/problems");
-      if (res.ok) {
-        const json = await res.json();
-        if (Array.isArray(json.problems)) {
-          extractedMockItems = json.problems as GeneratedMathProblem[];
-        }
-      }
-    } catch {
-      // Ignore
-    }
-  }
-
-  const seen = new Set<string>();
-  const combined: GeneratedMathProblem[] = [];
-  for (const item of [...localItems, ...extractedMockItems]) {
-    if (!item?.id || seen.has(item.id)) continue;
-    seen.add(item.id);
-    combined.push(item);
-  }
-  return combined;
+  return [];
 }
 
 export async function saveGeneratedProblems(items: Omit<GeneratedMathProblem, "id" | "createdAt">[]): Promise<GeneratedMathProblem[]> {

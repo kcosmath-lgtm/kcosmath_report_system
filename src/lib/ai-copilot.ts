@@ -13,7 +13,7 @@ import {
 } from "./report-storage";
 import { consumeLocalQuota, notifyQuotaUpdated, type AiQuotaSnapshot } from "./ai-quota-client";
 import { renderMathGeoPngDataUrl, type MathGeoSpec } from "./math-geometry-engine";
-import type { Template, Block, Kind, Period, Theme } from "../app/report/new/templates";
+import { isTemplate, type Template, type Block, type Kind, type Period, type Theme } from "../app/report/new/templates";
 
 export interface GeneratedMathProblem {
   id: string;
@@ -227,6 +227,81 @@ export async function deleteGeneratedProblem(id: string): Promise<void> {
   }
 }
 
+const LOCAL_REPORT_TEMPLATES_KEY = "cosmath:ai-report-templates:v1";
+const ACTIVE_REPORT_TEMPLATE_KEY = "cosmath:ai-report-template:active:v1";
+
+export function loadAiReportTemplates(): Template[] {
+  try {
+    const raw = typeof window !== "undefined" ? localStorage.getItem(LOCAL_REPORT_TEMPLATES_KEY) : null;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(isTemplate);
+      }
+    }
+  } catch {
+    // Ignore
+  }
+  return [];
+}
+
+export function saveAiReportTemplate(template: Template): Template[] {
+  const normalized: Template = {
+    ...template,
+    id: template.id || crypto.randomUUID(),
+    name: (template.name || "AI 맞춤 템플릿").trim().slice(0, 40) || "AI 맞춤 템플릿",
+  };
+  const existing = loadAiReportTemplates();
+  const next = [normalized, ...existing.filter(t => t.id !== normalized.id)].slice(0, 12);
+  try {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(LOCAL_REPORT_TEMPLATES_KEY, JSON.stringify(next));
+    }
+  } catch {
+    // Ignore
+  }
+  return next;
+}
+
+export function deleteAiReportTemplate(id: string): Template[] {
+  const next = loadAiReportTemplates().filter(t => t.id !== id);
+  try {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(LOCAL_REPORT_TEMPLATES_KEY, JSON.stringify(next));
+    }
+  } catch {
+    // Ignore
+  }
+  return next;
+}
+
+export function loadActiveAiReportTemplate(): Template | null {
+  try {
+    const raw = typeof window !== "undefined" ? localStorage.getItem(ACTIVE_REPORT_TEMPLATE_KEY) : null;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (isTemplate(parsed)) return parsed;
+    }
+  } catch {
+    // Ignore
+  }
+  return null;
+}
+
+export function saveActiveAiReportTemplate(template: Template | null): void {
+  try {
+    if (typeof window !== "undefined") {
+      if (!template) {
+        localStorage.removeItem(ACTIVE_REPORT_TEMPLATE_KEY);
+      } else {
+        localStorage.setItem(ACTIVE_REPORT_TEMPLATE_KEY, JSON.stringify(template));
+      }
+    }
+  } catch {
+    // Ignore
+  }
+}
+
 function kstToday(): string {
   const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
   return kst.toISOString().slice(0, 10);
@@ -380,14 +455,24 @@ export async function executeCopilotActions(actions: AiCopilotAction[]): Promise
         const saved = await saveGeneratedProblems(enriched);
         summaries.push(`새 수학 문항 ${saved.length}건(알지오매스/지오지브라형 그래프 포함)을 제작하여 보관함에 저장했습니다`);
       } else if (action.type === "update_report_template" && action.template) {
+        const rawBlocks = Array.isArray(action.template.blocks) && action.template.blocks.length > 0
+          ? action.template.blocks
+          : [
+              { kind: "grades" as Kind, view: "chart" as const, wide: true, emphasis: true },
+              { kind: "progress" as Kind, view: "chart" as const, wide: true, emphasis: false },
+              { kind: "attendance" as Kind, view: "card" as const, wide: false, emphasis: false },
+              { kind: "homework" as Kind, view: "card" as const, wide: false, emphasis: false },
+              { kind: "wrong" as Kind, view: "table" as const, wide: true, emphasis: true },
+              { kind: "feedback" as Kind, view: "chart" as const, wide: true, emphasis: true },
+            ];
         const built: Template = {
           id: crypto.randomUUID(),
-          name: action.template.name || "AI 맞춤 템플릿",
-          orientation: action.template.orientation || "portrait",
+          name: (action.template.name || "AI 맞춤 템플릿").trim().slice(0, 40) || "AI 맞춤 템플릿",
+          orientation: action.template.orientation === "landscape" ? "landscape" : "portrait",
           theme: action.template.theme || "unidesk",
           period: action.template.period || "month",
           illustrations: action.template.illustrations ?? true,
-          blocks: (action.template.blocks || []).slice(0, 12).map(b => ({
+          blocks: rawBlocks.slice(0, 12).map(b => ({
             id: crypto.randomUUID(),
             kind: b.kind,
             view: b.view,
@@ -395,10 +480,12 @@ export async function executeCopilotActions(actions: AiCopilotAction[]): Promise
             emphasis: Boolean(b.emphasis),
           })),
         };
+        saveAiReportTemplate(built);
+        saveActiveAiReportTemplate(built);
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("cosmath-ai-template-updated", { detail: built }));
         }
-        summaries.push(`보고서 템플릿 '${built.name}' (${built.blocks.length}개 블록) 생성 및 적용 완료`);
+        summaries.push(`보고서 템플릿 '${built.name}' (${built.blocks.length}개 블록) 생성 및 보관함 저장 완료`);
       }
     } catch (e) {
       summaries.push(`작업 중 일부 오류: ${e instanceof Error ? e.message : "처리 실패"}`);

@@ -15,6 +15,90 @@ function buildSmartFallbackResponse(body: {
   const mode = body.mode || "general";
   const actions: AiCopilotAction[] = [];
 
+  if (
+    mode === "report_template" ||
+    /보고서\s*템플릿|템플릿.*(만들|설계|짜|구성|디자인)|리포트\s*(템플릿|양식|디자인)/i.test(prompt)
+  ) {
+    const studentName = String(body.contextData?.studentName || "유니데스크");
+    const isLandscape = /가로|와이드/.test(prompt);
+    const theme = /체크리스트|하늘|miricheck/.test(prompt)
+      ? "miricheck"
+      : /노랑|인포그래픽|mirireport/.test(prompt)
+        ? "mirireport"
+        : /파스텔|성취도|mirigraph/.test(prompt)
+          ? "mirigraph"
+          : /노트|notebook/.test(prompt)
+            ? "notebook"
+            : /편지|letter/.test(prompt)
+              ? "letter"
+              : /브리핑|briefing/.test(prompt)
+                ? "briefing"
+                : /타임라인|timeline/.test(prompt)
+                  ? "timeline"
+                  : /플래너|planner/.test(prompt)
+                    ? "planner"
+                    : /요약|summary/.test(prompt)
+                      ? "summary"
+                      : /기본|clean/.test(prompt)
+                        ? "clean"
+                        : "unidesk";
+
+    const period = /일일|하루|데일리/.test(prompt)
+      ? "day"
+      : /주간|1주/.test(prompt)
+        ? "week"
+        : /3개월/.test(prompt)
+          ? "3months"
+          : "month";
+
+    const isCoaching = /코칭|피드백|상담|편지/.test(prompt);
+    const isExamFocused = /성적|시험|오답|분석/.test(prompt);
+
+    const blocks = isCoaching
+      ? [
+          { kind: "feedback" as const, view: "chart" as const, wide: true, emphasis: true },
+          { kind: "progress" as const, view: "chart" as const, wide: true, emphasis: false },
+          { kind: "attendance" as const, view: "card" as const, wide: false, emphasis: false },
+          { kind: "homework" as const, view: "card" as const, wide: false, emphasis: false },
+          { kind: "wrong" as const, view: "chart" as const, wide: true, emphasis: false },
+          { kind: "grades" as const, view: "card" as const, wide: false, emphasis: false },
+        ]
+      : isExamFocused
+        ? [
+            { kind: "grades" as const, view: "chart" as const, wide: true, emphasis: true },
+            { kind: "grades" as const, view: "table" as const, wide: true, emphasis: false },
+            { kind: "wrong" as const, view: "table" as const, wide: true, emphasis: true },
+            { kind: "progress" as const, view: "chart" as const, wide: false, emphasis: false },
+            { kind: "attendance" as const, view: "card" as const, wide: false, emphasis: false },
+            { kind: "feedback" as const, view: "chart" as const, wide: true, emphasis: true },
+          ]
+        : [
+            { kind: "grades" as const, view: "chart" as const, wide: true, emphasis: true },
+            { kind: "progress" as const, view: "chart" as const, wide: true, emphasis: false },
+            { kind: "attendance" as const, view: "card" as const, wide: false, emphasis: false },
+            { kind: "homework" as const, view: "card" as const, wide: false, emphasis: false },
+            { kind: "wrong" as const, view: "table" as const, wide: true, emphasis: true },
+            { kind: "feedback" as const, view: "chart" as const, wide: true, emphasis: true },
+          ];
+
+    actions.push({
+      type: "update_report_template",
+      template: {
+        name: `${studentName} AI 맞춤 보고서`,
+        orientation: isLandscape ? "landscape" : "portrait",
+        theme,
+        period,
+        illustrations: true,
+        blocks,
+      },
+    });
+
+    return {
+      reply: `요청하신 조건에 맞춰 **${isLandscape ? "가로형" : "세로형"} · ${theme} 테마 (${blocks.length}개 블록 구성)** 보고서 템플릿을 설계해 AI 스튜디오 템플릿 캔버스와 보관함에 저장했습니다! 우측 캔버스에서 미리보기를 확인하거나 **[보고서 페이지에서 바로 열기]**를 눌러 학생 보고서에 적용해 보세요.`,
+      actions,
+    };
+  }
+
   if (mode === "problem_studio" || /문제.*(만들|생성|변형|쌍둥이|출제)|기출|모의고사|ebs|그래프|도형|작도/i.test(prompt)) {
     const isCircleGeo = /원|접선.*삼각형|기하|반지름/.test(prompt);
     const isCalculus = /미분|적분|극한|도함수|삼차|사차|넓이/.test(prompt);
@@ -169,56 +253,6 @@ function buildSmartFallbackResponse(body: {
     return {
       reply:
         "요청하신 조건에 맞춰 **알지오매스/지오지브라 작도 엔진(`MathGeoSpec`)으로 그린 평가원 스타일 수학 그래프·도형**과 함께 **신규 문항(본문·선지·정답·단계별 LaTeX 해설)**을 생성했습니다! 바로 시험지 캔버스에 담거나 그래프 수식을 수정할 수 있습니다.",
-      actions,
-    };
-  }
-
-  if (mode === "report_template") {
-    const studentName = String(body.contextData?.studentName || "학생");
-    const isLandscape = /가로|와이드/.test(prompt);
-    const theme = /체크리스트|하늘|miricheck/.test(prompt)
-      ? "miricheck"
-      : /노랑|인포그래픽|mirireport/.test(prompt)
-        ? "mirireport"
-        : /파스텔|성취도|mirigraph/.test(prompt)
-          ? "mirigraph"
-          : /노트|notebook/.test(prompt)
-            ? "notebook"
-            : /편지|letter/.test(prompt)
-              ? "letter"
-              : /브리핑|briefing/.test(prompt)
-                ? "briefing"
-                : /타임라인|timeline/.test(prompt)
-                  ? "timeline"
-                  : /플래너|planner/.test(prompt)
-                    ? "planner"
-                    : /요약|summary/.test(prompt)
-                      ? "summary"
-                      : /기본|clean/.test(prompt)
-                        ? "clean"
-                        : "unidesk";
-
-    actions.push({
-      type: "update_report_template",
-      template: {
-        name: `${studentName} 맞춤형 AI 리포트`,
-        orientation: isLandscape ? "landscape" : "portrait",
-        theme,
-        period: /주간|1주/.test(prompt) ? "week" : /3개월/.test(prompt) ? "3months" : "month",
-        illustrations: true,
-        blocks: [
-          { kind: "grades", view: "chart", wide: true, emphasis: true },
-          { kind: "progress", view: "chart", wide: true, emphasis: false },
-          { kind: "attendance", view: "card", wide: false, emphasis: false },
-          { kind: "homework", view: "card", wide: false, emphasis: false },
-          { kind: "wrong", view: "table", wide: true, emphasis: true },
-          { kind: "feedback", view: "chart", wide: true, emphasis: true },
-        ],
-      },
-    });
-
-    return {
-      reply: `${studentName}의 최근 성적·출결·오답·진도 데이터를 분석하여 **성적 추이 대형 그래프와 단원 진도, 오답 분석표, 종합 피드백 강조 블록**으로 구성된 맞춤형 템플릿을 설계해 미리보기에 바로 적용했습니다.`,
       actions,
     };
   }

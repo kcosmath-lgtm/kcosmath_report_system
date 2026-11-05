@@ -2,59 +2,25 @@
 import {useEffect,useRef,useState} from 'react';
 import {kinds,presets,isTemplate,periods,themes,recommendations,themeArtwork,type Template,type Kind,type Block,type Period} from './templates';
 import Image from 'next/image';
+import Link from 'next/link';
 import ReportSheets,{type Preview} from './ReportSheets';
-import {sendAiCopilotMessage} from '../../../lib/ai-copilot';
 import styles from './template-editor.module.css';
 const example:Preview={id:'example',name:'김코스',grade:'중2',group:'수학 심화반',start:'2026-10-25',end:'2026-10-27',books:[{id:'sample-book',student_id:'example',title:'개념 수학 2-2',curriculum:'중등',course:'수학',units:[],states:{},version:1}],daily:[72,85,92].map((score,i)=>({id:`daily-${i}`,student_id:'example',record_date:`2026-10-${25+i}`,attendance:'출석',reason:'',version:1,exams:[{id:`exam-${i}`,name:`단원 평가 ${i+1}`,score,max_score:100,scope:'',memo:''}]})),wrong:[10,8,5].map((total_wrong,i)=>({id:`wrong-${i}`,student_id:'example',record_date:`2026-10-${25+i}`,total_wrong,corrected_count:total_wrong-2,homework_status:i===1?'△':'O',memo:'',version:1})),entries:[{id:'sample-entry',book_id:'sample-book',record_date:'2026-10-27',unit_ids:[],scope:'일차함수의 그래프와 활용',homework:'교재 45~48쪽 풀기',due_date:'2026-10-29',memo:'문제 해결 과정을 차근차근 설명했습니다. 다음 수업에는 응용 문제에 도전해 봅시다.',states:{},created_at:'2026-10-27',total_pages_snapshot:120,completed_page:72}]};
 function MiniDesign({view,kind}:{view:Block['view'];kind:Kind}){return <div className={styles.mini} aria-hidden="true">{view==='card'?<><span>{kinds[kind]}</span><strong>{kind==='grades'?'92점':kind==='attendance'?'출석':kind==='wrong'?'18 / 23':kind==='homework'?'완료':kind==='progress'?'60%':'잘한 점과 다음 목표'}</strong><i/></>:view==='table'?<>{[1,2,3].map(n=><div className={styles.miniRow} key={n}><i/><i/><i/></div>)}</>:kind==='grades'?<svg viewBox="0 0 160 60"><path d="M5 50 L50 35 L100 40 L155 8" fill="none" stroke="currentColor" strokeWidth="3"/>{[[5,50],[50,35],[100,40],[155,8]].map(([x,y])=><circle key={x} cx={x} cy={y} r="4" fill="currentColor"/>)}</svg>:<>{[45,80,65].map((w,i)=><div className={styles.miniBar} key={i}><i style={{width:`${w}%`}}/></div>)}</>}</div>;}
 export default function TemplateEditor({storageKey,value,onChange,disabled,preview}:{storageKey:string;value:Template;onChange:(t:Template)=>void;disabled:boolean;preview?:Preview}){
  const [saved,setSaved]=useState<Template[]>([]),[loadedKey,setLoadedKey]=useState(''),[draft,setDraft]=useState<Template|null>(null),[message,setMessage]=useState(''),[category,setCategory]=useState<Kind>('grades'),[scale,setScale]=useState(.5);
- const [aiPrompt,setAiPrompt]=useState(''),[aiBusy,setAiBusy]=useState(false),[aiReply,setAiReply]=useState('');
  const dialog=useRef<HTMLDialogElement>(null),canvas=useRef<HTMLDivElement>(null);
  const open=draft!==null;
  useEffect(()=>{
   const onAiTemplate=(e:Event)=>{
    const built=(e as CustomEvent<Template>).detail;
    if(!built||!isTemplate(built))return;
-   if(draft!==null){setDraft(built);setAiReply(`AI가 '${built.name}' 구성을 미리보기에 반영했습니다. 우측 하단 '템플릿 저장'을 누르면 영구 보관됩니다.`);}
-   else{onChange(built);setMessage(`AI가 '${built.name}' 템플릿을 적용했습니다.`);}
+   if(draft!==null){setDraft(built);}
+   else{onChange(built);setMessage(`AI 스튜디오가 '${built.name}' 템플릿을 적용했습니다.`);}
   };
   window.addEventListener('cosmath-ai-template-updated',onAiTemplate);
   return()=>window.removeEventListener('cosmath-ai-template-updated',onAiTemplate);
  },[draft,onChange]);
-
- async function designWithAi(customPrompt?:string){
-  const text=(customPrompt??aiPrompt).trim();
-  if(!text||aiBusy)return;
-  setAiPrompt('');setAiBusy(true);setAiReply('');
-  const targetPreview=preview??example;
-  const scores=targetPreview.daily.flatMap(d=>d.exams.map(ex=>Math.round((ex.score/Math.max(1,ex.max_score))*100)));
-  const avgScore=scores.length?Math.round(scores.reduce((a,b)=>a+b,0)/scores.length):null;
-  const totalWrong=targetPreview.wrong.reduce((s,w)=>s+w.total_wrong,0);
-  const corrected=targetPreview.wrong.reduce((s,w)=>s+w.corrected_count,0);
-  try{
-   const res=await sendAiCopilotMessage({
-    prompt:text,
-    mode:'report_template',
-    pathname:'/report/new',
-    contextData:{
-     studentName:targetPreview.name,
-     grade:targetPreview.grade,
-     group:targetPreview.group,
-     avgScore,
-     examCount:scores.length,
-     attendanceDays:targetPreview.daily.length,
-     wrongCompletionRate:totalWrong>0?Math.round((corrected/totalWrong)*100):100,
-     bookTitles:targetPreview.books.map(b=>b.title),
-    },
-   });
-   setAiReply(res.reply);
-  }catch(e){
-   setAiReply(e instanceof Error?e.message:'AI 템플릿 설계 요청에 실패했습니다.');
-  }finally{
-   setAiBusy(false);
-  }
- }
  useEffect(()=>{const timer=setTimeout(()=>{let templates:Template[]=[];try{const data=JSON.parse(localStorage.getItem(storageKey)||'null');if(data?.version===1&&Array.isArray(data.templates))templates=data.templates.filter(isTemplate).slice(0,5);}catch{/* Explicit saves can recover unavailable storage. */}setSaved(templates);setLoadedKey(storageKey);setMessage('');setDraft(null);},0);return()=>clearTimeout(timer);},[storageKey]);
  useEffect(()=>{const modal=dialog.current;if(!modal)return;if(open&&!modal.open)modal.showModal();else if(!open&&modal.open)modal.close();},[open]);
  useEffect(()=>{const node=canvas.current;if(!open||!node)return;const fit=()=>setScale(Math.min(.8,Math.max(.15,(node.clientWidth-40)/(draft?.orientation==='landscape'?1123:794))));const observer=new ResizeObserver(fit);observer.observe(node);fit();return()=>observer.disconnect();},[open,draft?.orientation]);
@@ -69,25 +35,11 @@ export default function TemplateEditor({storageKey,value,onChange,disabled,previ
  <dialog ref={dialog} className={styles.dialog} aria-labelledby="template-editor-title" onCancel={()=>setDraft(null)}>
  {draft&&<><header className={styles.dialogHeader}><div><span>REPORT TEMPLATE STUDIO</span><h2 id="template-editor-title">나만의 보고서 템플릿</h2><p>오른쪽에서 디자인을 골라 추가하고, 왼쪽에서 완성될 보고서를 확인하세요.</p></div><button aria-label="템플릿 편집 닫기" onClick={()=>setDraft(null)}>닫기 ×</button></header>
  <div className={styles.settings}><label>템플릿 이름<input autoFocus maxLength={40} value={draft.name} onChange={e=>setDraft({...draft,name:e.target.value})}/></label><label>방향<select aria-label="템플릿 방향" value={draft.orientation} onChange={e=>setDraft({...draft,orientation:e.target.value as Template['orientation']})}><option value="portrait">세로형</option><option value="landscape">가로형</option></select></label><label>디자인<select aria-label="보고서 디자인" value={draft.theme??'clean'} onChange={e=>setDraft({...draft,theme:e.target.value as Template['theme']})}>{Object.entries(themes).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>{draft.theme!=='clean'&&<label><input type="checkbox" checked={draft.illustrations!==false} onChange={e=>setDraft({...draft,illustrations:e.target.checked})}/>일러스트 표시</label>}<label>기본 기간<select aria-label="템플릿 기본 기간" value={draft.period} onChange={e=>setDraft({...draft,period:e.target.value as Period})}>{Object.entries(periods).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label></div>
- <div style={{padding:'10px 20px',background:'#0c1029',color:'#fff',display:'flex',flexWrap:'wrap',alignItems:'center',gap:10,borderBottom:'1px solid #1e293b'}}>
-  <strong style={{fontSize:12.5,color:'#38bdf8',whiteSpace:'nowrap'}}>✦ {(preview??example).name} 데이터 연동 AI 템플릿 설계</strong>
-  <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-   {[
-    '성적 향상 그래프가 돋보이는 우주 테마 템플릿으로 짜줘',
-    '오답 분석표와 단원 진도 중심의 가로형 템플릿으로 구성해줘',
-   ].map(preset=>(
-    <button key={preset} type="button" disabled={aiBusy} onClick={()=>void designWithAi(preset)} style={{fontSize:11.5,padding:'4px 10px',borderRadius:999,border:'1px solid rgba(56,189,248,0.4)',background:'rgba(56,189,248,0.12)',color:'#e0f2fe',cursor:'pointer'}}>
-     {preset}
-    </button>
-   ))}
-  </div>
-  <div style={{display:'flex',gap:6,flex:1,minWidth:240}}>
-   <input value={aiPrompt} onChange={e=>setAiPrompt(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();void designWithAi();}}} placeholder="학생 성적·출석·진도에 맞춰 원하는 템플릿 구성을 AI에게 지시하세요..." aria-label="AI 템플릿 설계 요청" style={{flex:1,height:32,borderRadius:8,border:'1px solid rgba(255,255,255,0.2)',background:'rgba(255,255,255,0.08)',color:'#fff',padding:'0 10px',fontSize:12}}/>
-   <button type="button" disabled={aiBusy||!aiPrompt.trim()} onClick={()=>void designWithAi()} style={{height:32,padding:'0 12px',borderRadius:8,border:0,background:'#38bdf8',color:'#0c1029',fontWeight:800,fontSize:12,cursor:'pointer'}}>
-    {aiBusy?'설계 중...':'AI로 짜기'}
-   </button>
-  </div>
-  {aiReply&&<small style={{width:'100%',color:'#a7f3d0',fontSize:11.5}}>✓ {aiReply}</small>}
+ <div style={{padding:'10px 20px',background:'#0c1029',color:'#fff',display:'flex',flexWrap:'wrap',alignItems:'center',justifyContent:'space-between',gap:10,borderBottom:'1px solid #1e293b'}}>
+  <strong style={{fontSize:12.5,color:'#38bdf8'}}>✦ AI 맞춤 보고서 템플릿 설계는 AI 스튜디오에서 대화형으로 제작·관리할 수 있습니다.</strong>
+  <Link href="/ai-studio?mode=report" style={{height:30,padding:'0 12px',borderRadius:8,background:'#38bdf8',color:'#0c1029',fontWeight:800,fontSize:12,display:'inline-flex',alignItems:'center',textDecoration:'none'}}>
+   AI 스튜디오에서 템플릿 만들기 ↗
+  </Link>
  </div>
  <div className={styles.body}><div className={styles.previewPane}><div className={styles.previewHeading}><strong>보고서 미리보기</strong><span>{preview?`${preview.name} · 현재 조회 기간의 기록`:'디자인 확인용 예시 데이터'}</span></div><div className={styles.canvas} ref={canvas}><div data-active="true" data-orientation={draft.orientation} style={{'--report-width':`${draft.orientation==='landscape'?1123:794}px`,'--report-height':`${draft.orientation==='landscape'?794:1123}px`,'--preview-scale':scale,width:(draft.orientation==='landscape'?1123:794)*scale} as React.CSSProperties}><ReportSheets preview={preview??example} template={draft}/></div></div></div>
  <aside className={styles.library} aria-label="템플릿 디자인 선택"><h3>기본 템플릿으로 시작</h3><div className={styles.presets}>{presets.map(t=><button key={t.id} onClick={()=>setDraft(structuredClone(t))} aria-pressed={draft.id===t.id} aria-label={t.name} data-preset={t.theme}><div className={styles.layoutThumb} data-layout={t.theme} aria-hidden="true">{t.blocks.map(b=><i key={b.id} data-wide={b.wide} data-kind={b.kind}/>)}</div>{themeArtwork[t.theme??'clean']&&<Image src={'/report-art/'+themeArtwork[t.theme??'clean']+'.webp'} alt="" width={100} height={67} unoptimized className={styles.presetArt}/>}<span>{t.name}</span><small>{recommendations[t.theme??'clean']}</small><small>{t.blocks.length}개 요소 · {t.orientation==='portrait'?'세로':'가로'}</small></button>)}</div><h3>분야별 디자인</h3><div className={styles.categories}>{(Object.keys(kinds) as Kind[]).map(kind=><button key={kind} aria-pressed={category===kind} onClick={()=>setCategory(kind)}>{kinds[kind]}</button>)}</div><div className={styles.variants}>{(['card','chart','table'] as const).map(view=><button key={view} disabled={draft.blocks.length>=12} onClick={()=>add(view)} aria-label={`${kinds[category]} ${view==='card'?'카드':view==='chart'?'그래프':'표'} 추가`}><MiniDesign kind={category} view={view}/><span>{view==='card'?'요약 카드':view==='chart'?category==='feedback'?'강조 박스':'그래프 / 진행 막대':'상세 목록 / 표'}<b>＋ 추가</b></span></button>)}</div>

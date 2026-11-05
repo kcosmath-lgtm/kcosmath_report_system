@@ -13,6 +13,7 @@ import {
   FileDown,
   FileText,
   FolderOpen,
+  LayoutTemplate,
   Loader2,
   MessageSquare,
   PanelLeft,
@@ -29,9 +30,26 @@ import "katex/dist/katex.min.css";
 import { useAuth } from "./AuthProvider";
 import LandingMenu from "./LandingMenu";
 import TypingMath from "./TypingMath";
+import ReportSheets, { type Preview as ReportPreview } from "../app/report/new/ReportSheets";
 import {
+  buildStructuredTemplate,
+  defaultKindsFor,
+  kinds as reportKindLabels,
+  periods as reportPeriodLabels,
+  themes as reportThemeLabels,
+  type Kind as ReportKind,
+  type Period as ReportPeriod,
+  type Template as ReportTemplate,
+  type Theme as ReportTheme,
+} from "../app/report/new/templates";
+import {
+  deleteAiReportTemplate,
   deleteGeneratedProblem,
+  loadActiveAiReportTemplate,
+  loadAiReportTemplates,
   loadGeneratedProblems,
+  saveActiveAiReportTemplate,
+  saveAiReportTemplate,
   saveGeneratedProblems,
   sendAiCopilotMessage,
   type AiCopilotAction,
@@ -46,7 +64,8 @@ import {
   type ExamDocument,
   type ExamProblem,
 } from "../lib/typing-model";
-import { readSource, type SourcePage } from "../lib/typing-upload";
+import { readSource, cropFigure, paddedFigureBox, type SourcePage } from "../lib/typing-upload";
+import { supabase } from "../lib/supabase";
 import { buildDocx, buildHwpx, downloadBlob, prepareExportDocument } from "../lib/typing-export";
 import {
   MATH_GEO_PRESETS,
@@ -58,8 +77,8 @@ import catalogData from "../data/mock-exams.json";
 import type { MockExamCatalog } from "../types/mock-exam";
 import styles from "./AiProblemStudio.module.css";
 
-type StudioMode = "default" | "generate" | "typing" | "geometry";
-type CanvasPanel = "none" | "exam" | "geometry" | "library";
+type StudioMode = "default" | "generate" | "typing" | "geometry" | "report";
+type CanvasPanel = "none" | "exam" | "geometry" | "library" | "report";
 
 const STUDIO_MODES: Array<{
   id: StudioMode;
@@ -71,7 +90,73 @@ const STUDIO_MODES: Array<{
   { id: "generate", label: "문제 제작", desc: "모의고사·EBS 변형 및 신규 문항 출제", icon: Sparkles },
   { id: "typing", label: "타이핑", desc: "시험지 PDF·이미지 수식/문항 추출", icon: ScanText },
   { id: "geometry", label: "도형 작도", desc: "알지오매스·지오지브라형 함수·기하 작도", icon: Compass },
+  { id: "report", label: "보고서 템플릿", desc: "학생 성취도·일일·주간·월간 보고서 템플릿 설계", icon: LayoutTemplate },
 ];
+
+const STUDIO_REPORT_SAMPLE_PREVIEW: ReportPreview = {
+  id: "studio-sample",
+  name: "김코스",
+  grade: "고2",
+  group: "수학I 심화반",
+  start: "2026-10-01",
+  end: "2026-10-31",
+  books: [
+    {
+      id: "sample-book",
+      student_id: "studio-sample",
+      title: "수학I 실전 개념완성",
+      curriculum: "고등",
+      course: "수학I",
+      units: [],
+      states: {},
+      version: 1,
+    },
+  ],
+  daily: [76, 84, 92, 96].map((score, i) => ({
+    id: `daily-${i}`,
+    student_id: "studio-sample",
+    record_date: `2026-10-${String(7 * (i + 1)).padStart(2, "0")}`,
+    attendance: "출석",
+    reason: "",
+    version: 1,
+    exams: [
+      {
+        id: `exam-${i}`,
+        name: `${i + 1}주차 단원 평가`,
+        score,
+        max_score: 100,
+        scope: "삼각함수와 수열",
+        memo: "",
+      },
+    ],
+  })),
+  wrong: [10, 8, 6, 4].map((total_wrong, i) => ({
+    id: `wrong-${i}`,
+    student_id: "studio-sample",
+    record_date: `2026-10-${String(7 * (i + 1)).padStart(2, "0")}`,
+    total_wrong,
+    corrected_count: total_wrong - (i === 0 ? 2 : 0),
+    homework_status: i === 0 ? "△" : "O",
+    memo: "",
+    version: 1,
+  })),
+  entries: [
+    {
+      id: "sample-entry",
+      book_id: "sample-book",
+      record_date: "2026-10-28",
+      unit_ids: [],
+      scope: "등차·등비수열의 합과 귀납법 심화",
+      homework: "워크북 64~72쪽 오답 유사문항 풀이",
+      due_date: "2026-10-31",
+      memo: "킬러 문항 접근 속도가 눈에 띄게 빨라졌습니다. 다음 주에는 수능 기출 4점 변형 문제에 도전합니다.",
+      states: {},
+      created_at: "2026-10-28",
+      total_pages_snapshot: 120,
+      completed_page: 92,
+    },
+  ],
+};
 
 interface StudioChatMessage {
   id: string;
@@ -79,6 +164,7 @@ interface StudioChatMessage {
   content: string;
   mode?: StudioMode;
   problems?: GeneratedMathProblem[];
+  reportTemplate?: ReportTemplate;
   attachmentNames?: string[];
   createdAt: string;
 }
@@ -126,6 +212,19 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState("");
 
+  // AI Report Template Studio state
+  const [savedReportTemplates, setSavedReportTemplates] = useState<ReportTemplate[]>([]);
+  const [activeReportTemplate, setActiveReportTemplate] = useState<ReportTemplate>(() =>
+    buildStructuredTemplate({
+      cycle: "month",
+      focus: "balanced",
+      theme: "unidesk",
+      orientation: "portrait",
+      enabledKinds: defaultKindsFor("month", "balanced"),
+    })
+  );
+  const [templateSaveMsg, setTemplateSaveMsg] = useState("");
+
   // OCR Attachments
   const [sources, setSources] = useState<SourcePage[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -158,6 +257,19 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
   useEffect(() => {
     void loadGeneratedProblems().then(setSavedProblems);
     void fetchAiQuotaStatus().then(setQuota);
+    const loadedTemplates = loadAiReportTemplates();
+    setSavedReportTemplates(loadedTemplates);
+    const activeTpl = loadActiveAiReportTemplate() ?? loadedTemplates[0];
+    if (activeTpl) setActiveReportTemplate(activeTpl);
+
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("mode") === "report") {
+        setMode("report");
+        setCanvasPanel("report");
+      }
+    }
+
     try {
       const raw = localStorage.getItem(threadsKey);
       if (raw) {
@@ -168,6 +280,18 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
       // ignore storage errors
     }
   }, [threadsKey]);
+
+  useEffect(() => {
+    const onTemplateUpdated = (e: Event) => {
+      const built = (e as CustomEvent<ReportTemplate>).detail;
+      if (!built) return;
+      setActiveReportTemplate(built);
+      setSavedReportTemplates(loadAiReportTemplates());
+      setCanvasPanel("report");
+    };
+    window.addEventListener("cosmath-ai-template-updated", onTemplateUpdated);
+    return () => window.removeEventListener("cosmath-ai-template-updated", onTemplateUpdated);
+  }, []);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -395,20 +519,43 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
     setBusy(true);
 
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token ?? "";
       const extractedInputs: Omit<GeneratedMathProblem, "id" | "createdAt">[] = [];
+      const pageErrors: string[] = [];
+
       for (let i = 0; i < sources.length; i++) {
         const page = sources[i];
         setBusyStep(`시험지 페이지 OCR 수식·문항 인식 중 (${i + 1}/${sources.length}: ${page.name})...`);
         const base64 = page.image.includes(",") ? page.image.split(",")[1] : page.image;
         const res = await fetch("/api/typing/extract", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
           body: JSON.stringify({ image: base64, mimeType: "image/jpeg" }),
         });
-        const data = await res.json();
-        if (res.ok && Array.isArray(data.problems)) {
-          const normalized = normalizeProblems(data.problems);
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          pageErrors.push(
+            data?.error
+              ? `${page.name}: ${data.error}${data.code ? ` [${data.code}]` : ""}`
+              : `${page.name}: 서버가 OCR 응답을 반환하지 못했습니다 (HTTP ${res.status}).`
+          );
+          continue;
+        }
+        if (Array.isArray(data?.problems)) {
+          const normalized = normalizeProblems(data.problems, i + 1);
           for (const p of normalized) {
+            let figure: string | undefined;
+            if (p.figureBox) {
+              try {
+                figure = await cropFigure(page.image, paddedFigureBox(p.figureBox));
+              } catch {
+                // ignore crop failure
+              }
+            }
             extractedInputs.push({
               title: `${page.name} ${p.number}번`,
               grade,
@@ -419,6 +566,7 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
               question: p.question,
               boxContent: p.boxContent,
               choices: p.choices,
+              figure,
               answer: "",
               solution: "",
             });
@@ -438,8 +586,10 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
         role: "assistant",
         content:
           savedList.length > 0
-            ? `첨부하신 시험지(${sources.length}쪽)에서 총 **${savedList.length}문항**을 추출해 시험지 캔버스와 라이브러리에 담았습니다. 우측 **시험지 캔버스**에서 바로 한글(HWPX)·Word로 내려받거나 변형 문제를 요청해 보세요.`
-            : "첨부된 이미지에서 문항을 찾지 못했습니다. 해상도가 선명한 시험지 이미지를 다시 첨부해 주세요.",
+            ? `첨부하신 시험지(${sources.length}쪽)에서 총 **${savedList.length}문항**을 추출해 시험지 캔버스와 라이브러리에 담았습니다.${pageErrors.length ? `\n\n*(일부 페이지 오류: ${pageErrors.join(" / ")})*` : ""} 우측 **시험지 캔버스**에서 바로 한글(HWPX)·Word로 내려받거나 변형 문제를 요청해 보세요.`
+            : pageErrors.length > 0
+              ? `OCR 인식 요청이 실패했습니다:\n- ${pageErrors.join("\n- ")}`
+              : "첨부된 이미지에서 문항을 찾지 못했습니다. 해상도가 선명한 시험지 이미지를 다시 첨부해 주세요.",
         mode: "typing",
         problems: savedList,
         createdAt: new Date().toISOString(),
@@ -490,33 +640,45 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
     setMessages(nextWithUser);
     setBusy(true);
     setBusyStep(
-      activeMode === "geometry"
-        ? "알지오매스/지오지브라 수식 좌표계와 도형을 작도하는 중..."
-        : activeMode === "typing"
-          ? "문항 수식(LaTeX)과 레이아웃을 구성하는 중..."
-          : activeMode === "generate"
-            ? "모의고사·EBS 출제 원리와 함수·기하 그래프를 설계하는 중..."
-            : "AI가 답변을 준비하고 있습니다..."
+      activeMode === "report"
+        ? "학생 성취도·출결·오답·진도에 맞춘 보고서 템플릿을 설계하는 중..."
+        : activeMode === "geometry"
+          ? "알지오매스/지오지브라 수식 좌표계와 도형을 작도하는 중..."
+          : activeMode === "typing"
+            ? "문항 수식(LaTeX)과 레이아웃을 구성하는 중..."
+            : activeMode === "generate"
+              ? "모의고사·EBS 출제 원리와 함수·기하 그래프를 설계하는 중..."
+              : "AI가 답변을 준비하고 있습니다..."
     );
 
     const enrichedPrompt =
-      activeMode === "geometry"
-        ? `[알지오매스/지오지브라 도형 작도 및 문항 출제 요청 | 고${grade} ${subject}] ${text}. 반드시 geoSpec(함수 그래프, 적분 색칠 영역, 주요 좌표점과 수선의 발 점선, 원/다각형 등)을 정교하게 포함하여 문항을 생성해줘.`
-        : activeMode === "typing"
-          ? `[시험지 타이핑 및 문항 정밀 편집 요청 | 고${grade} ${subject}] ${text}. 시험지에 바로 넣을 수 있도록 깔끔한 LaTeX 수식과 5지선다, 필요한 경우 geoSpec 도형을 포함해 문항을 만들어줘.`
-          : activeMode === "generate"
-            ? `[고${grade} ${subject} / 난이도 ${difficulty} 문제 제작 요청] ${text}. 함수 그래프나 기하 도형이 어울리는 문항이라면 반드시 geoSpec(알지오매스/지오지브라 작도 스펙)을 함께 출력해줘.`
-            : text;
+      activeMode === "report"
+        ? `[학생 성장 보고서 템플릿 설계 요청] ${text}. 반드시 update_report_template 액션을 사용해 orientation(portrait|landscape), theme(miricheck|mirireport|mirigraph|unidesk|notebook|summary|timeline|briefing|planner|letter|clean), period(day|week|month|1month|3months), blocks 배열을 완성도 높게 구성해줘.`
+        : activeMode === "geometry"
+          ? `[알지오매스/지오지브라 도형 작도 및 문항 출제 요청 | 고${grade} ${subject}] ${text}. 반드시 geoSpec(함수 그래프, 적분 색칠 영역, 주요 좌표점과 수선의 발 점선, 원/다각형 등)을 정교하게 포함하여 문항을 생성해줘.`
+          : activeMode === "typing"
+            ? `[시험지 타이핑 및 문항 정밀 편집 요청 | 고${grade} ${subject}] ${text}. 시험지에 바로 넣을 수 있도록 깔끔한 LaTeX 수식과 5지선다, 필요한 경우 geoSpec 도형을 포함해 문항을 만들어줘.`
+            : activeMode === "generate"
+              ? `[고${grade} ${subject} / 난이도 ${difficulty} 문제 제작 요청] ${text}. 함수 그래프나 기하 도형이 어울리는 문항이라면 반드시 geoSpec(알지오매스/지오지브라 작도 스펙)을 함께 출력해줘.`
+              : text;
 
     try {
       const response = await sendAiCopilotMessage({
         prompt: enrichedPrompt,
-        mode: activeMode === "typing" ? "typing" : activeMode === "default" ? "general" : "problem_studio",
+        mode:
+          activeMode === "report"
+            ? "report_template"
+            : activeMode === "typing"
+              ? "typing"
+              : activeMode === "default"
+                ? "general"
+                : "problem_studio",
         pathname: "/ai-studio",
         history: messages.slice(-8).map(m => ({ role: m.role, content: m.content })),
       });
 
       const createdProblems: GeneratedMathProblem[] = [];
+      let createdReportTemplate: ReportTemplate | undefined;
       for (const action of response.actions as AiCopilotAction[]) {
         if (action.type === "generate_problems" && action.problems?.length) {
           for (const p of action.problems) {
@@ -524,6 +686,14 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
               setGeoSpec(p.geoSpec);
               setGeoJsonText(JSON.stringify(p.geoSpec, null, 2));
             }
+          }
+        } else if (action.type === "update_report_template") {
+          const latestTpl = loadActiveAiReportTemplate() ?? loadAiReportTemplates()[0];
+          if (latestTpl) {
+            createdReportTemplate = latestTpl;
+            setActiveReportTemplate(latestTpl);
+            setSavedReportTemplates(loadAiReportTemplates());
+            setCanvasPanel("report");
           }
         }
       }
@@ -557,6 +727,7 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
         content: response.reply,
         mode: activeMode,
         problems: createdProblems.length > 0 ? createdProblems : undefined,
+        reportTemplate: createdReportTemplate,
         createdAt: new Date().toISOString(),
       };
 
@@ -577,6 +748,20 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
       setBusy(false);
       setBusyStep("");
     }
+  }
+
+  function handleSaveCurrentReportTemplate(tplToSave = activeReportTemplate) {
+    const next = saveAiReportTemplate(tplToSave);
+    saveActiveAiReportTemplate(tplToSave);
+    setSavedReportTemplates(next);
+    setTemplateSaveMsg(`'${tplToSave.name}' 템플릿을 보관함에 저장했습니다.`);
+    setTimeout(() => setTemplateSaveMsg(""), 3000);
+  }
+
+  function handleApplyTemplateToReportPage(tplToApply = activeReportTemplate) {
+    saveAiReportTemplate(tplToApply);
+    saveActiveAiReportTemplate(tplToApply);
+    router.push("/report/new?from=ai-studio");
   }
 
   function addProblemToExam(problem: GeneratedMathProblem) {
@@ -739,13 +924,15 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
             }
           }}
           placeholder={
-            mode === "typing"
-              ? "시험지 PDF·이미지를 + 버튼으로 첨부하거나 타이핑할 수식/문항을 입력하세요..."
-              : mode === "geometry"
-                ? "작도할 함수 그래프(예: 삼차함수와 접선의 넓이)나 기하 도형을 입력하세요..."
-                : mode === "generate"
-                  ? "제작하거나 변형할 수학 문제 조건을 입력하세요..."
-                  : "무엇이든 물어보세요..."
+            mode === "report"
+              ? "원하는 보고서 템플릿 구성(예: 성적 그래프와 오답 분석표 중심의 가로형 월간 리포트)을 입력하세요..."
+              : mode === "typing"
+                ? "시험지 PDF·이미지를 + 버튼으로 첨부하거나 타이핑할 수식/문항을 입력하세요..."
+                : mode === "geometry"
+                  ? "작도할 함수 그래프(예: 삼차함수와 접선의 넓이)나 기하 도형을 입력하세요..."
+                  : mode === "generate"
+                    ? "제작하거나 변형할 수학 문제 조건을 입력하세요..."
+                    : "무엇이든 물어보세요..."
           }
           disabled={busy}
         />
@@ -780,6 +967,8 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                       setModeMenuOpen(false);
                       if (item.id === "geometry") {
                         setCanvasPanel("geometry");
+                      } else if (item.id === "report") {
+                        setCanvasPanel("report");
                       }
                     }}
                   >
@@ -899,6 +1088,17 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
               <FileText size={17} />
               <span>시험지 캔버스 ({examProblems.length})</span>
             </button>
+            <button
+              type="button"
+              className={`${styles.navItem} ${canvasPanel === "report" || mode === "report" ? styles.navItemActive : ""}`}
+              onClick={() => {
+                setMode("report");
+                setCanvasPanel(c => (c === "report" ? "none" : "report"));
+              }}
+            >
+              <LayoutTemplate size={17} />
+              <span>보고서 템플릿 ({savedReportTemplates.length})</span>
+            </button>
           </nav>
 
           <div className={styles.recentSection}>
@@ -982,6 +1182,16 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
             <span className={styles.quotaPill}>
               ✦ 학원 한도 오늘 <strong>{quota?.dailyPct ?? 0}%</strong>
             </span>
+            <button
+              type="button"
+              className={`${styles.headerCanvasBtn} ${canvasPanel === "report" ? styles.headerCanvasBtnActive : ""}`}
+              onClick={() => {
+                setMode("report");
+                setCanvasPanel(c => (c === "report" ? "none" : "report"));
+              }}
+            >
+              <LayoutTemplate size={14} /> 보고서 템플릿 ({savedReportTemplates.length})
+            </button>
             <button
               type="button"
               className={`${styles.headerCanvasBtn} ${canvasPanel === "exam" ? styles.headerCanvasBtnActive : ""}`}
@@ -1141,6 +1351,64 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                             })}
                           </div>
                         )}
+
+                        {msg.reportTemplate && (
+                          <div className={styles.problemCardStack}>
+                            <article className={styles.problemCard}>
+                              <div className={styles.problemCardTop}>
+                                <div className={styles.problemMeta}>
+                                  <span className={styles.metaBadge}>
+                                    {msg.reportTemplate.orientation === "landscape" ? "가로형" : "세로형"} ·{" "}
+                                    {reportPeriodLabels[msg.reportTemplate.period] || msg.reportTemplate.period}
+                                  </span>
+                                  <span className={styles.metaPoints}>
+                                    {reportThemeLabels[msg.reportTemplate.theme || "unidesk"] || msg.reportTemplate.theme}
+                                  </span>
+                                  <span className={styles.metaSource}>{msg.reportTemplate.name}</span>
+                                </div>
+                                <div className={styles.problemCardBtns}>
+                                  <button
+                                    type="button"
+                                    className={styles.cardSmallBtn}
+                                    onClick={() => {
+                                      setActiveReportTemplate(msg.reportTemplate!);
+                                      setCanvasPanel("report");
+                                    }}
+                                  >
+                                    <LayoutTemplate size={13} /> 캔버스에서 미리보기·편집
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={styles.cardPrimaryBtn}
+                                    onClick={() => handleApplyTemplateToReportPage(msg.reportTemplate!)}
+                                  >
+                                    <Check size={13} /> 보고서 페이지에 바로 적용 ↗
+                                  </button>
+                                </div>
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                                {msg.reportTemplate.blocks.map((b, idx) => (
+                                  <span
+                                    key={b.id || idx}
+                                    style={{
+                                      fontSize: 12,
+                                      padding: "4px 10px",
+                                      borderRadius: 999,
+                                      background: b.emphasis ? "#eff6ff" : "#f8fafc",
+                                      border: b.emphasis ? "1px solid #93c5fd" : "1px solid #e2e8f0",
+                                      color: b.emphasis ? "#1d4ed8" : "#334155",
+                                      fontWeight: b.emphasis ? 700 : 500,
+                                    }}
+                                  >
+                                    {idx + 1}. {reportKindLabels[b.kind] || b.kind} (
+                                    {b.view === "chart" ? "그래프/강조" : b.view === "table" ? "상세 표" : "카드"}
+                                    {b.wide ? " · 전체너비" : ""})
+                                  </span>
+                                ))}
+                              </div>
+                            </article>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1179,6 +1447,16 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                 onClick={() => setCanvasPanel("geometry")}
               >
                 <Compass size={14} /> 도형 작도기
+              </button>
+              <button
+                type="button"
+                className={canvasPanel === "report" ? styles.canvasTabActive : ""}
+                onClick={() => {
+                  setMode("report");
+                  setCanvasPanel("report");
+                }}
+              >
+                <LayoutTemplate size={14} /> 보고서 템플릿
               </button>
               <button
                 type="button"
@@ -1479,6 +1757,203 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {canvasPanel === "report" && (
+            <div className={styles.canvasBody}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {[
+                    "성적 향상 그래프가 돋보이는 월간 성취도 리포트 템플릿 짜줘",
+                    "일일 출결·숙제·오답 중심 하늘색 체크리스트 템플릿 만들어줘",
+                    "오답 분석표와 단원 진도율 중심 가로형 주간 인포그래픽 템플릿으로 설계해줘",
+                  ].map(preset => (
+                    <button
+                      key={preset}
+                      type="button"
+                      className={styles.geoPresetChip}
+                      disabled={busy}
+                      onClick={() => {
+                        setMode("report");
+                        void handleSend(preset, "report");
+                      }}
+                    >
+                      ✦ {preset}
+                    </button>
+                  ))}
+                </div>
+
+                <div className={styles.geoFormGrid}>
+                  <label>
+                    <span>템플릿 이름</span>
+                    <input
+                      value={activeReportTemplate.name}
+                      maxLength={40}
+                      onChange={e =>
+                        setActiveReportTemplate(prev => ({
+                          ...prev,
+                          name: e.target.value,
+                        }))
+                      }
+                      placeholder="예: 고2 심화반 월간 리포트"
+                    />
+                  </label>
+                  <label>
+                    <span>방향 / 기본 주기</span>
+                    <div className={styles.inlineInputs}>
+                      <select
+                        value={activeReportTemplate.orientation}
+                        onChange={e =>
+                          setActiveReportTemplate(prev => ({
+                            ...prev,
+                            orientation: e.target.value as "portrait" | "landscape",
+                          }))
+                        }
+                        style={{ flex: 1, height: 32, borderRadius: 8, border: "1px solid #cbd5e1", padding: "0 8px", fontSize: 12.5 }}
+                      >
+                        <option value="portrait">세로형 (A4)</option>
+                        <option value="landscape">가로형 (와이드)</option>
+                      </select>
+                      <select
+                        value={activeReportTemplate.period}
+                        onChange={e =>
+                          setActiveReportTemplate(prev => ({
+                            ...prev,
+                            period: e.target.value as ReportPeriod,
+                          }))
+                        }
+                        style={{ flex: 1, height: 32, borderRadius: 8, border: "1px solid #cbd5e1", padding: "0 8px", fontSize: 12.5 }}
+                      >
+                        {Object.entries(reportPeriodLabels).map(([k, label]) => (
+                          <option key={k} value={k}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </label>
+                  <label>
+                    <span>디자인 테마</span>
+                    <select
+                      value={activeReportTemplate.theme ?? "unidesk"}
+                      onChange={e =>
+                        setActiveReportTemplate(prev => ({
+                          ...prev,
+                          theme: e.target.value as ReportTheme,
+                        }))
+                      }
+                      style={{ height: 32, borderRadius: 8, border: "1px solid #cbd5e1", padding: "0 8px", fontSize: 12.5 }}
+                    >
+                      {Object.entries(reportThemeLabels).map(([k, label]) => (
+                        <option key={k} value={k}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className={styles.examExportRow}>
+                  <button
+                    type="button"
+                    className={styles.exportBtn}
+                    onClick={() => handleSaveCurrentReportTemplate()}
+                  >
+                    <Check size={14} /> 내 템플릿 보관함에 저장
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.exportPrimaryBtn}
+                    onClick={() => handleApplyTemplateToReportPage()}
+                  >
+                    보고서 페이지에서 바로 열기 ↗
+                  </button>
+                </div>
+
+                {templateSaveMsg && (
+                  <small style={{ color: "#059669", fontWeight: 700, fontSize: 12 }}>✓ {templateSaveMsg}</small>
+                )}
+
+                {/* Live Scaled Report Preview */}
+                <div
+                  style={{
+                    background: "#f1f5f9",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 12,
+                    padding: 12,
+                    overflow: "auto",
+                    maxHeight: 420,
+                    display: "flex",
+                    justifyContent: "center",
+                  }}
+                >
+                  <div
+                    data-active="true"
+                    data-orientation={activeReportTemplate.orientation}
+                    style={
+                      {
+                        "--report-width": `${activeReportTemplate.orientation === "landscape" ? 1123 : 794}px`,
+                        "--report-height": `${activeReportTemplate.orientation === "landscape" ? 794 : 1123}px`,
+                        "--preview-scale": activeReportTemplate.orientation === "landscape" ? 0.34 : 0.44,
+                        width: (activeReportTemplate.orientation === "landscape" ? 1123 : 794) * (activeReportTemplate.orientation === "landscape" ? 0.34 : 0.44),
+                      } as React.CSSProperties
+                    }
+                  >
+                    <ReportSheets preview={STUDIO_REPORT_SAMPLE_PREVIEW} template={activeReportTemplate} />
+                  </div>
+                </div>
+
+                {/* Saved AI Templates */}
+                <div style={{ marginTop: 6 }}>
+                  <strong style={{ fontSize: 12.5, color: "#334155", display: "block", marginBottom: 6 }}>
+                    저장된 AI 보고서 템플릿 ({savedReportTemplates.length})
+                  </strong>
+                  {savedReportTemplates.length === 0 ? (
+                    <p style={{ fontSize: 12, color: "#64748b", margin: 0 }}>
+                      채팅창에서 원하는 보고서 구성을 지시하면 AI가 템플릿을 설계해 이곳에 보관합니다.
+                    </p>
+                  ) : (
+                    <div className={styles.vaultList}>
+                      {savedReportTemplates.map(tpl => (
+                        <div key={tpl.id} className={styles.vaultCard}>
+                          <div className={styles.vaultCardHeader}>
+                            <span>
+                              {tpl.orientation === "landscape" ? "가로형" : "세로형"} ·{" "}
+                              {reportThemeLabels[tpl.theme || "unidesk"] || tpl.theme}
+                            </span>
+                            <div className={styles.vaultCardActions}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveReportTemplate(tpl);
+                                  saveActiveAiReportTemplate(tpl);
+                                }}
+                              >
+                                미리보기
+                              </button>
+                              <button type="button" onClick={() => handleApplyTemplateToReportPage(tpl)}>
+                                적용 ↗
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSavedReportTemplates(deleteAiReportTemplate(tpl.id))}
+                                aria-label="템플릿 삭제"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </div>
+                          <strong style={{ fontSize: 13, color: "#0f172a" }}>{tpl.name}</strong>
+                          <small style={{ fontSize: 11.5, color: "#64748b", display: "block", marginTop: 2 }}>
+                            {tpl.blocks.map(b => reportKindLabels[b.kind as ReportKind] || b.kind).join(" · ")}
+                          </small>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </aside>

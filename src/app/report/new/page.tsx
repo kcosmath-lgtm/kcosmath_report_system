@@ -4,11 +4,12 @@ import Link from 'next/link';
 import Image from 'next/image';
 import dayjs from 'dayjs';
 import JSZip from 'jszip';
-import {Download,Menu,RefreshCw,Users,ClipboardCheck,LayoutList,BarChart3} from 'lucide-react';
+import {Download,Menu,RefreshCw,Users,ClipboardCheck,LayoutList,BarChart3,Sparkles} from 'lucide-react';
 import StudentSidebar from '../../../components/layout/Sidebar';
 import LandingMenu from '../../../components/LandingMenu';
 import {useAuth} from '../../../components/AuthProvider';
 import {loadStudentDaily,loadWrongAnswerRange,loadProgress} from '../../../lib/report-storage';
+import {loadActiveAiReportTemplate,loadAiReportTemplates,saveActiveAiReportTemplate} from '../../../lib/ai-copilot';
 import {reportMonths} from '../../../lib/wrong-answer-report';
 import type {ReportStudent} from '../../../types/report';
 import ReportSheets,{type Preview} from './ReportSheets';
@@ -20,6 +21,7 @@ import {
  buildStructuredTemplate,
  type Theme,
  type ReportCycle,
+ type Template,
 } from './templates';
 import logo from '../../../../public/logo.png';
 import styles from './report.module.css';
@@ -38,12 +40,49 @@ export default function NewReportPage(){
  const [cycle,setCycle]=useState<ReportCycle>('day');
  const [theme,setTheme]=useState<Theme>('miricheck');
  const [orientation,setOrientation]=useState<'portrait'|'landscape'>('portrait');
- const template=buildStructuredTemplate({cycle,focus:'balanced',theme,orientation,enabledKinds:defaultKindsFor(cycle,'balanced')});
- const start=periodStart(cycle,end,today);
+ const [customTemplate,setCustomTemplate]=useState<Template|null>(null);
+ const [aiTemplates,setAiTemplates]=useState<Template[]>([]);
+ const template:Template=customTemplate?{...customTemplate,orientation}:buildStructuredTemplate({cycle,focus:'balanced',theme,orientation,enabledKinds:defaultKindsFor(cycle,'balanced')});
+ const start=periodStart(customTemplate?.period??cycle,end,today);
  const [reports,setReports]=useState<Preview[]>([]),[loading,setLoading]=useState(false),[exporting,setExporting]=useState(false),[message,setMessage]=useState(''),[revision,setRevision]=useState(0);
  const selectCycle=(nextCycle:ReportCycle)=>{
+  setCustomTemplate(null);
   setCycle(nextCycle);
  };
+ const applyAiTemplate=(tpl:Template)=>{
+  setCustomTemplate(tpl);
+  setOrientation(tpl.orientation);
+  if(tpl.period==='day'||tpl.period==='week'||tpl.period==='month')setCycle(tpl.period);
+  if(tpl.theme)setTheme(tpl.theme);
+  saveActiveAiReportTemplate(tpl);
+ };
+ useEffect(()=>{
+  const loaded=loadAiReportTemplates();
+  setAiTemplates(loaded);
+  if(typeof window!=='undefined'){
+   const params=new URLSearchParams(window.location.search);
+   if(params.get('from')==='ai-studio'){
+    const activeTpl=loadActiveAiReportTemplate()??loaded[0];
+    if(activeTpl){
+     setCustomTemplate(activeTpl);
+     setOrientation(activeTpl.orientation);
+     if(activeTpl.period==='day'||activeTpl.period==='week'||activeTpl.period==='month')setCycle(activeTpl.period);
+     if(activeTpl.theme)setTheme(activeTpl.theme);
+    }
+   }
+  }
+  const onAiTemplate=(e:Event)=>{
+   const built=(e as CustomEvent<Template>).detail;
+   if(!built||!isTemplate(built))return;
+   setAiTemplates(loadAiReportTemplates());
+   setCustomTemplate(built);
+   setOrientation(built.orientation);
+   if(built.period==='day'||built.period==='week'||built.period==='month')setCycle(built.period);
+   if(built.theme)setTheme(built.theme);
+  };
+  window.addEventListener('cosmath-ai-template-updated',onAiTemplate);
+  return()=>window.removeEventListener('cosmath-ai-template-updated',onAiTemplate);
+ },[]);
  const pageWidth=orientation==='landscape'?1123:794,pageHeight=orientation==='landscape'?794:1123;
  const sheets=useRef<HTMLDivElement>(null);
  const [previewScale,setPreviewScale]=useState(1);
@@ -135,7 +174,7 @@ export default function NewReportPage(){
      <span className={styles.presetLabel}>템플릿 분위기</span>
      <div className={styles.segmented} role="group" aria-label="템플릿 분위기 선택">
       {miriThemes.map(({key,label,Icon})=>(
-       <button key={key} type="button" disabled={exporting} aria-pressed={theme===key} onClick={()=>setTheme(key)} className={styles.themeTabBtn}>
+       <button key={key} type="button" disabled={exporting} aria-pressed={!customTemplate&&theme===key} onClick={()=>{setCustomTemplate(null);setTheme(key);}} className={styles.themeTabBtn}>
         <Icon size={14}/>
         {label}
        </button>
@@ -147,10 +186,40 @@ export default function NewReportPage(){
      <span className={styles.presetLabel}>보고 주기</span>
      <div className={styles.segmented} role="group" aria-label="보고 주기 선택">
       {(Object.entries(reportCycles) as [ReportCycle,typeof reportCycles[ReportCycle]][]).map(([key,item])=>(
-       <button key={key} type="button" disabled={exporting} aria-pressed={cycle===key} onClick={()=>selectCycle(key)} title={item.desc}>
+       <button key={key} type="button" disabled={exporting} aria-pressed={!customTemplate&&cycle===key} onClick={()=>selectCycle(key)} title={item.desc}>
         {item.label}
        </button>
       ))}
+     </div>
+    </div>
+    <div className={styles.presetDivider} aria-hidden="true"/>
+    <div className={styles.presetGroup}>
+     <span className={styles.presetLabel}>AI 스튜디오 템플릿</span>
+     <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+      {aiTemplates.length>0&&(
+       <select
+        aria-label="AI 스튜디오 템플릿 선택"
+        disabled={exporting}
+        value={customTemplate?.id??''}
+        onChange={e=>{
+         const found=aiTemplates.find(t=>t.id===e.target.value);
+         if(found)applyAiTemplate(found);
+         else setCustomTemplate(null);
+        }}
+        style={{height:34,borderRadius:10,border:'1px solid #cbd5e1',padding:'0 10px',fontSize:12.5,fontWeight:600,background:customTemplate?'#eff6ff':'#ffffff',color:customTemplate?'#1d4ed8':'#334155'}}
+       >
+        <option value="">저장된 AI 템플릿 ({aiTemplates.length})</option>
+        {aiTemplates.map(t=>(
+         <option key={t.id} value={t.id}>{t.name}</option>
+        ))}
+       </select>
+      )}
+      <Link
+       href="/ai-studio?mode=report"
+       style={{display:'inline-flex',alignItems:'center',gap:6,height:34,padding:'0 12px',borderRadius:10,background:'#0f172a',color:'#ffffff',fontSize:12.5,fontWeight:700,textDecoration:'none'}}
+      >
+       <Sparkles size={13}/> AI 스튜디오에서 템플릿 만들기 ↗
+      </Link>
      </div>
     </div>
    </section>

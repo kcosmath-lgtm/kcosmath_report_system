@@ -1,5 +1,5 @@
 "use client";
-import {useCallback,useEffect,useRef,useState,type CSSProperties} from 'react';
+import {useCallback,useEffect,useMemo,useRef,useState,type CSSProperties} from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import dayjs from 'dayjs';
@@ -42,7 +42,7 @@ export default function NewReportPage(){
  const [orientation,setOrientation]=useState<'portrait'|'landscape'>('portrait');
  const [customTemplate,setCustomTemplate]=useState<Template|null>(null);
  const [aiTemplates,setAiTemplates]=useState<Template[]>([]);
- const template:Template=customTemplate?{...customTemplate,orientation}:buildStructuredTemplate({cycle,focus:'balanced',theme,orientation,enabledKinds:defaultKindsFor(cycle,'balanced')});
+ const template:Template=useMemo(()=>customTemplate?{...customTemplate,orientation}:buildStructuredTemplate({cycle,focus:'balanced',theme,orientation,enabledKinds:defaultKindsFor(cycle,'balanced')}),[customTemplate,orientation,cycle,theme]);
  const start=periodStart(customTemplate?.period??cycle,end,today);
  const [reports,setReports]=useState<Preview[]>([]),[loading,setLoading]=useState(false),[exporting,setExporting]=useState(false),[message,setMessage]=useState(''),[revision,setRevision]=useState(0);
  const selectCycle=(nextCycle:ReportCycle)=>{

@@ -104,11 +104,15 @@ export function notifyQuotaUpdated(snapshot?: AiQuotaSnapshot) {
   window.dispatchEvent(new CustomEvent("cosmath-ai-quota-updated", { detail: snapshot }));
 }
 
+let quotaRpcMissing = false;
+
 export async function fetchAiQuotaStatus(academyName = "우리 학원"): Promise<AiQuotaSnapshot> {
-  if (!usesLocalStorage()) {
+  if (!usesLocalStorage() && !quotaRpcMissing) {
     try {
       const { data, error } = await supabase.rpc("cosmath_get_ai_quota_status");
-      if (!error && data && typeof data === "object") {
+      if (error) {
+        quotaRpcMissing = true;
+      } else if (data && typeof data === "object") {
         const d = data as Record<string, unknown>;
         const dailyPct = Number(d.daily_pct ?? 0);
         const weeklyPct = Number(d.weekly_pct ?? 0);

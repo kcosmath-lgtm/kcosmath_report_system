@@ -122,16 +122,19 @@ export interface AiCopilotResponse {
 }
 
 const LOCAL_PROBLEMS_KEY = "cosmath:generated-problems:v1";
+let generatedProblemsTableMissing = false;
 
 export async function loadGeneratedProblems(): Promise<GeneratedMathProblem[]> {
-  if (!usesLocalStorage()) {
+  if (!usesLocalStorage() && !generatedProblemsTableMissing) {
     try {
       const { data, error } = await supabase
         .from("cosmath_generated_problems")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(200);
-      if (!error && Array.isArray(data)) {
+      if (error) {
+        generatedProblemsTableMissing = true;
+      } else if (Array.isArray(data)) {
         return data.map(row => ({
           id: String(row.id),
           title: String(row.title || "AI 생성 문항"),
@@ -172,7 +175,7 @@ export async function saveGeneratedProblems(items: Omit<GeneratedMathProblem, "i
     createdAt: now,
   }));
 
-  if (!usesLocalStorage()) {
+  if (!usesLocalStorage() && !generatedProblemsTableMissing) {
     try {
       const rows = created.map(p => ({
         id: p.id,
@@ -188,9 +191,10 @@ export async function saveGeneratedProblems(items: Omit<GeneratedMathProblem, "i
         answer: p.answer || "",
         solution: p.solution || "",
       }));
-      await supabase.from("cosmath_generated_problems").insert(rows);
+      const { error } = await supabase.from("cosmath_generated_problems").insert(rows);
+      if (error) generatedProblemsTableMissing = true;
     } catch {
-      // Fallback to localStorage as well
+      generatedProblemsTableMissing = true;
     }
   }
 
@@ -208,11 +212,12 @@ export async function saveGeneratedProblems(items: Omit<GeneratedMathProblem, "i
 }
 
 export async function deleteGeneratedProblem(id: string): Promise<void> {
-  if (!usesLocalStorage()) {
+  if (!usesLocalStorage() && !generatedProblemsTableMissing) {
     try {
-      await supabase.from("cosmath_generated_problems").delete().eq("id", id);
+      const { error } = await supabase.from("cosmath_generated_problems").delete().eq("id", id);
+      if (error) generatedProblemsTableMissing = true;
     } catch {
-      // Ignore
+      generatedProblemsTableMissing = true;
     }
   }
   try {

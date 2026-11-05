@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import LandingMenu from "../../components/LandingMenu";
 import StudentSidebar from "../../components/layout/Sidebar";
-import { Menu, Download, ChevronLeft, ChevronRight, Users, User, Loader2, Save, HelpCircle, AlertTriangle, Wifi, X } from "lucide-react";
+import { Menu, Download, ChevronLeft, ChevronRight, Users, User, Loader2, Save } from "lucide-react";
 import { flushSync } from "react-dom";
 import { captureReportImage } from "../../lib/report-image";
 import Image from "next/image";
@@ -19,7 +19,6 @@ import { nextHomeworkStatus, normalizeHomeworkStatus } from "../../lib/report-mo
 
 export default function ReportPage() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isHelpOpen, setIsHelpOpen] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLTextAreaElement>(null);
   const { reportDate, changeDate, isInitialized, isLoading, loadFailed, error,
@@ -353,102 +352,6 @@ export default function ReportPage() {
           </fieldset>
         </main>
       </div>
-
-      {/* 도움말 플로팅 버튼 */}
-      <button
-        onClick={() => setIsHelpOpen(true)}
-        className="fixed bottom-[18px] right-[18px] sm:bottom-[28px] sm:right-[30px] z-40 w-[52px] h-[52px] sm:w-[58px] sm:h-[58px] bg-blue-50 hover:bg-blue-100 text-slate-700 border border-blue-100 hover:border-blue-200 shadow-xl hover:scale-105 active:scale-95 transition-all p-0 rounded-full flex items-center justify-center cursor-pointer group"
-        title="사용 가이드"
-      >
-        <HelpCircle size={25} className="group-hover:text-blue-600 transition-colors" />
-      </button>
-
-      {/* 도움말 모달 */}
-      {isHelpOpen && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setIsHelpOpen(false)}>
-          <div 
-            className="bg-white border border-blue-100 text-slate-700 rounded-3xl shadow-2xl w-full max-w-lg p-6 relative animate-in fade-in zoom-in-95 duration-200"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button 
-              onClick={() => setIsHelpOpen(false)}
-              className="absolute top-4 right-4 text-slate-500 hover:text-blue-700 hover:bg-blue-50 p-1.5 rounded-xl transition-colors"
-            >
-              <X size={18} />
-            </button>
-
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 bg-sky-500/10 rounded-xl flex items-center justify-center text-blue-600 border border-sky-500/20">
-                <HelpCircle size={20} />
-              </div>
-              <h2 className="text-lg font-bold text-slate-700">COSMATH Report 사용 가이드</h2>
-            </div>
-
-            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
-              {/* 가이드 카드 1: 동시 편집 */}
-              <div className="bg-slate-50 border border-blue-100/80 p-4 rounded-2xl flex gap-3">
-                <div className="text-amber-600 shrink-0 mt-0.5">
-                  <AlertTriangle size={18} />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-700 mb-1">여러 창에서 같은 보고서를 저장할 때</h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    같은 보고서나 반별 공통 내용을 여러 창에서 수정하면 마지막으로 저장한 내용이 반영됩니다. 앞서 저장한 내용은 덮어쓰며, 서로 다른 학생의 개별 보고서는 따로 저장됩니다.
-                  </p>
-                </div>
-              </div>
-
-              {/* 가이드 카드 2: 수동 저장 및 단축키 */}
-              <div className="bg-slate-50 border border-blue-100/80 p-4 rounded-2xl flex gap-3">
-                <div className="text-blue-600 shrink-0 mt-0.5">
-                  <Save size={18} />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-700 mb-1">수동 저장 생활화 및 단축키</h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    수정이 완료되면 상단 헤더의 <span className="text-blue-600 font-bold">DB 저장</span> 버튼을 누르거나, 키보드 단축키 <kbd className="bg-blue-50 text-[10px] px-1 py-0.5 rounded border border-blue-100 text-slate-600 font-mono">Ctrl + S</kbd> (Mac은 <kbd className="bg-blue-50 text-[10px] px-1 py-0.5 rounded border border-blue-100 text-slate-600 font-mono">Cmd + S</kbd>)를 누르면 즉시 저장됩니다.
-                  </p>
-                </div>
-              </div>
-
-              {/* 가이드 카드 3: 인터넷 및 이탈 경고 */}
-              <div className="bg-slate-50 border border-blue-100/80 p-4 rounded-2xl flex gap-3">
-                <div className="text-blue-600 shrink-0 mt-0.5">
-                  <Wifi size={18} />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-700 mb-1">네트워크 오류 및 경고</h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    네트워크 연결이 일시적으로 불안정할 경우 저장 실패 경고창이 뜹니다. 만약 저장하지 않고 창을 닫으려고 하면 새로고침/이탈 차단 팝업이 띄워져 작성한 내용을 안전하게 보관할 수 있습니다.
-                  </p>
-                </div>
-              </div>
-
-              {/* 가이드 카드 4: 첫 접속 지연 */}
-              <div className="bg-slate-50 border border-blue-100/80 p-4 rounded-2xl flex gap-3">
-                <div className="text-blue-500 shrink-0 mt-0.5">
-                  <Loader2 size={18} className="animate-spin" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-700 mb-1">장기 미사용 시 첫 로딩 대기</h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    방학 등으로 인해 일주일 이상 아무도 접속하지 않은 경우, Supabase DB가 수면 모드로 전환됩니다. 오랜만에 첫 접속 시 로딩이 10~30초 지연될 수 있으니 잠시 기다려주시면 정상 연결됩니다.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-6 flex justify-end">
-              <button 
-                onClick={() => setIsHelpOpen(false)}
-                className="bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs px-5 py-2.5 rounded-xl active:scale-95 transition-all shadow-md"
-              >
-                가이드 확인 완료
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

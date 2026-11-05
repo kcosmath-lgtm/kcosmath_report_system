@@ -49,7 +49,7 @@ export default function WorkspaceOnboarding({ refresh, signOut }: { refresh: () 
     setResults(data ?? []); setSearched(true);
   }
   return <main className={styles.authPage}><section className={styles.authPanel} aria-busy={busy}>
-    <Image src={logo} alt="COSMATH" priority />
+    <Image src={logo} alt="UNIDESK" priority />
     {!ready ? <><h1>계정 정보를 확인합니다</h1><button disabled={busy} onClick={() => void run(loadRequest)}>{busy ? "확인 중…" : "다시 확인"}</button></> : !kind ? <>
       <h1>어떤 계정으로 시작할까요?</h1><span>학원을 운영하거나, 소속 학원에 강사로 참여하세요.</span>
       <button disabled={busy} onClick={() => setKind("owner")}><Building2 /> 학원 계정 · 학원 만들기</button>

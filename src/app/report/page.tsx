@@ -97,9 +97,9 @@ export default function ReportPage() {
         <header className={styles.header}>
           <div className={styles.identity}>
             {!isSidebarOpen && <button onClick={() => setIsSidebarOpen(true)} className={styles.iconButton} aria-label="학생 목록 열기"><Menu size={20} /></button>}
-            <Link href="/" aria-label="코스매쓰 홈" onNavigate={event => {
+            <Link href="/" aria-label="유니데스크 홈" onNavigate={event => {
               if (isSaving || (hasUnsavedChanges && !window.confirm("저장하지 않은 변경사항을 버리고 홈으로 이동할까요?"))) event.preventDefault();
-            }}><Image src={logo} alt="COSMATH MATH ACADEMY" className={styles.logo} priority /></Link>
+            }}><Image src={logo} alt="UNIDESK" className={styles.logo} priority /></Link>
             <div className={styles.title}><h1>수업 보고서</h1><p>STUDENT REPORT</p></div>
           </div>
           <LandingMenu />
@@ -157,7 +157,7 @@ export default function ReportPage() {
                 <div className="w-[450px] h-[85px]">
                   <Image
                     src={logo}
-                    alt="COSMATH MATH ACADEMY"
+                    alt="UNIDESK"
                     priority
                     className="w-auto h-full max-w-full object-contain object-left"
                   />

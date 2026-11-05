@@ -106,9 +106,9 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   let content = children;
   if ((pathname !== "/" || session) && loading) content = <div className={styles.loading}><Loader2 className="animate-spin" /><span>워크스페이스를 준비하고 있습니다.</span></div>;
   else if (pathname !== "/" && !session) content = <main className={styles.authPage}><section className={styles.authPanel}>
-    <Image src={logo} alt="COSMATH" priority />
+    <Image src={logo} alt="UNIDESK" priority />
     <p>선생님의 기록, 학생의 성장</p>
-    <h1>코스매스 워크스페이스</h1>
+    <h1>유니데스크 워크스페이스</h1>
     <span>학원 데이터 보호를 위해 로그인해 주세요.</span>
     <button onClick={() => void signIn()}><b>G</b> Google로 계속하기 <LogIn /></button>
     {error && <div role="alert" className={styles.error}>{error}</div>}

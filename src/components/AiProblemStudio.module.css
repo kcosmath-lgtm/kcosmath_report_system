@@ -512,6 +512,11 @@
   z-index: 50;
 }
 
+.composerDocked .modeMenuPopover {
+  top: auto;
+  bottom: calc(100% + 10px);
+}
+
 .modeMenuItem {
   display: flex;
   align-items: center;

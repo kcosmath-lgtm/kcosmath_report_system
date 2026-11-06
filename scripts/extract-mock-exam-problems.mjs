@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import katex from "katex";
 
 const root = resolve(import.meta.dirname, "..");
 const publicDir = resolve(root, "public");
@@ -123,145 +124,615 @@ function decodeHwpString(str) {
 }
 
 /**
- * Converts pdfjs getTextContent() items into clean text with inline $...$ LaTeX math,
- * handling HWP fractions (__BAR__ denom num -> \frac{num}{denom}), radicals (\sqrt),
- * superscripts (smaller font + higher y), and subscripts (smaller font + lower y).
+ * Splits a radicand string when the PDF text item extends beyond the radical overbar's width.
+ * E.g. "2 \times 4" under a short bar -> ["2", "\times 4"]
+ *      "3 = 0" under a short bar -> ["3", "= 0"]
+ *      "x + 11 - 3" under a medium bar -> ["x + 11", "- 3"]
  */
-function convertPdfItemsToLatexText(rawItems, kind = "problem") {
-  const items = rawItems
-    .filter(it => it && typeof it.str === "string" && it.str.length > 0)
-    .map(it => ({
-      raw: it.str,
-      text: decodeHwpString(it.str),
-      hasPua: isPuaString(it.str),
-      x: Number(it.transform?.[4] ?? 0),
-      y: Number(it.transform?.[5] ?? 0),
-      h: Math.abs(Number(it.transform?.[0] ?? 11)),
-      w: Number(it.width ?? 0),
-    }));
+function splitByBarCoverage(rawText, itemWidth, barWidth, modalH) {
+  const s = rawText.replace(/__BAR__/g, "").trim();
+  if (!s) return ["", ""];
+  if (!barWidth || !itemWidth || itemWidth <= barWidth + 2.8) {
+    return [s, ""];
+  }
+  // Short bar (typically covering a single number/symbol)
+  if (barWidth <= modalH * 0.95) {
+    const m = s.match(/^(-?\s*[0-9A-Za-z\\]+)\s*(.+)$/);
+    if (m) return [m[1].trim(), m[2].trim()];
+  }
+  // Medium/long bar: check if there's a trailing relation or additive term outside the bar
+  const relMatch = s.match(/^(.+?)\s*([=<>]|\\le|\\ge|\\ne|\\times|\()\s*(.*)$/);
+  if (relMatch) {
+    return [relMatch[1].trim(), `${relMatch[2]} ${relMatch[3]}`.trim()];
+  }
+  // E.g. "x + 11 - 3" where "- 3" is outside the bar
+  const pmMatches = [...s.matchAll(/\s+([+\-])\s+/g)];
+  if (pmMatches.length >= 2) {
+    const lastPm = pmMatches[pmMatches.length - 1];
+    if (lastPm.index !== undefined && lastPm.index > 0) {
+      return [s.slice(0, lastPm.index).trim(), s.slice(lastPm.index).trim()];
+    }
+  }
+  return [s, ""];
+}
 
-  const outTokens = [];
+/**
+ * Formats a small group of items (inside a radical, numerator, or denominator)
+ * into a clean LaTeX string, handling internal superscripts/subscripts.
+ */
+function formatSubGroupToLatex(subItems, modalH) {
+  if (!subItems || subItems.length === 0) return "";
+  const scriptThreshold = modalH * 0.78;
   let baseY = null;
+  for (const it of subItems) {
+    if (it.h >= modalH * 0.84) {
+      baseY = it.y;
+      break;
+    }
+  }
+  if (baseY === null) baseY = subItems[0].y;
 
-  for (let i = 0; i < items.length; i++) {
-    const cur = items[i];
-    const t = cur.text.trim();
+  let out = "";
+  let i = 0;
+  while (i < subItems.length) {
+    const cur = subItems[i];
+    const t = cur.text.replace(/__BAR__/g, "").trim();
     if (!t) {
-      outTokens.push({ text: " ", isMath: false });
+      i++;
       continue;
     }
-
-    // Ignore page headers/footers in problem PDF
     if (
-      /^(수학\s*영역|5\s*지\s*선\s*다\s*형|단\s*답\s*형|\*\s*확인\s*사항|※\s*확인\s*사항|◦\s*답안지|◦\s*이어서)/.test(t) ||
-      (kind === "problem" && cur.y > 1025 && /^\d{1,2}$/.test(t)) ||
-      (kind === "problem" && cur.y < 105 && /^\d{1,2}$/.test(t))
+      out.length > 0 &&
+      cur.h < scriptThreshold &&
+      Math.abs(cur.y - baseY) >= modalH * 0.14 &&
+      Math.abs(cur.y - baseY) <= modalH * 0.85
+    ) {
+      const isSup = cur.y > baseY;
+      let scriptBuf = t;
+      i++;
+      while (
+        i < subItems.length &&
+        subItems[i].h < scriptThreshold &&
+        (isSup ? subItems[i].y > baseY + modalH * 0.12 : subItems[i].y < baseY - modalH * 0.12)
+      ) {
+        scriptBuf += " " + subItems[i].text.replace(/__BAR__/g, "").trim();
+        i++;
+      }
+      scriptBuf = scriptBuf.trim();
+      out += isSup
+        ? scriptBuf.length === 1 ? `^${scriptBuf}` : `^{${scriptBuf}}`
+        : scriptBuf.length === 1 ? `_${scriptBuf}` : `_{${scriptBuf}}`;
+      continue;
+    }
+    if (cur.h >= modalH * 0.84) baseY = cur.y;
+    out += (out ? " " : "") + t;
+    i++;
+  }
+  return out.trim();
+}
+
+/**
+ * Repairs and validates a single LaTeX math span with KaTeX so that 0 yellow-highlighted
+ * syntax errors ever appear in TypingMath.
+ */
+function sanitizeMathSpan(rawMath) {
+  let m = String(rawMath || "").trim().replace(/\s+/g, " ");
+  if (!m) return "";
+  m = m.replace(/(?<!\\)(sin|cos|tan|log|ln|lim)(?=[a-zA-Z0-9(\s\\_^])/g, "\\$1 ");
+  m = m.replace(/\)\s*_\s*([234])\b/g, ")^$1");
+  m = m.replace(/\\sqrt\s*\^\s*\{?([234n])\}?\s*\\sqrt\{([^}]+)\}/g, "\\sqrt[$1]{\\sqrt{$2}}");
+  m = m.replace(/\\sqrt\s*\^\s*\{?([234n])\}?\s*(\\[a-zA-Z]+\{[^}]+\}\{[^}]+\}|[0-9a-zA-Z]+)/g, "\\sqrt[$1]{$2}");
+  m = m.replace(/\\sqrt(?!\s*[\[{])\s*([0-9a-zA-Z]+)/g, "\\sqrt{$1}");
+  m = m.replace(/\\sqrt(?!\s*[\[{])/g, "");
+  m = m.replace(/\\vec\s*([A-Za-z]{1,3})/g, "\\overrightarrow{$1}");
+  m = m.replace(/\\vec(?![A-Za-z{])/g, "");
+  m = m.replace(/→/g, " \\to ");
+  m = m.replace(/⋅/g, " \\cdot ");
+  m = m.replace(/∠\s*([A-Z]{1,3})/g, "\\angle $1");
+  m = m.replace(/\\lim\s+([a-zA-Z]\s*\\to\s*[-+]?\s*(?:\\infty|[0-9a-zA-Z]+))/g, "\\lim_{$1}");
+  m = m.replace(/\\overline\{([A-Za-z0-9]+)\}\s+([234])\b/g, "\\overline{$1}^{$2}");
+  m = m.replace(/\)\s+([234])\b/g, ")^{$1}");
+  m = m.replace(/\b([lABCDMNPQRS])\s+([1234])\b/g, "$1_{$2}");
+  m = m.replace(/\b([abcxyzkmn])\s+([234])\b(?=\s*[+\-=,<>)|]|$)/g, "$1^{$2}");
+
+  // Merge any accidental consecutive superscripts or subscripts: ^a ^b -> ^{a b}
+  let prev;
+  do {
+    prev = m;
+    m = m.replace(/\^(\{[^{}]*\}|[0-9a-zA-Z+\-=()])\s*\^(\{[^{}]*\}|[0-9a-zA-Z+\-=()])/g, (_, a, b) => {
+      const ca = a.startsWith("{") && a.endsWith("}") ? a.slice(1, -1) : a;
+      const cb = b.startsWith("{") && b.endsWith("}") ? b.slice(1, -1) : b;
+      return `^{${ca}${cb}}`;
+    });
+    m = m.replace(/_(\{[^{}]*\}|[0-9a-zA-Z+\-=()])\s*_(\{[^{}]*\}|[0-9a-zA-Z+\-=()])/g, (_, a, b) => {
+      const ca = a.startsWith("{") && a.endsWith("}") ? a.slice(1, -1) : a;
+      const cb = b.startsWith("{") && b.endsWith("}") ? b.slice(1, -1) : b;
+      return `_{${ca}${cb}}`;
+    });
+  } while (m !== prev);
+
+  // Strip leading or trailing dangling ^ or _
+  m = m.replace(/^\s*[\^_]+\s*\{?([^{}]*)\}?\s*$/, "$1");
+  m = m.replace(/(^|[\s(=+\-,])\s*[\^_]\s*(\{[^{}]*\}|[0-9a-zA-Z]+)/g, "$1$2");
+  m = m.replace(/[\^_]\s*$/g, "");
+
+  // Balance braces if needed
+  const openCount = (m.match(/(?<!\\)\{/g) || []).length;
+  const closeCount = (m.match(/(?<!\\)\}/g) || []).length;
+  if (openCount > closeCount) {
+    m += "}".repeat(openCount - closeCount);
+  } else if (closeCount > openCount) {
+    let extra = closeCount - openCount;
+    m = m.replace(/(?<!\\)\}/g, match => (extra-- > 0 ? "" : match));
+  }
+
+  try {
+    katex.renderToString(m, { throwOnError: true, strict: "ignore" });
+    return m.trim();
+  } catch {
+    // Fallback progressive cleanup if KaTeX still complains
+    let fallback = m
+      .replace(/\\frac\{\s*\}\{([^}]*)\}/g, "\\overline{$1}")
+      .replace(/\\sqrt(?!\s*[\[{])/g, "")
+      .replace(/[\^_]\s*(\{[^{}]*\})/g, (_, g) => g.slice(1, -1))
+      .replace(/[\^_]/g, "");
+    try {
+      katex.renderToString(fallback, { throwOnError: true, strict: "ignore" });
+      return fallback.trim();
+    } catch {
+      return fallback.replace(/\\[a-zA-Z]+/g, "").replace(/[{}]/g, "").trim();
+    }
+  }
+}
+
+/**
+ * Converts pdfjs getTextContent() items into clean text with inline $...$ LaTeX math,
+ * handling HWP fractions (__BAR__ denom num -> \frac{num}{denom}), overlines (\overline{AB}),
+ * vector arrows (\overrightarrow{BP}), radicals (\sqrt), superscripts, and subscripts.
+ */
+function convertPdfItemsToLatexText(rawItems, kind = "problem") {
+  // 1. Filter out whitespace-only items and decode HWP PUA characters
+  const initialItems = [];
+  for (const it of rawItems) {
+    if (!it || typeof it.str !== "string" || !it.str.trim()) continue;
+    const x = Number(it.transform?.[4] ?? 0);
+    const y = Number(it.transform?.[5] ?? 0);
+    const h = Math.abs(Number(it.transform?.[0] ?? 11));
+    const w = Number(it.width ?? 0);
+    const decoded = decodeHwpString(it.str);
+    const t = decoded.trim();
+    if (!t) continue;
+
+    // Filter out page headers, footers, and horizontal divider lines
+    if (
+      /^(수학\s*영역|5\s*지\s*선\s*다\s*형|단\s*답\s*형|\*\s*확인\s*사항|※\s*확인\s*사항|◦\s*답안지|◦\s*이어서|정\s*답\s*및\s*해\s*설|해\s*설|정\s*답)$/.test(t) ||
+      /\d{4}\s*학년도|전국연합학력평가|대학수학능력시험|문제지|제\s*2\s*교시|홀수형|짝수형|무단\s*전재|재배포는\s*금지|[━─_]{3,}/.test(t) ||
+      (kind === "problem" && (y > 995 || y < 108) && /^(?:고\s*[123]|\d{1,2}(?:\s+\d{1,2})?)$/.test(t)) ||
+      (kind === "explanation" && (y > 735 || y < 70))
     ) {
       continue;
     }
 
-    // Detect problem start in Problem PDF: e.g. "1." .. "30." with font size >= 12.2
-    const probStartMatch = kind === "problem" && cur.h >= 12.2 ? t.match(/^([1-9]|[12]\d|30)\.(?:\s*(.*))?$/) : null;
+    // Split combined "\sqrt__BAR__" ("") into two items so Pass A handles it uniformly
+    if (t === "\\sqrt__BAR__") {
+      const sqrtW = Math.min(w * 0.25, h * 0.85);
+      initialItems.push({
+        raw: "\ue05c",
+        text: "\\sqrt",
+        hasPua: true,
+        x,
+        y,
+        h,
+        w: sqrtW,
+      });
+      initialItems.push({
+        raw: "\ue06d",
+        text: "__BAR__",
+        hasPua: true,
+        x: x + sqrtW,
+        y: y + 1.2,
+        h,
+        w: Math.max(4, w - sqrtW),
+      });
+      continue;
+    }
+
+    initialItems.push({
+      raw: it.str,
+      text: decoded,
+      hasPua: isPuaString(it.str),
+      x,
+      y,
+      h,
+      w,
+    });
+  }
+
+  if (initialItems.length === 0) return "";
+
+  // Determine the page's modal base font height (adapts to 6.36pt, 6.84pt, 9.00pt, 11.04pt, 12.00pt)
+  const baseHeights = initialItems
+    .filter(it => /[가-힣]/.test(it.text) || (it.hasPua && /[A-Za-z]/.test(it.text)))
+    .map(it => it.h)
+    .sort((a, b) => a - b);
+  const modalH = baseHeights.length > 0
+    ? baseHeights[Math.floor(baseHeights.length * 0.65)]
+    : kind === "explanation" ? 6.5 : 11.0;
+
+  // In explanation PDFs, filter out embedded graph/figure axis labels (which use slightly scaled font ~0.82..0.93 * modalH or isolated O/x/y)
+  const filteredItems = kind === "explanation"
+    ? initialItems.filter(it => {
+        const t = it.text.trim();
+        if (t === "O" && it.h < modalH * 0.96) return false;
+        if (it.h >= modalH * 0.81 && it.h <= modalH * 0.91 && !/[가-힣]|출제의도/.test(t)) return false;
+        return true;
+      })
+    : initialItems;
+
+  // 2. Pass A: Collapse Radicals (\sqrt and \sqrt[n]) BEFORE fractions
+  const afterRadicals = [];
+  for (let i = 0; i < filteredItems.length; i++) {
+    const cur = filteredItems[i];
+    const t = cur.text.trim();
+
+    if (t === "\\sqrt" || t.endsWith("\\sqrt")) {
+      const prefix = t === "\\sqrt" ? "" : t.replace(/\\sqrt$/, "").trim();
+      if (prefix) {
+        afterRadicals.push({ ...cur, text: prefix, w: Math.max(2, cur.w * 0.4) });
+      }
+      const next1 = filteredItems[i + 1];
+      const next2 = filteredItems[i + 2];
+      let idxStr = "";
+      let barIdx = -1;
+
+      if (next1 && next1.text.trim() === "__BAR__") {
+        barIdx = i + 1;
+      } else if (
+        next1 &&
+        next2 &&
+        next2.text.trim() === "__BAR__" &&
+        next1.h < modalH * 0.78 &&
+        /^[234n]$/.test(next1.text.trim())
+      ) {
+        idxStr = next1.text.trim();
+        barIdx = i + 2;
+      }
+
+      if (barIdx !== -1 && filteredItems[barIdx + 1]) {
+        const bar = filteredItems[barIdx];
+        const barRight = bar.x + Math.max(bar.w, 4);
+        const radGroup = [];
+        let k = barIdx + 1;
+        while (
+          k < filteredItems.length &&
+          filteredItems[k].text.trim() !== "__BAR__" &&
+          filteredItems[k].x < barRight - 0.5 &&
+          Math.abs(filteredItems[k].y - bar.y) <= modalH * 1.15
+        ) {
+          radGroup.push(filteredItems[k]);
+          k++;
+        }
+        if (radGroup.length === 0) {
+          radGroup.push(filteredItems[barIdx + 1]);
+          k = barIdx + 2;
+        }
+
+        // Check if the last item in radGroup extends beyond the radical bar
+        const lastItem = radGroup[radGroup.length - 1];
+        let remainderText = "";
+        if (radGroup.length === 1) {
+          const [inside, outside] = splitByBarCoverage(lastItem.text, lastItem.w, bar.w, modalH);
+          radGroup[0] = { ...lastItem, text: inside };
+          remainderText = outside;
+        } else if (lastItem.x + lastItem.w > barRight + 3.5) {
+          const remW = barRight - lastItem.x;
+          const [inside, outside] = splitByBarCoverage(lastItem.text, lastItem.w, Math.max(3, remW), modalH);
+          radGroup[radGroup.length - 1] = { ...lastItem, text: inside };
+          remainderText = outside;
+        }
+
+        const radLatex = formatSubGroupToLatex(radGroup, modalH);
+        const baseRadItem = radGroup.find(r => r.h >= modalH * 0.8) || radGroup[0];
+        afterRadicals.push({
+          raw: cur.raw,
+          text: idxStr ? `\\sqrt[${idxStr}]{${radLatex}}` : `\\sqrt{${radLatex}}`,
+          hasPua: true,
+          x: cur.x,
+          y: baseRadItem.y,
+          h: baseRadItem.h,
+          w: Math.max(6, barRight - cur.x),
+        });
+        if (remainderText) {
+          afterRadicals.push({
+            raw: remainderText,
+            text: remainderText,
+            hasPua: true,
+            x: barRight,
+            y: lastItem.y,
+            h: lastItem.h,
+            w: Math.max(4, lastItem.x + lastItem.w - barRight),
+          });
+        }
+        i = k - 1;
+        continue;
+      } else if (next1) {
+        // Fallback when \sqrt has no __BAR__
+        const [inside, outside] = splitByBarCoverage(next1.text, next1.w, modalH * 0.8, modalH);
+        afterRadicals.push({
+          raw: cur.raw,
+          text: `\\sqrt{${inside}}`,
+          hasPua: true,
+          x: cur.x,
+          y: next1.y,
+          h: next1.h,
+          w: cur.w + next1.w,
+        });
+        if (outside) {
+          afterRadicals.push({ ...next1, text: outside, x: next1.x + modalH * 0.8 });
+        }
+        i += 1;
+        continue;
+      }
+    }
+
+    afterRadicals.push(cur);
+  }
+
+  // 3. Pass B: Collapse Vector Arrows (__BAR__ + \vec), Fractions, and Overlines (__BAR__)
+  const items = [];
+  for (let i = 0; i < afterRadicals.length; i++) {
+    const cur = afterRadicals[i];
+    const t = cur.text.trim();
+
+    // Standalone \vec
+    if (t === "\\vec" && afterRadicals[i + 1]) {
+      const target = afterRadicals[i + 1];
+      const m = target.text.trim().match(/^([A-Za-z0-9]{1,3})\s*(.*)$/);
+      if (m) {
+        items.push({
+          ...target,
+          text: `\\overrightarrow{${m[1]}}`,
+          hasPua: true,
+        });
+        if (m[2]) {
+          items.push({ ...target, text: m[2], x: target.x + 10 });
+        }
+        i += 1;
+        continue;
+      }
+    }
+
+    if (t === "__BAR__" || t.endsWith("__BAR__")) {
+      const prefix = t === "__BAR__" ? "" : t.replace(/__BAR__$/, "").trim();
+      if (prefix) {
+        items.push({ ...cur, text: prefix, hasPua: true });
+      }
+
+      // Check for HWP Vector Arrow: __BAR__ + \vec + Target ("BP = 2")
+      const next1 = afterRadicals[i + 1];
+      const next2 = afterRadicals[i + 2];
+      if (next1 && next1.text.trim() === "\\vec" && next2) {
+        const m = next2.text.replace(/__BAR__/g, "").trim().match(/^([A-Za-z0-9]{1,3})\s*(.*)$/);
+        if (m) {
+          items.push({
+            ...next2,
+            text: `\\overrightarrow{${m[1]}}`,
+            hasPua: true,
+          });
+          if (m[2]) {
+            items.push({
+              ...next2,
+              text: m[2],
+              hasPua: true,
+              x: cur.x + Math.max(cur.w, 12),
+            });
+          }
+          i += 2;
+          continue;
+        }
+      }
+
+      // Collect denominator items (below bar.y) and numerator items (above bar.y)
+      const bar = cur;
+      const barLeft = bar.x - 3.5;
+      const barRight = bar.x + Math.max(bar.w, 4.5) - 0.5;
+
+      // Do not consume problem headers or [출제의도] headers under a figure box border bar
+      if (
+        afterRadicals[i + 1] &&
+        (/출제의도/.test(afterRadicals[i + 1].text) || /^\d{1,2}\.$/.test(afterRadicals[i + 1].text.trim()))
+      ) {
+        continue;
+      }
+
+      const denomGroup = [];
+      let k = i + 1;
+      while (
+        k < afterRadicals.length &&
+        afterRadicals[k].text.trim() !== "__BAR__" &&
+        !/출제의도/.test(afterRadicals[k].text) &&
+        afterRadicals[k].y < bar.y - 0.2 &&
+        afterRadicals[k].y > bar.y - modalH * 1.35 &&
+        afterRadicals[k].x >= barLeft &&
+        afterRadicals[k].x <= barRight + 1.5
+      ) {
+        denomGroup.push(afterRadicals[k]);
+        k++;
+      }
+      if (
+        denomGroup.length === 0 &&
+        afterRadicals[i + 1] &&
+        !/출제의도/.test(afterRadicals[i + 1].text) &&
+        afterRadicals[i + 1].y < bar.y + 0.5 &&
+        afterRadicals[i + 1].y > bar.y - modalH * 1.35
+      ) {
+        denomGroup.push(afterRadicals[i + 1]);
+        k = i + 2;
+      }
+
+      // Numerator of a fraction is strictly above the text baseline (y > bar.y + modalH * 0.42)
+      const numMinY = bar.y + modalH * 0.42;
+      const numGroup = [];
+      let m = k;
+      while (
+        m < afterRadicals.length &&
+        afterRadicals[m].text.trim() !== "__BAR__" &&
+        !/출제의도|값은\?|구하시오/.test(afterRadicals[m].text) &&
+        afterRadicals[m].y >= numMinY &&
+        afterRadicals[m].y < bar.y + modalH * 1.65 &&
+        afterRadicals[m].x >= barLeft &&
+        afterRadicals[m].x <= barRight + 1.0
+      ) {
+        numGroup.push(afterRadicals[m]);
+        m++;
+      }
+
+      if (denomGroup.length > 0 && numGroup.length > 0) {
+        const denomLatex = formatSubGroupToLatex(denomGroup, modalH);
+        const numLatex = formatSubGroupToLatex(numGroup, modalH);
+        const isScriptFrac =
+          denomGroup[0].h < modalH * 0.78 && numGroup[0].h < modalH * 0.78;
+        items.push({
+          raw: cur.raw,
+          text: `\\frac{${numLatex}}{${denomLatex}}`,
+          hasPua: true,
+          x: bar.x,
+          y: isScriptFrac ? (denomGroup[0].y + numGroup[0].y) / 2 : bar.y + modalH * 0.28,
+          h: isScriptFrac ? numGroup[0].h : modalH,
+          w: Math.max(bar.w, 6),
+        });
+        i = m - 1;
+        continue;
+      } else if (denomGroup.length > 0 && numGroup.length === 0) {
+        // Overline: e.g. \overline{AB}, \overline{BC}^2, \overline{z}
+        const firstDenom = denomGroup[0];
+        const segMatch = firstDenom.text.replace(/__BAR__/g, "").trim().match(/^([A-Za-z0-9]{1,4})\s*(.*)$/);
+        if (segMatch) {
+          items.push({
+            ...firstDenom,
+            text: `\\overline{${segMatch[1]}}`,
+            hasPua: true,
+            w: Math.min(firstDenom.w, Math.max(bar.w, 8)),
+          });
+          if (segMatch[2]) {
+            items.push({
+              ...firstDenom,
+              text: segMatch[2],
+              hasPua: true,
+              x: firstDenom.x + Math.max(bar.w, 8),
+            });
+          }
+          for (let dIdx = 1; dIdx < denomGroup.length; dIdx++) {
+            items.push(denomGroup[dIdx]);
+          }
+          i = k - 1;
+          continue;
+        }
+      }
+      continue;
+    }
+
+    items.push(cur);
+  }
+
+  // 4. Pass C: Convert items to LaTeX tokens with accurate superscript/subscript grouping
+  const outTokens = [];
+  let baseY = null;
+  let lastBaseItem = null;
+  const scriptThreshold = modalH * 0.78;
+  const baseThreshold = modalH * 0.86;
+
+  for (let i = 0; i < items.length; i++) {
+    const cur = items[i];
+    const t = cur.text.replace(/__BAR__/g, "").trim();
+    if (!t) continue;
+
+    // Detect problem start in Problem PDF: e.g. "1." .. "30." with font size >= 12.0
+    const probStartMatch = kind === "problem" && cur.h >= 12.0 ? t.match(/^([1-9]|[12]\d|30)\.(?:\s*(.*))?$/) : null;
     if (probStartMatch) {
       const pNum = probStartMatch[1];
       const rest = probStartMatch[2] || "";
       outTokens.push({ text: `\n@@PROB_${pNum}@@ ${rest}`, isMath: false });
       baseY = cur.y;
+      lastBaseItem = cur;
       continue;
     }
 
-    // Handle \sqrt + __BAR__
-    if (t.includes("\\sqrt")) {
-      const next1 = items[i + 1];
-      const next2 = items[i + 2];
-      const next3 = items[i + 3];
-      if (next1 && next1.text.includes("__BAR__") && next2) {
-        const rad = next2.text.replace(/__BAR__/g, "").trim();
-        outTokens.push({ text: `\\sqrt{${rad}}`, isMath: true });
-        i += 2;
-        baseY = cur.y;
-        continue;
-      } else if (next1 && next2 && next2.text.includes("__BAR__") && next3) {
-        const idxStr = next1.text.trim();
-        const rad = next3.text.replace(/__BAR__/g, "").trim();
-        outTokens.push({ text: `\\sqrt[${idxStr}]{${rad}}`, isMath: true });
-        i += 3;
-        baseY = cur.y;
-        continue;
-      }
-    }
-
-    // Handle HWP fraction bar: __BAR__ followed by denominator (lower y) and numerator (higher y)
-    if (t === "__BAR__" || t.endsWith("__BAR__")) {
-      const prefix = t.replace(/__BAR__$/, "");
-      if (prefix) outTokens.push({ text: prefix, isMath: true });
-      const denomItem = items[i + 1];
-      const numItem = items[i + 2];
-      if (denomItem && numItem && denomItem.y < numItem.y) {
-        const denom = denomItem.text.replace(/__BAR__/g, "").trim();
-        const num = numItem.text.replace(/__BAR__/g, "").trim();
-        outTokens.push({ text: `\\frac{${num}}{${denom}}`, isMath: true });
-        i += 2;
-        baseY = cur.y;
-        continue;
-      }
-      continue;
-    }
-
-    const cleanText = cur.text.replace(/__BAR__/g, "");
+    const cleanText = cur.text.replace(/__BAR__/g, "").trim();
     const isMathToken =
       cur.hasPua ||
-      cleanText.trim() === "'" ||
+      cleanText === "'" ||
       (/^[A-Za-z0-9+\-=<>()',\s\\]+$/.test(cleanText) &&
-        !/^\d+\.?$/.test(cleanText.trim()) &&
-        (Math.abs(cur.h - 12) < 0.5 ||
-          Math.abs(cur.h - 9.5) < 0.45 ||
-          Math.abs(cur.h - 8.2) < 0.55 ||
-          Math.abs(cur.h - 6.3) < 0.55 ||
-          /^(sin|cos|tan|log|ln|lim)$/i.test(cleanText.trim())));
+        !/^\d+\.?$/.test(cleanText) &&
+        !/^[①②③④⑤⑥⑦⑧⑨⑩㉠㉡㉢㉣]$/.test(cleanText) &&
+        (Math.abs(cur.h - modalH) < 1.2 ||
+          cur.h < scriptThreshold ||
+          /^(sin|cos|tan|log|ln|lim)$/i.test(cleanText)));
 
-    const scriptThreshold = kind === "explanation" ? 7.6 : 9.2;
-    const baseThreshold = kind === "explanation" ? 8.2 : 9.5;
+    // Reset baseY when a new line starts (cur.x moves left or y jumps by more than 1.25 * modalH)
+    if (
+      lastBaseItem &&
+      (cur.x < lastBaseItem.x - 8 || Math.abs(cur.y - baseY) > modalH * 1.25)
+    ) {
+      if (cur.h >= baseThreshold) {
+        baseY = cur.y;
+        lastBaseItem = cur;
+      } else {
+        baseY = null;
+        lastBaseItem = null;
+      }
+    }
 
-    // Detect superscript / subscript when font height is smaller than base
+    // Detect superscript / subscript when font height is smaller than scriptThreshold
+    // AND horizontally adjacent to the preceding base item on the same line
     if (
       (cur.hasPua || isMathToken) &&
       cur.h < scriptThreshold &&
       baseY !== null &&
-      Math.abs(cur.y - baseY) <= 14 &&
-      Math.abs(cur.y - baseY) >= 1.5
+      lastBaseItem !== null &&
+      cur.x >= lastBaseItem.x - 2 &&
+      cur.x <= lastBaseItem.x + lastBaseItem.w + modalH * 1.6 &&
+      Math.abs(cur.y - baseY) >= modalH * 0.14 &&
+      Math.abs(cur.y - baseY) <= modalH * 1.15
     ) {
-      const scriptContent = cleanText.trim();
-      if (scriptContent) {
-        if (cur.y > baseY + 1.4) {
-          outTokens.push({
-            text: scriptContent.length === 1 ? `^${scriptContent}` : `^{${scriptContent}}`,
-            isMath: true,
-          });
-        } else if (cur.y < baseY - 1.2) {
-          outTokens.push({
-            text: scriptContent.length === 1 ? `_${scriptContent}` : `_{${scriptContent}}`,
-            isMath: true,
-          });
-        } else {
-          outTokens.push({ text: cleanText, isMath: true });
-        }
+      const isSup = cur.y > baseY;
+      let scriptBuf = cleanText;
+      let lastScriptItem = cur;
+      while (
+        i + 1 < items.length &&
+        items[i + 1].h < scriptThreshold &&
+        items[i + 1].x >= lastScriptItem.x - 1 &&
+        items[i + 1].x <= lastScriptItem.x + lastScriptItem.w + modalH * 1.4 &&
+        (isSup
+          ? items[i + 1].y > baseY + modalH * 0.12 && items[i + 1].y <= baseY + modalH * 1.15
+          : items[i + 1].y < baseY - modalH * 0.12 && items[i + 1].y >= baseY - modalH * 1.15)
+      ) {
+        i++;
+        lastScriptItem = items[i];
+        scriptBuf += " " + lastScriptItem.text.replace(/__BAR__/g, "").trim();
+      }
+      scriptBuf = scriptBuf.trim();
+      if (scriptBuf) {
+        outTokens.push({
+          text: isSup
+            ? scriptBuf.length === 1 ? `^${scriptBuf}` : `^{${scriptBuf}}`
+            : scriptBuf.length === 1 ? `_${scriptBuf}` : `_{${scriptBuf}}`,
+          isMath: true,
+        });
+        lastBaseItem = {
+          ...lastBaseItem,
+          w: (lastScriptItem.x + lastScriptItem.w) - lastBaseItem.x,
+        };
         continue;
       }
     }
 
     if (cur.h >= baseThreshold) {
       baseY = cur.y;
+      lastBaseItem = cur;
     }
 
     outTokens.push({ text: cleanText, isMath: isMathToken });
-  }
-
-  function sanitizeMathSpan(rawMath) {
-    let m = rawMath.trim().replace(/\s+/g, " ");
-    m = m.replace(/(?<!\\)(sin|cos|tan|log|ln|lim)(?=[a-zA-Z0-9(\s\\_^])/g, "\\$1 ");
-    m = m.replace(/\)\s*_\s*([234])\b/g, ")^$1");
-    return m.trim();
   }
 
   // Merge adjacent math tokens into $...$ spans
@@ -269,21 +740,19 @@ function convertPdfItemsToLatexText(rawItems, kind = "problem") {
   let mathBuf = "";
   for (const tok of outTokens) {
     if (tok.isMath) {
-      mathBuf += tok.text;
+      mathBuf += (mathBuf ? " " : "") + tok.text;
     } else {
-      if (mathBuf.trim() && tok.text === " ") {
-        mathBuf += " ";
-      } else {
-        if (mathBuf.trim()) {
-          result += ` $${sanitizeMathSpan(mathBuf)}$ `;
-          mathBuf = "";
-        }
-        result += tok.text;
+      if (mathBuf.trim()) {
+        const sanitized = sanitizeMathSpan(mathBuf);
+        if (sanitized) result += ` $${sanitized}$ `;
+        mathBuf = "";
       }
+      result += (result && !result.endsWith("\n") ? " " : "") + tok.text;
     }
   }
   if (mathBuf.trim()) {
-    result += ` $${sanitizeMathSpan(mathBuf)}$ `;
+    const sanitized = sanitizeMathSpan(mathBuf);
+    if (sanitized) result += ` $${sanitized}$ `;
   }
 
   return result
@@ -429,6 +898,19 @@ function parseAnswerTableFromRawExpText(rawExpText) {
   return answers;
 }
 
+function cleanExplanationTail(solText) {
+  let s = String(solText || "").trim();
+  // Strip any trailing non-Korean graph label dump after the final "이다."
+  const lastIda = s.lastIndexOf("이다.");
+  if (lastIda !== -1) {
+    const afterIda = s.slice(lastIda + 3).trim();
+    if (afterIda && !/[가-힣]/.test(afterIda)) {
+      s = s.slice(0, lastIda + 3).trim();
+    }
+  }
+  return s;
+}
+
 function parseExplanationPdfText(fullExpText, rawExpText = "") {
   const answers = parseAnswerTableFromRawExpText(rawExpText || fullExpText);
   const intents = {};
@@ -441,15 +923,15 @@ function parseExplanationPdfText(fullExpText, rawExpText = "") {
   for (const m of normalized.matchAll(expRegex)) {
     const num = m[1];
     const body = m[2].trim();
-    const intentEnd = body.search(/(?:한다\.|구한다\.|이해한다\.|계산한다\.|추론한다\.|해결한다\.|계산하기|구하기|이해하기|추론하기)/);
+    const intentEnd = body.search(/(?:한다\.|구한다\.|이해한다\.|계산한다\.|추론한다\.|해결한다\.|계산하기|구하기|이해하기|추론하기|활용하기)/);
     if (intentEnd !== -1) {
-      const matchWord = body.slice(intentEnd).match(/^\S+/)?.[0] || "";
+      const matchWord = body.slice(intentEnd).match(/^[가-힣.]+/)?.[0] || "";
       const cut = intentEnd + matchWord.length;
       intents[num] = body.slice(0, cut).replace(/\$/g, "").trim();
-      solutions[num] = body.slice(cut).trim() || body;
+      solutions[num] = cleanExplanationTail(body.slice(cut).trim() || body);
     } else {
       intents[num] = body.slice(0, 45).replace(/\$/g, "").trim();
-      solutions[num] = body;
+      solutions[num] = cleanExplanationTail(body);
     }
     if (!answers[num]) {
       const tailAns = body.slice(-160).match(/=\s*\$?\s*(\d{1,4})\s*\$?\s*$/);
@@ -467,7 +949,9 @@ function parseProblemsFromLatexText(fullProbText, exam, expData, problemPdfUrl, 
   for (const m of fullProbText.matchAll(probRegex)) {
     const num = m[1];
     let rawChunk = m[2].trim();
-    rawChunk = rawChunk.replace(/\s*(?:5\s*지\s*선\s*다\s*형|단\s*답\s*형|\*\s*확인\s*사항|※\s*확인\s*사항)[\s\S]*$/, "").trim();
+    rawChunk = rawChunk
+      .replace(/\s*(?:5\s*지\s*선\s*다\s*형|단\s*답\s*형|\*\s*확인\s*사항|※\s*확인\s*사항|◦\s*답안지|\d{4}\s*학년도|[━─_]{3,})[\s\S]*$/, "")
+      .trim();
 
     const ptMatch = rawChunk.match(/\[([234]점)\]/);
     const points = ptMatch ? ptMatch[1] : [1, 2, 3, 23].includes(Number(num)) ? "2점" : Number(num) >= 14 ? "4점" : "3점";
@@ -480,7 +964,11 @@ function parseProblemsFromLatexText(fullProbText, exam, expData, problemPdfUrl, 
       const choiceSlice = rawChunk.slice(firstChoiceIdx);
       const cMatches = choiceSlice.matchAll(/[①②③④⑤]\s*([^①②③④⑤]+?)(?=[①②③④⑤]|$)/g);
       for (const cm of cMatches) {
-        const cText = cm[1].replace(/\b\d{1,2}\s+\d{1,2}\s*$/, "").trim();
+        const cText = cm[1]
+          .replace(/\s*(?:\d{4}\s*학년도|전국연합학력평가|문제지|제\s*2\s*교시|◦\s*답안지|[━─_]{2,})[\s\S]*$/, "")
+          .replace(/(?:\s+[A-Z]){3,}\s*(\$?)\s*$/, "$1")
+          .replace(/\b\d{1,2}\s+\d{1,2}\s*$/, "")
+          .trim();
         if (cText) choices.push(cText);
       }
     }

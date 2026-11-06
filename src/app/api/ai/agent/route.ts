@@ -5,7 +5,8 @@ import { createClient } from "@supabase/supabase-js";
 import { OCR_MODEL } from "../../../../lib/typing-model";
 import type { AiCopilotAction } from "../../../../lib/ai-copilot";
 import { buildMathGeoSpecFromPrompt, type MathGeoSpec } from "../../../../lib/math-geometry-engine";
-import type { MockExamProblemToken } from "../../../../types/mock-exam";
+import type { MockExamProblemStore, MockExamProblemToken } from "../../../../types/mock-exam";
+import mockProblemStoreData from "../../../../data/mock-exam-problems.json";
 
 export const maxDuration = 60;
 
@@ -155,6 +156,11 @@ let cachedProblemStore: MockExamProblemToken[] | null = null;
 
 function loadAllProblemTokens(): MockExamProblemToken[] {
   if (cachedProblemStore && cachedProblemStore.length > 0) return cachedProblemStore;
+  const imported = (mockProblemStoreData as unknown as MockExamProblemStore)?.problems;
+  if (Array.isArray(imported) && imported.length > 0) {
+    cachedProblemStore = imported;
+    return imported;
+  }
   try {
     const filePath = resolve(process.cwd(), "src/data/mock-exam-problems.json");
     if (!existsSync(filePath)) return [];
@@ -201,9 +207,16 @@ function findMatchingSeedTokens(
     if (subjMatched.length > 0) pool = subjMatched;
   }
 
-  // Filter by target problem number if specified (e.g., 30번, 22번, 21번, 15번, 29번)
+  // Filter by target problem number if specified (e.g., 1번, 30번, 22번, 21번, 15번, 29번)
   if (intent.targetNumber !== null) {
-    const exactNum = pool.filter(p => Number(p.number) === intent.targetNumber);
+    let exactNum = pool.filter(p => Number(p.number) === intent.targetNumber);
+    if (exactNum.length < intent.requestedCount && !intent.hasExplicitGrade) {
+      const existingIds = new Set(exactNum.map(p => p.id));
+      const otherGradeExactNum = all.filter(
+        p => !existingIds.has(p.id) && Number(p.number) === intent.targetNumber
+      );
+      exactNum = [...exactNum, ...otherGradeExactNum];
+    }
     if (exactNum.length > 0) {
       pool = exactNum;
     } else if (intent.difficulty === "킬러") {
@@ -216,13 +229,12 @@ function findMatchingSeedTokens(
     if (diffMatched.length > 0) pool = diffMatched;
   }
 
-  // If user requested many problems (e.g., "킬러문제로 15문제") and current grade pool has fewer than maxSeeds,
-  // supplement with matching difficulty tokens across all grades so every problem has a distinct real seed token!
-  if (pool.length < maxSeeds && !intent.hasExplicitGrade) {
+  // Only supplement across grades when no specific targetNumber was requested (or when more seeds are needed for multi-problem batch)
+  if (pool.length < intent.requestedCount && !intent.hasExplicitGrade) {
     const existingIds = new Set(pool.map(p => p.id));
     const extraDiff = all.filter(p => !existingIds.has(p.id) && p.difficulty === intent.difficulty);
     pool = [...pool, ...extraDiff];
-    if (pool.length < maxSeeds && intent.difficulty === "킬러") {
+    if (pool.length < intent.requestedCount && intent.difficulty === "킬러") {
       const extraIds = new Set(pool.map(p => p.id));
       const extraFourPt = all.filter(p => !extraIds.has(p.id) && p.points === "4점");
       pool = [...pool, ...extraFourPt];
@@ -238,8 +250,13 @@ function findMatchingSeedTokens(
     if (unitMatched.length > 0) pool = unitMatched;
   }
 
-  // Sort killer/4-point problems with rich solutions first when high difficulty is requested
+  // Sort exact problem number match first, then killer/4-point problems with rich solutions
   const sorted = [...pool].sort((a, b) => {
+    if (intent.targetNumber !== null) {
+      const aExact = Number(a.number) === intent.targetNumber ? 0 : 1;
+      const bExact = Number(b.number) === intent.targetNumber ? 0 : 1;
+      if (aExact !== bExact) return aExact - bExact;
+    }
     if (intent.difficulty === "킬러") {
       const aKiller = [30, 22, 29, 21, 15].indexOf(Number(a.number));
       const bKiller = [30, 22, 29, 21, 15].indexOf(Number(b.number));
@@ -522,7 +539,57 @@ function buildTwinProblemFromSeedToken(
     };
   }
 
-  // Case C: 3점/2점 기출 토큰 1:1 쌍둥이 변형
+  // Case C: 3점/2점 기출 토큰 1:1 쌍둥이 변형 (문항 번호·단원별 맞춤 변형)
+  if (num === 1 && /다항식|A\s*=|B\s*=/.test(seed.question)) {
+    const c1 = mCoeff + 1;
+    return {
+      title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.number}번 1:1 변형] ${seed.unit} (${seed.points})`,
+      grade: seed.grade,
+      subject: seed.subject,
+      unit: seed.unit,
+      points: seed.points || "2점",
+      intent: seed.intent || "다항식의 덧셈과 뺄셈을 계산한다.",
+      difficulty: seed.difficulty,
+      sourceLabel: `${seed.sourceLabel} 1:1 쌍둥이 변형`,
+      sourceTokenId: seed.id,
+      sourceOrigin: seed,
+      question: `두 다항식 $A = ${c1}x^2 + 3xy + 4$, $B = x^2 - 3xy - ${c1 + 2}$에 대하여 $A + B$는? [${seed.points || "2점"}]`,
+      boxContent: "",
+      choices: [
+        `$${c1}x^2 - 2$`,
+        `$${c1 + 1}x^2 - ${c1 - 2}$`,
+        `$${c1 + 1}x^2 + ${c1 - 2}$`,
+        `$${c1 + 1}x^2 + 6xy - ${c1 - 2}$`,
+        `$${c1 + 2}x^2 - ${c1 - 2}$`,
+      ],
+      answer: "②",
+      solution: `[출제의도] ${seed.intent || "다항식의 연산을 계산한다."}\n\n$A + B = (${c1}x^2 + 3xy + 4) + (x^2 - 3xy - ${c1 + 2}) = ${c1 + 1}x^2 - ${c1 - 2}$입니다.`,
+      geoSpec: promptGeo || seed.geoSpec,
+    };
+  }
+
+  if (num === 1 || /\\sqrt|지수/.test(seed.question)) {
+    const ansPow = Math.pow(2, mCoeff);
+    return {
+      title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.number}번 1:1 변형] 지수법칙 계산 (${seed.points})`,
+      grade: seed.grade,
+      subject: seed.subject,
+      unit: seed.unit,
+      points: seed.points || "2점",
+      intent: seed.intent || "지수법칙을 이용하여 식의 값을 계산한다.",
+      difficulty: seed.difficulty,
+      sourceLabel: `${seed.sourceLabel} 1:1 쌍둥이 변형`,
+      sourceTokenId: seed.id,
+      sourceOrigin: seed,
+      question: `$\\left(2^{\\sqrt{3}}\\right)^{\\sqrt{3}} \\times 2^{${mCoeff - 3}}$의 값은? [${seed.points || "2점"}]`,
+      boxContent: "",
+      choices: [`$${ansPow / 4}$`, `$${ansPow / 2}$`, `$${ansPow}$`, `$${ansPow * 2}$`, `$${ansPow * 4}$`],
+      answer: `③ $${ansPow}$`,
+      solution: `[출제의도] ${seed.intent || "지수법칙을 이용하여 값을 구한다."}\n\n$\\left(2^{\\sqrt{3}}\\right)^{\\sqrt{3}} \\times 2^{${mCoeff - 3}} = 2^3 \\times 2^{${mCoeff - 3}} = 2^{${mCoeff}} = ${ansPow}$입니다.`,
+      geoSpec: promptGeo || seed.geoSpec,
+    };
+  }
+
   const valC = 3 * mCoeff + 3;
   return {
     title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.number}번 1:1 변형] ${seed.unit} (${seed.points})`,
@@ -777,8 +844,10 @@ function buildSmartFallbackResponse(body: {
 }
 
 export async function POST(req: NextRequest) {
+  let parsedBody: Record<string, unknown> = {};
   try {
-    const body = await req.json().catch(() => ({}));
+    parsedBody = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const body = parsedBody;
     const prompt = typeof body.prompt === "string" ? body.prompt.trim().slice(0, 4000) : "";
     const mode = typeof body.mode === "string" ? body.mode : "general";
     if (!prompt && !body.imageBase64) {
@@ -790,51 +859,65 @@ export async function POST(req: NextRequest) {
 
     const token = req.headers.get("authorization")?.replace(/^Bearer /, "");
     if (token && process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-      const client = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
-        global: { headers: { Authorization: `Bearer ${token}` } },
-        auth: { persistSession: false },
-      });
-      const { data: { user } } = await client.auth.getUser(token);
-      if (user) {
-        const quotaRes = await client.rpc("cosmath_consume_ai_quota", {
-          p_action: `ai_${mode}`,
-          p_units: units,
+      try {
+        const client = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
+          global: { headers: { Authorization: `Bearer ${token}` } },
+          auth: { persistSession: false },
         });
-        if (!quotaRes.error && quotaRes.data && typeof quotaRes.data === "object") {
-          const q = quotaRes.data as Record<string, unknown>;
-          quotaSnapshot = {
-            allowed: true,
-            academyName: "우리 학원",
-            dailyPct: Number(q.daily_pct ?? 0),
-            weeklyPct: Number(q.weekly_pct ?? 0),
-            monthlyPct: Number(q.monthly_pct ?? 0),
-            dailyRemainingPct: Math.max(0, 100 - Number(q.daily_pct ?? 0)),
-            weeklyRemainingPct: Math.max(0, 100 - Number(q.weekly_pct ?? 0)),
-            monthlyRemainingPct: Math.max(0, 100 - Number(q.monthly_pct ?? 0)),
-            isBlocked: false,
-            canManage: false,
-          };
+        const authRes = await client.auth.getUser(token);
+        const user = authRes?.data?.user;
+        if (user) {
+          const quotaRes = await client.rpc("cosmath_consume_ai_quota", {
+            p_action: `ai_${mode}`,
+            p_units: units,
+          });
+          if (!quotaRes.error && quotaRes.data && typeof quotaRes.data === "object") {
+            const q = quotaRes.data as Record<string, unknown>;
+            quotaSnapshot = {
+              allowed: true,
+              academyName: "우리 학원",
+              dailyPct: Number(q.daily_pct ?? 0),
+              weeklyPct: Number(q.weekly_pct ?? 0),
+              monthlyPct: Number(q.monthly_pct ?? 0),
+              dailyRemainingPct: Math.max(0, 100 - Number(q.daily_pct ?? 0)),
+              weeklyRemainingPct: Math.max(0, 100 - Number(q.weekly_pct ?? 0)),
+              monthlyRemainingPct: Math.max(0, 100 - Number(q.monthly_pct ?? 0)),
+              isBlocked: false,
+              canManage: false,
+            };
+          }
         }
+      } catch {
+        // Ignore auth/quota network errors and proceed
       }
     }
 
-    const intent = parsePromptProblemIntent(prompt, body.contextData);
+    const intent = parsePromptProblemIntent(prompt, body.contextData as Record<string, unknown> | undefined);
     const isProbReq = isProblemGenerationPrompt(prompt, mode);
 
     const key = process.env.GEMINI_API_KEY?.trim();
-    // For multi-problem batch requests (e.g. "킬러문제로 15문제 만들어달라") or when API key is absent,
-    // use the deterministic 1:1 seed token twin engine so all N problems are generated reliably without truncation.
-    if (!key || (isProbReq && intent.requestedCount >= 3 && !body.imageBase64)) {
+    // For multi-problem batch requests (e.g. "킬러문제로 15문제 만들어달라"), killer/high-difficulty twin requests without image,
+    // or when API key is absent, use the deterministic 1:1 seed token twin engine so problems + solutions + geoSpec are generated immediately and reliably without timeout.
+    if (
+      !key ||
+      (isProbReq &&
+        !body.imageBase64 &&
+        (intent.requestedCount >= 2 || intent.difficulty === "킬러" || intent.targetNumber !== null))
+    ) {
       const fallback = buildSmartFallbackResponse({
         prompt,
         mode,
-        roster: body.roster,
-        contextData: body.contextData,
+        roster: body.roster as Array<{ group: string; students: Array<{ name: string; grade: string }> }> | undefined,
+        contextData: body.contextData as Record<string, unknown> | undefined,
       });
       return NextResponse.json({ ...fallback, quota: quotaSnapshot });
     }
 
-    const matchedSeeds = findMatchingSeedTokens(prompt, body.contextData, Math.max(8, intent.requestedCount));
+    const matchedSeeds = findMatchingSeedTokens(
+      prompt,
+      body.contextData as Record<string, unknown> | undefined,
+      Math.max(8, intent.requestedCount)
+    );
     const primarySeed = matchedSeeds[0];
     const requestedUnits = extractRequestedUnits(prompt);
 
@@ -877,7 +960,7 @@ export async function POST(req: NextRequest) {
 ${
   matchedSeeds.length > 0
     ? `\n[기출 시드 토큰 (문제+정답+해설 1:1 매칭 레퍼런스 — 이 토큰의 논리 구조와 해설 단계를 그대로 참고하여 수치·함수식을 바꾼 쌍둥이 변형 문제를 만들고 sourceTokenId를 포함하세요)]: ${JSON.stringify(
-        matchedSeeds.slice(0, 6).map(s => ({
+        matchedSeeds.slice(0, 4).map(s => ({
           sourceTokenId: s.id,
           sourceLabel: s.sourceLabel,
           grade: s.grade,
@@ -887,14 +970,14 @@ ${
           points: s.points,
           difficulty: s.difficulty,
           intent: s.intent,
-          question: s.question,
+          question: (s.question || "").slice(0, 600),
           boxContent: s.boxContent,
           choices: s.choices,
           answer: s.answer,
-          solution: s.solution.slice(0, 700),
+          solution: (s.solution || "").slice(0, 500),
           geoSpec: s.geoSpec,
         }))
-      ).slice(0, 6500)}`
+      ).slice(0, 5500)}`
     : ""
 }
 
@@ -908,35 +991,50 @@ ${
     ];
 
     if (typeof body.imageBase64 === "string" && body.imageBase64.length > 10 && body.imageBase64.length < 3_800_000) {
+      const mimeType =
+        typeof body.imageMimeType === "string" && ["image/png", "image/jpeg", "image/webp"].includes(body.imageMimeType)
+          ? body.imageMimeType
+          : "image/png";
       parts.push({
         inlineData: {
           data: body.imageBase64,
-          mimeType: ["image/png", "image/jpeg", "image/webp"].includes(body.imageMimeType) ? body.imageMimeType : "image/png",
+          mimeType,
         },
       });
     }
 
-    const agentModel = process.env.GEMINI_AGENT_MODEL?.trim() || "gemini-2.5-flash" || OCR_MODEL;
-    const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${agentModel}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-      signal: AbortSignal.timeout(55_000),
-      body: JSON.stringify({
-        contents: [{ parts }],
-        generationConfig: {
-          temperature: 0.3,
-          maxOutputTokens: 32768,
-          responseMimeType: "application/json",
-        },
-      }),
-    });
+    const agentModel = process.env.GEMINI_AGENT_MODEL?.trim() || OCR_MODEL;
+    let geminiRes: Response;
+    try {
+      geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${agentModel}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+        signal: AbortSignal.timeout(25_000),
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 16384,
+            responseMimeType: "application/json",
+          },
+        }),
+      });
+    } catch {
+      const fallback = buildSmartFallbackResponse({
+        prompt,
+        mode,
+        roster: body.roster as Array<{ group: string; students: Array<{ name: string; grade: string }> }> | undefined,
+        contextData: body.contextData as Record<string, unknown> | undefined,
+      });
+      return NextResponse.json({ ...fallback, quota: quotaSnapshot });
+    }
 
     if (!geminiRes.ok) {
       const fallback = buildSmartFallbackResponse({
         prompt,
         mode,
-        roster: body.roster,
-        contextData: body.contextData,
+        roster: body.roster as Array<{ group: string; students: Array<{ name: string; grade: string }> }> | undefined,
+        contextData: body.contextData as Record<string, unknown> | undefined,
       });
       return NextResponse.json({ ...fallback, quota: quotaSnapshot });
     }
@@ -951,8 +1049,8 @@ ${
       const fallback = buildSmartFallbackResponse({
         prompt,
         mode,
-        roster: body.roster,
-        contextData: body.contextData,
+        roster: body.roster as Array<{ group: string; students: Array<{ name: string; grade: string }> }> | undefined,
+        contextData: body.contextData as Record<string, unknown> | undefined,
       });
       return NextResponse.json({ ...fallback, quota: quotaSnapshot });
     }
@@ -965,8 +1063,8 @@ ${
       const fallback = buildSmartFallbackResponse({
         prompt,
         mode,
-        roster: body.roster,
-        contextData: body.contextData,
+        roster: body.roster as Array<{ group: string; students: Array<{ name: string; grade: string }> }> | undefined,
+        contextData: body.contextData as Record<string, unknown> | undefined,
       });
       return NextResponse.json({ ...fallback, quota: quotaSnapshot });
     }
@@ -1020,6 +1118,16 @@ ${
       quota: quotaSnapshot,
     });
   } catch {
-    return NextResponse.json({ error: "AI 응답 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요." }, { status: 500 });
+    try {
+      const fallback = buildSmartFallbackResponse({
+        prompt: typeof parsedBody.prompt === "string" ? parsedBody.prompt : "변형 문제 출제",
+        mode: typeof parsedBody.mode === "string" ? parsedBody.mode : "problem_studio",
+        roster: parsedBody.roster as Array<{ group: string; students: Array<{ name: string; grade: string }> }> | undefined,
+        contextData: parsedBody.contextData as Record<string, unknown> | undefined,
+      });
+      return NextResponse.json(fallback);
+    } catch {
+      return NextResponse.json({ error: "AI 응답 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요." }, { status: 500 });
+    }
   }
 }

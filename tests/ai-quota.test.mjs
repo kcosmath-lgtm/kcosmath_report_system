@@ -91,17 +91,42 @@ test("AlgeoMath / GeoGebra math geometry engine renders functions, shaded integr
     }).outputText,
     filename.pathname
   );
-  const { evalMathExpr, renderMathGeoSvg, MATH_GEO_PRESETS } = m.exports;
+  const { evalMathExpr, renderMathGeoSvg, buildMathGeoSpecFromPrompt, MATH_GEO_PRESETS } = m.exports;
 
   assert.equal(evalMathExpr("x^3 - 3*x^2 + 2*x + 1", 0), 1);
   assert.equal(evalMathExpr("x^3 - 3*x^2 + 2*x + 1", 3), 7);
   assert.equal(evalMathExpr("2x + 1", 2), 5);
+  assert.equal(evalMathExpr("y = |x^2 - 4|", 1), 3);
+  assert.equal(evalMathExpr("f(x) = \\frac{1}{2}x^2 + \\sqrt{4}", 2), 4);
+  assert.ok(Math.abs(evalMathExpr("\\sin(\\pi/2)", 0) - 1) < 1e-6);
 
   for (const preset of MATH_GEO_PRESETS) {
     const svg = renderMathGeoSvg(preset.spec);
     assert.ok(svg.startsWith("<svg"));
-    assert.ok(svg.includes("polyline") || svg.includes("ellipse"));
+    assert.ok(svg.includes("polyline") || svg.includes("ellipse") || svg.includes("path"));
     assert.ok(!svg.includes("NaN"));
+  }
+
+  const killerSpec = buildMathGeoSpecFromPrompt("삼차함수 접선과 절댓값 미분가능 30번 킬러 문제 그래프 작도해줘");
+  assert.ok(killerSpec);
+  const killerSvg = renderMathGeoSvg(killerSpec);
+  assert.ok(killerSvg.startsWith("<svg"));
+  assert.ok(!killerSvg.includes("NaN"));
+});
+
+test("1:1 mock exam problem + explanation token database contains matched problems and #30 killer problems", () => {
+  const raw = readFileSync(new URL("../src/data/mock-exam-problems.json", import.meta.url), "utf8");
+  const store = JSON.parse(raw);
+  assert.ok(Array.isArray(store.problems));
+  assert.ok(store.problems.length >= 250, `Expected >=250 tokens, got ${store.problems.length}`);
+
+  const killer30 = store.problems.filter(p => p.number === "30" && p.difficulty === "킬러");
+  assert.ok(killer30.length >= 5, `Expected >=5 #30 killer tokens, got ${killer30.length}`);
+  for (const token of killer30) {
+    assert.ok(token.question && token.question.length > 20);
+    assert.ok(token.answer && token.answer.length >= 1);
+    assert.ok(token.solution && token.solution.length > 10);
+    assert.equal(token.points, "4점");
   }
 });
 

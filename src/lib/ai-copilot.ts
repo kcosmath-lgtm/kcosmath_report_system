@@ -14,6 +14,7 @@ import {
 import { consumeLocalQuota, notifyQuotaUpdated, type AiQuotaSnapshot } from "./ai-quota-client";
 import { renderMathGeoPngDataUrl, type MathGeoSpec } from "./math-geometry-engine";
 import { isTemplate, type Template, type Block, type Kind, type Period, type Theme } from "../app/report/new/templates";
+import type { MockExamProblemToken } from "../types/mock-exam";
 
 export interface GeneratedMathProblem {
   id: string;
@@ -21,8 +22,12 @@ export interface GeneratedMathProblem {
   grade: number;
   subject: string;
   unit: string;
+  points?: string;
+  intent?: string;
   difficulty: "하" | "중" | "상" | "킬러";
   sourceLabel: string;
+  sourceTokenId?: string;
+  sourceOrigin?: MockExamProblemToken;
   question: string;
   boxContent: string;
   choices: string[];
@@ -86,8 +91,12 @@ export type AiCopilotAction =
         grade?: number;
         subject?: string;
         unit?: string;
+        points?: string;
+        intent?: string;
         difficulty?: "하" | "중" | "상" | "킬러";
         sourceLabel?: string;
+        sourceTokenId?: string;
+        sourceOrigin?: MockExamProblemToken;
         question: string;
         boxContent?: string;
         choices?: string[];
@@ -445,8 +454,12 @@ export async function executeCopilotActions(actions: AiCopilotAction[]): Promise
               grade: Number(p.grade || 1),
               subject: p.subject || "공통수학",
               unit: p.unit || "함수와 방정식",
+              points: p.points,
+              intent: p.intent,
               difficulty: p.difficulty || "중",
               sourceLabel: p.sourceLabel || "AI 변형·신규 출제",
+              sourceTokenId: p.sourceTokenId,
+              sourceOrigin: p.sourceOrigin,
               question: p.question,
               boxContent: p.boxContent || "",
               choices: Array.isArray(p.choices) ? p.choices : [],

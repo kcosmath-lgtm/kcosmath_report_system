@@ -74,7 +74,8 @@ import {
   type MathGeoSpec,
 } from "../lib/math-geometry-engine";
 import catalogData from "../data/mock-exams.json";
-import type { MockExamCatalog } from "../types/mock-exam";
+import mockProblemStoreData from "../data/mock-exam-problems.json";
+import type { MockExamCatalog, MockExamProblemStore, MockExamProblemToken } from "../types/mock-exam";
 import styles from "./AiProblemStudio.module.css";
 
 type StudioMode = "default" | "generate" | "typing" | "geometry" | "report";
@@ -180,13 +181,15 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
   const { user, workspace } = useAuth();
   const router = useRouter();
   const catalog = catalogData as MockExamCatalog;
+  const mockProblemStore = mockProblemStoreData as unknown as MockExamProblemStore;
+  const allProblemTokens = mockProblemStore.problems || [];
 
   // Sidebar & Canvas state
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [canvasPanel, setCanvasPanel] = useState<CanvasPanel>("none");
-  const [libraryTab, setLibraryTab] = useState<"vault" | "mock">("vault");
+  const [libraryTab, setLibraryTab] = useState<"tokens" | "vault" | "mock">("tokens");
 
   // Chat threads & messages
   const [threads, setThreads] = useState<StudioChatThread[]>([]);
@@ -197,9 +200,9 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
   const [mode, setMode] = useState<StudioMode>("default");
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const modeMenuRef = useRef<HTMLDivElement>(null);
-  const [grade, setGrade] = useState<1 | 2 | 3>(2);
-  const [subject, setSubject] = useState("수학I");
-  const [difficulty] = useState<"하" | "중" | "상" | "킬러">("상");
+  const [grade, setGrade] = useState<1 | 2 | 3>(3);
+  const [subject, setSubject] = useState("미적분");
+  const [difficulty, setDifficulty] = useState<"하" | "중" | "상" | "킬러">("킬러");
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
   const [busyStep, setBusyStep] = useState("");
@@ -210,6 +213,8 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
   const [examTitle, setExamTitle] = useState("2026 수학 실전 모의고사");
   const [examProblems, setExamProblems] = useState<GeneratedMathProblem[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [originCompareId, setOriginCompareId] = useState<string | null>(null);
+  const [expandedTokenId, setExpandedTokenId] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState("");
 
   // AI Report Template Studio state
@@ -233,22 +238,26 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
   // AlgeoMath / GeoGebra Plotter state
   const [geoPresetIdx, setGeoPresetIdx] = useState<number>(0);
   const [geoSpec, setGeoSpec] = useState<MathGeoSpec>(() => MATH_GEO_PRESETS[0].spec);
-  const [geoFn1, setGeoFn1] = useState("0.25*x^3 - 0.75*x + 1");
-  const [geoFn1Label, setGeoFn1Label] = useState("y=f(x)");
-  const [geoFn2, setGeoFn2] = useState("0.5*x + 0.5");
-  const [geoFn2Label, setGeoFn2Label] = useState("y=g(x)");
+  const [geoFn1, setGeoFn1] = useState("abs(x^3 - 3*x + 1)");
+  const [geoFn1Label, setGeoFn1Label] = useState("y=|f(x)|");
+  const [geoFn2, setGeoFn2] = useState("3");
+  const [geoFn2Label, setGeoFn2Label] = useState("y=t");
   const [geoShadeFrom, setGeoShadeFrom] = useState("-1");
   const [geoShadeTo, setGeoShadeTo] = useState("2");
-  const [geoShadeEnabled, setGeoShadeEnabled] = useState(true);
-  const [geoDomainMin, setGeoDomainMin] = useState("-3");
-  const [geoDomainMax, setGeoDomainMax] = useState("3.5");
-  const [geoRangeMin, setGeoRangeMin] = useState("-1.5");
-  const [geoRangeMax, setGeoRangeMax] = useState("4");
+  const [geoShadeEnabled, setGeoShadeEnabled] = useState(false);
+  const [geoEqualAspect, setGeoEqualAspect] = useState(false);
+  const [geoAutoIntersections, setGeoAutoIntersections] = useState(true);
+  const [geoTangentX, setGeoTangentX] = useState("");
+  const [geoDomainMin, setGeoDomainMin] = useState("-2.2");
+  const [geoDomainMax, setGeoDomainMax] = useState("3.6");
+  const [geoRangeMin, setGeoRangeMin] = useState("-1.2");
+  const [geoRangeMax, setGeoRangeMax] = useState("5.2");
   const [geoJsonText, setGeoJsonText] = useState(() => JSON.stringify(MATH_GEO_PRESETS[0].spec, null, 2));
   const [targetProblemId, setTargetProblemId] = useState<string>("latest");
 
-  // Mock Exam Archive filter state
+  // Mock Exam Archive & Token Library filter state
   const [mockGrade, setMockGrade] = useState<1 | 2 | 3>(3);
+  const [mockDiffFilter, setMockDiffFilter] = useState<"all" | "킬러" | "상" | "중" | "하">("all");
   const [mockSearch, setMockSearch] = useState("");
 
   const threadsKey = `cosmath:ai-studio:threads:${workspace?.id || "local"}`;
@@ -369,6 +378,9 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
     setGeoPresetIdx(index);
     setGeoSpec(preset.spec);
     setGeoJsonText(JSON.stringify(preset.spec, null, 2));
+    setGeoEqualAspect(Boolean(preset.spec.equalAspect));
+    setGeoAutoIntersections(Boolean(preset.spec.autoIntersections));
+    setGeoTangentX(preset.spec.tangents?.[0] ? String(preset.spec.tangents[0].atX) : "");
     setGeoDomainMin(String(preset.spec.xRange?.[0] ?? -4));
     setGeoDomainMax(String(preset.spec.xRange?.[1] ?? 4));
     setGeoRangeMin(String(preset.spec.yRange?.[0] ?? -3));
@@ -376,6 +388,9 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
     if (preset.spec.functions?.[0]) {
       setGeoFn1(preset.spec.functions[0].expr);
       setGeoFn1Label(preset.spec.functions[0].label || "y=f(x)");
+    } else {
+      setGeoFn1("");
+      setGeoFn1Label("");
     }
     if (preset.spec.functions?.[1]) {
       setGeoFn2(preset.spec.functions[1].expr);
@@ -400,9 +415,25 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
 
     const nextSpec: MathGeoSpec = {
       ...geoSpec,
+      equalAspect: geoEqualAspect,
+      autoIntersections: geoAutoIntersections,
       xRange: [Number(geoDomainMin) || -4, Number(geoDomainMax) || 4],
       yRange: [Number(geoRangeMin) || -3, Number(geoRangeMax) || 4],
       functions,
+      tangents:
+        geoTangentX.trim() !== "" && Number.isFinite(Number(geoTangentX)) && geoFn1.trim()
+          ? [
+              {
+                fn: geoFn1.trim(),
+                atX: Number(geoTangentX),
+                label: "l",
+                style: "dashed",
+                pointLabel: `P(${geoTangentX})`,
+                dropToX: true,
+                xTick: geoTangentX.trim(),
+              },
+            ]
+          : [],
       shadedRegions:
         geoShadeEnabled && geoFn1.trim()
           ? [
@@ -615,7 +646,7 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
     }
   }
 
-  async function handleSend(customPrompt?: string, forcedMode?: StudioMode) {
+  async function handleSend(customPrompt?: string, forcedMode?: StudioMode, sourceTokenId?: string) {
     const activeMode = forcedMode || mode;
     const text = (customPrompt ?? prompt).trim();
 
@@ -643,11 +674,11 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
       activeMode === "report"
         ? "학생 성취도·출결·오답·진도에 맞춘 보고서 템플릿을 설계하는 중..."
         : activeMode === "geometry"
-          ? "알지오매스/지오지브라 수식 좌표계와 도형을 작도하는 중..."
+          ? "알지오매스/지오지브라 1:1 등축 좌표계와 도형을 작도하는 중..."
           : activeMode === "typing"
             ? "문항 수식(LaTeX)과 레이아웃을 구성하는 중..."
             : activeMode === "generate"
-              ? "모의고사·EBS 출제 원리와 함수·기하 그래프를 설계하는 중..."
+              ? `기출 1:1 매칭 토큰 참조 및 고${grade} ${subject} (${difficulty}) 쌍둥이 변형 설계 중...`
               : "AI가 답변을 준비하고 있습니다..."
     );
 
@@ -655,7 +686,7 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
       activeMode === "report"
         ? `[학생 성장 보고서 템플릿 설계 요청] ${text}. 반드시 update_report_template 액션을 사용해 orientation(portrait|landscape), theme(miricheck|mirireport|mirigraph|unidesk|notebook|summary|timeline|briefing|planner|letter|clean), period(day|week|month|1month|3months), blocks 배열을 완성도 높게 구성해줘.`
         : activeMode === "geometry"
-          ? `[알지오매스/지오지브라 도형 작도 및 문항 출제 요청 | 고${grade} ${subject}] ${text}. 반드시 geoSpec(함수 그래프, 적분 색칠 영역, 주요 좌표점과 수선의 발 점선, 원/다각형 등)을 정교하게 포함하여 문항을 생성해줘.`
+          ? `[알지오매스/지오지브라 도형 작도 및 문항 출제 요청 | 고${grade} ${subject} / 난이도 ${difficulty}] ${text}. 반드시 geoSpec(함수 그래프, 접선, 적분 색칠 영역, 주요 좌표점과 수선의 발 점선, 원/다각형 등)을 정교하게 포함하여 문항을 생성해줘.`
           : activeMode === "typing"
             ? `[시험지 타이핑 및 문항 정밀 편집 요청 | 고${grade} ${subject}] ${text}. 시험지에 바로 넣을 수 있도록 깔끔한 LaTeX 수식과 5지선다, 필요한 경우 geoSpec 도형을 포함해 문항을 만들어줘.`
             : activeMode === "generate"
@@ -674,6 +705,12 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                 ? "general"
                 : "problem_studio",
         pathname: "/ai-studio",
+        contextData: {
+          grade,
+          subject,
+          difficulty,
+          ...(sourceTokenId ? { sourceTokenId } : {}),
+        },
         history: messages.slice(-8).map(m => ({ role: m.role, content: m.content })),
       });
 
@@ -772,6 +809,29 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
     setCanvasPanel("exam");
   }
 
+  function addTokenToExam(token: MockExamProblemToken) {
+    const converted: GeneratedMathProblem = {
+      id: `token-${token.id}`,
+      title: `${token.examTitle} ${token.number}번`,
+      grade: token.grade,
+      subject: token.subject,
+      unit: token.intent || token.subject,
+      difficulty: token.difficulty,
+      points: token.points,
+      question: token.question,
+      boxContent: token.boxContent || "",
+      choices: token.choices || [],
+      answer: token.answer,
+      solution: token.solution,
+      sourceLabel: `${token.year}.${String(token.month).padStart(2, "0")} 고${token.grade} ${token.number}번 원본`,
+      sourceTokenId: token.id,
+      sourceOrigin: token,
+      intent: token.intent,
+      createdAt: new Date().toISOString(),
+    };
+    addProblemToExam(converted);
+  }
+
   function removeProblemFromExam(id: string) {
     setExamProblems(prev => prev.filter(p => p.id !== id));
   }
@@ -851,11 +911,124 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
     )
     .slice(0, 25);
 
+  const filteredTokens = allProblemTokens
+    .filter(t => t.grade === mockGrade)
+    .filter(t => (mockDiffFilter === "all" ? true : t.difficulty === mockDiffFilter))
+    .filter(t => {
+      if (!mockSearch.trim()) return true;
+      const q = mockSearch.trim().toLowerCase();
+      return (
+        `${t.number}번`.includes(q) ||
+        `${t.examTitle} ${t.subject} ${t.intent || ""} ${t.question} ${t.solution}`
+          .toLowerCase()
+          .includes(q)
+      );
+    })
+    .slice(0, 40);
+
   const currentModeMeta = STUDIO_MODES.find(m => m.id === mode) || STUDIO_MODES[0];
   const CurrentModeIcon = currentModeMeta.icon;
 
   const renderComposer = (isCentered: boolean) => (
     <div className={`${styles.composerContainer} ${isCentered ? styles.composerCentered : styles.composerDocked}`}>
+      {(mode === "generate" || mode === "geometry" || mode === "default") && (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: 6,
+            marginBottom: 8,
+            fontSize: 12,
+          }}
+        >
+          <select
+            value={grade}
+            onChange={e => {
+              const g = Number(e.target.value) as 1 | 2 | 3;
+              setGrade(g);
+              setMockGrade(g);
+            }}
+            style={{
+              height: 28,
+              borderRadius: 999,
+              border: "1px solid #cbd5e1",
+              background: "#f8fafc",
+              padding: "0 10px",
+              fontSize: 12,
+              fontWeight: 600,
+              color: "#1e293b",
+            }}
+            aria-label="출제 학년"
+          >
+            <option value={1}>고1</option>
+            <option value={2}>고2</option>
+            <option value={3}>고3</option>
+          </select>
+          <select
+            value={subject}
+            onChange={e => setSubject(e.target.value)}
+            style={{
+              height: 28,
+              borderRadius: 999,
+              border: "1px solid #cbd5e1",
+              background: "#f8fafc",
+              padding: "0 10px",
+              fontSize: 12,
+              fontWeight: 600,
+              color: "#1e293b",
+            }}
+            aria-label="출제 과목"
+          >
+            <option value="공통수학1">공통수학1</option>
+            <option value="공통수학2">공통수학2</option>
+            <option value="대수">대수 (수학I)</option>
+            <option value="미적분">미적분</option>
+            <option value="기하">기하</option>
+            <option value="확률과 통계">확률과 통계</option>
+          </select>
+          <select
+            value={difficulty}
+            onChange={e => setDifficulty(e.target.value as "킬러" | "상" | "중" | "하")}
+            style={{
+              height: 28,
+              borderRadius: 999,
+              border: difficulty === "킬러" ? "1px solid #dc2626" : "1px solid #cbd5e1",
+              background: difficulty === "킬러" ? "#fef2f2" : "#f8fafc",
+              padding: "0 10px",
+              fontSize: 12,
+              fontWeight: 700,
+              color: difficulty === "킬러" ? "#b91c1c" : "#1e293b",
+            }}
+            aria-label="출제 난이도"
+          >
+            <option value="킬러">🔥 킬러 (15·21·22·29·30번 4점)</option>
+            <option value="상">상 (핵심 4점)</option>
+            <option value="중">중 (3점)</option>
+            <option value="하">하 (2점)</option>
+          </select>
+          <button
+            type="button"
+            onClick={() => {
+              setLibraryTab("tokens");
+              setCanvasPanel("library");
+            }}
+            style={{
+              height: 28,
+              borderRadius: 999,
+              border: "1px solid #bfdbfe",
+              background: "#eff6ff",
+              color: "#1d4ed8",
+              padding: "0 10px",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            📚 기출 문제·해설 1:1 토큰 라이브러리 ({allProblemTokens.length}문항)
+          </button>
+        </div>
+      )}
       {sources.length > 0 && (
         <div className={styles.attachmentStrip}>
           <div className={styles.attachmentItems}>
@@ -1239,6 +1412,11 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                           <div className={styles.problemCardStack}>
                             {msg.problems.map((prob, pIdx) => {
                               const inExam = examProblems.some(item => item.id === prob.id);
+                              const origin =
+                                prob.sourceOrigin ||
+                                (prob.sourceTokenId
+                                  ? allProblemTokens.find(t => t.id === prob.sourceTokenId)
+                                  : undefined);
                               return (
                                 <article key={prob.id} className={styles.problemCard}>
                                   <div className={styles.problemCardTop}>
@@ -1246,10 +1424,35 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                                       <span className={styles.metaBadge}>
                                         고{prob.grade} · {prob.subject}
                                       </span>
-                                      <span className={styles.metaPoints}>{prob.difficulty}</span>
+                                      <span className={styles.metaPoints}>
+                                        {prob.points
+                                          ? `${String(prob.points).endsWith("점") ? prob.points : `${prob.points}점`} · `
+                                          : ""}
+                                        {prob.difficulty}
+                                      </span>
                                       <span className={styles.metaSource}>{prob.sourceLabel || prob.title}</span>
                                     </div>
                                     <div className={styles.problemCardBtns}>
+                                      {origin && (
+                                        <button
+                                          type="button"
+                                          className={styles.cardSmallBtn}
+                                          style={{
+                                            background: originCompareId === prob.id ? "#dbeafe" : "#eff6ff",
+                                            borderColor: "#93c5fd",
+                                            color: "#1d4ed8",
+                                            fontWeight: 700,
+                                          }}
+                                          onClick={() =>
+                                            setOriginCompareId(curr => (curr === prob.id ? null : prob.id))
+                                          }
+                                        >
+                                          <BookOpen size={13} />{" "}
+                                          {originCompareId === prob.id
+                                            ? "원본 기출 1:1 비교 닫기 ▲"
+                                            : `원본 기출(${origin.number}번) 1:1 비교 ▼`}
+                                        </button>
+                                      )}
                                       <button
                                         type="button"
                                         className={styles.cardSmallBtn}
@@ -1281,6 +1484,157 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                                       </button>
                                     </div>
                                   </div>
+
+                                  {origin && originCompareId === prob.id && (
+                                    <div
+                                      style={{
+                                        marginTop: 10,
+                                        marginBottom: 12,
+                                        padding: "12px 14px",
+                                        borderRadius: 12,
+                                        background: "#f8fafc",
+                                        border: "1px solid #bfdbfe",
+                                        fontSize: 13,
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          display: "flex",
+                                          justifyContent: "space-between",
+                                          alignItems: "center",
+                                          flexWrap: "wrap",
+                                          gap: 8,
+                                          marginBottom: 8,
+                                          paddingBottom: 8,
+                                          borderBottom: "1px dashed #cbd5e1",
+                                        }}
+                                      >
+                                        <div>
+                                          <strong style={{ color: "#1e40af", fontSize: 13 }}>
+                                            🔗 변형 원본 기출 토큰: {origin.examTitle} {origin.number}번 ({origin.points} ·{" "}
+                                            {origin.difficulty})
+                                          </strong>
+                                          {origin.intent && (
+                                            <span
+                                              style={{
+                                                marginLeft: 8,
+                                                fontSize: 11.5,
+                                                color: "#475569",
+                                                background: "#e2e8f0",
+                                                padding: "2px 8px",
+                                                borderRadius: 999,
+                                              }}
+                                            >
+                                              출제의도: {origin.intent}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div style={{ display: "flex", gap: 8, fontSize: 12 }}>
+                                          {origin.problemPdfUrl && (
+                                            <a
+                                              href={origin.problemPdfUrl}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              style={{ color: "#2563eb", fontWeight: 600 }}
+                                            >
+                                              원본 문제지 PDF ↗
+                                            </a>
+                                          )}
+                                          {origin.explanationPdfUrl && (
+                                            <a
+                                              href={origin.explanationPdfUrl}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              style={{ color: "#059669", fontWeight: 600 }}
+                                            >
+                                              원본 해설지 PDF ↗
+                                            </a>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      <div style={{ display: "grid", gap: 10 }}>
+                                        <div
+                                          style={{
+                                            background: "#ffffff",
+                                            padding: "10px 12px",
+                                            borderRadius: 8,
+                                            border: "1px solid #e2e8f0",
+                                          }}
+                                        >
+                                          <div
+                                            style={{
+                                              fontSize: 11.5,
+                                              fontWeight: 700,
+                                              color: "#1d4ed8",
+                                              marginBottom: 4,
+                                            }}
+                                          >
+                                            [원본 문제 ({origin.number}번)]
+                                          </div>
+                                          <div style={{ lineHeight: 1.65 }}>
+                                            <TypingMath text={origin.question} />
+                                          </div>
+                                          {origin.boxContent && (
+                                            <div
+                                              style={{
+                                                marginTop: 6,
+                                                padding: "6px 10px",
+                                                background: "#f8fafc",
+                                                border: "1px solid #cbd5e1",
+                                                borderRadius: 6,
+                                                fontSize: 12.5,
+                                              }}
+                                            >
+                                              <TypingMath text={origin.boxContent} />
+                                            </div>
+                                          )}
+                                          {origin.choices && origin.choices.length > 0 && (
+                                            <div
+                                              style={{
+                                                display: "flex",
+                                                flexWrap: "wrap",
+                                                gap: 10,
+                                                marginTop: 6,
+                                                fontSize: 12.5,
+                                                color: "#334155",
+                                              }}
+                                            >
+                                              {origin.choices.map((c, cIdx) => (
+                                                <span key={cIdx}>
+                                                  {choiceLabels[cIdx] || `(${cIdx + 1})`}{" "}
+                                                  <TypingMath text={formatChoiceContent(c)} />
+                                                </span>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        <div
+                                          style={{
+                                            background: "#f0fdf4",
+                                            padding: "10px 12px",
+                                            borderRadius: 8,
+                                            border: "1px solid #bbf7d0",
+                                          }}
+                                        >
+                                          <div
+                                            style={{
+                                              fontSize: 11.5,
+                                              fontWeight: 700,
+                                              color: "#15803d",
+                                              marginBottom: 4,
+                                            }}
+                                          >
+                                            [원본 정답 및 1:1 매칭 해설] · 정답: <TypingMath text={origin.answer} />
+                                          </div>
+                                          <div style={{ lineHeight: 1.65, fontSize: 12.5, color: "#1e293b" }}>
+                                            <TypingMath text={origin.solution} />
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
 
                                   <div className={styles.problemStem}>
                                     <strong>{pIdx + 1}. </strong>
@@ -1597,12 +1951,20 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
 
               <div className={styles.geoFormGrid}>
                 <label>
-                  <span>함수 $f(x)$ 수식</span>
-                  <input value={geoFn1} onChange={e => setGeoFn1(e.target.value)} placeholder="0.25*x^3 - 0.75*x + 1" />
+                  <span>함수 $f(x)$ 수식 (LaTeX/절댓값 지원)</span>
+                  <input value={geoFn1} onChange={e => setGeoFn1(e.target.value)} placeholder="x^3 - 3x + 1 또는 |x^2 - 2|" />
                 </label>
                 <label>
                   <span>보조함수 $g(x)$ 수식</span>
-                  <input value={geoFn2} onChange={e => setGeoFn2(e.target.value)} placeholder="0.5*x + 0.5" />
+                  <input value={geoFn2} onChange={e => setGeoFn2(e.target.value)} placeholder="0.5x + 0.5" />
+                </label>
+                <label>
+                  <span>접선 자동 작도 ($x = a$에서의 접선)</span>
+                  <input
+                    value={geoTangentX}
+                    onChange={e => setGeoTangentX(e.target.value)}
+                    placeholder="예: 1 (비우면 표시 안 함)"
+                  />
                 </label>
                 <label>
                   <span>적분 색칠 구간 $[a, b]$</span>
@@ -1626,13 +1988,31 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                     <input value={geoRangeMax} onChange={e => setGeoRangeMax(e.target.value)} />
                   </div>
                 </label>
+                <div style={{ display: "flex", gap: 12, fontSize: 12, color: "#334155", alignItems: "center" }}>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4, flexDirection: "row" }}>
+                    <input
+                      type="checkbox"
+                      checked={geoEqualAspect}
+                      onChange={e => setGeoEqualAspect(e.target.checked)}
+                    />
+                    <span>1:1 등축 비율 (원·직교 유지)</span>
+                  </label>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4, flexDirection: "row" }}>
+                    <input
+                      type="checkbox"
+                      checked={geoAutoIntersections}
+                      onChange={e => setGeoAutoIntersections(e.target.checked)}
+                    />
+                    <span>교점 자동 탐색·표시</span>
+                  </label>
+                </div>
                 <button type="button" className={styles.exportBtn} onClick={applyQuickFormulaSpec}>
-                  수식 그래프 즉시 갱신
+                  수식·작도 그래프 즉시 갱신
                 </button>
               </div>
 
               <details className={styles.geoJsonDetails}>
-                <summary>고급 도형 JSON 스펙 (원·다각형·수선의 발 좌표)</summary>
+                <summary>고급 도형 JSON 스펙 (원·다각형·접선·직각기호·점근선)</summary>
                 <textarea
                   rows={5}
                   value={geoJsonText}
@@ -1655,6 +2035,13 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
               <div className={styles.librarySwitch}>
                 <button
                   type="button"
+                  className={libraryTab === "tokens" ? styles.libSwitchActive : ""}
+                  onClick={() => setLibraryTab("tokens")}
+                >
+                  기출 문제·해설 토큰 ({allProblemTokens.length})
+                </button>
+                <button
+                  type="button"
                   className={libraryTab === "vault" ? styles.libSwitchActive : ""}
                   onClick={() => setLibraryTab("vault")}
                 >
@@ -1665,11 +2052,177 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                   className={libraryTab === "mock" ? styles.libSwitchActive : ""}
                   onClick={() => setLibraryTab("mock")}
                 >
-                  모의고사 기출 ({catalog.exams.length})
+                  시험지 통째 ({catalog.exams.length})
                 </button>
               </div>
 
-              {libraryTab === "vault" ? (
+              {libraryTab === "tokens" ? (
+                <div className={styles.mockArchiveList}>
+                  <div className={styles.mockFilterRow} style={{ flexWrap: "wrap", gap: 6 }}>
+                    {[1, 2, 3].map(g => (
+                      <button
+                        key={g}
+                        type="button"
+                        className={mockGrade === g ? styles.geoPresetChipActive : styles.geoPresetChip}
+                        onClick={() => setMockGrade(g as 1 | 2 | 3)}
+                      >
+                        고{g}
+                      </button>
+                    ))}
+                    {(["all", "킬러", "상", "중", "하"] as const).map(diff => (
+                      <button
+                        key={diff}
+                        type="button"
+                        className={mockDiffFilter === diff ? styles.geoPresetChipActive : styles.geoPresetChip}
+                        onClick={() => setMockDiffFilter(diff)}
+                      >
+                        {diff === "all" ? "전체" : diff === "킬러" ? "🔥 킬러(15·21·22·29·30)" : diff}
+                      </button>
+                    ))}
+                    <input
+                      type="search"
+                      value={mockSearch}
+                      onChange={e => setMockSearch(e.target.value)}
+                      placeholder="문항번호(예: 30번)·단원·수식·해설 검색..."
+                      style={{ width: "100%" }}
+                    />
+                  </div>
+                  <div className={styles.vaultList}>
+                    {filteredTokens.length === 0 ? (
+                      <p className={styles.examEmptyState}>조건에 맞는 기출 문제·해설 토큰이 없습니다.</p>
+                    ) : (
+                      filteredTokens.map(token => {
+                        const isExpanded = expandedTokenId === token.id;
+                        return (
+                          <div key={token.id} className={styles.vaultCard}>
+                            <div className={styles.vaultCardHeader}>
+                              <span>
+                                <strong>
+                                  {token.year}.{String(token.month).padStart(2, "0")} 고{token.grade} ·{" "}
+                                  {token.subject} {token.number}번
+                                </strong>{" "}
+                                [{token.points} · {token.difficulty}]
+                              </span>
+                              <div className={styles.vaultCardActions}>
+                                {token.problemPdfUrl && (
+                                  <a
+                                    href={token.problemPdfUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    style={{ fontSize: 11.5, color: "#2563eb" }}
+                                  >
+                                    문제PDF↗
+                                  </a>
+                                )}
+                                {token.explanationPdfUrl && (
+                                  <a
+                                    href={token.explanationPdfUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    style={{ fontSize: 11.5, color: "#059669" }}
+                                  >
+                                    해설PDF↗
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                            {token.intent && (
+                              <div style={{ fontSize: 11.5, color: "#475569", marginBottom: 4 }}>
+                                🎯 출제의도: {token.intent}
+                              </div>
+                            )}
+                            <div className={styles.vaultCardQuestion} style={{ fontSize: 13, lineHeight: 1.6 }}>
+                              <TypingMath text={token.question} />
+                            </div>
+                            {token.boxContent && (
+                              <div
+                                style={{
+                                  marginTop: 6,
+                                  padding: "6px 10px",
+                                  background: "#f8fafc",
+                                  border: "1px solid #cbd5e1",
+                                  borderRadius: 6,
+                                  fontSize: 12,
+                                }}
+                              >
+                                <TypingMath text={token.boxContent} />
+                              </div>
+                            )}
+                            {token.choices && token.choices.length > 0 && (
+                              <div
+                                style={{
+                                  display: "flex",
+                                  flexWrap: "wrap",
+                                  gap: 8,
+                                  marginTop: 6,
+                                  fontSize: 12,
+                                  color: "#334155",
+                                }}
+                              >
+                                {token.choices.map((c, idx) => (
+                                  <span key={idx}>
+                                    {choiceLabels[idx] || `(${idx + 1})`}{" "}
+                                    <TypingMath text={formatChoiceContent(c)} />
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+
+                            <div style={{ marginTop: 8 }}>
+                              <button
+                                type="button"
+                                className={styles.solutionToggle}
+                                onClick={() => setExpandedTokenId(curr => (curr === token.id ? null : token.id))}
+                              >
+                                {isExpanded
+                                  ? "원본 1:1 매칭 정답·해설 접기 ▲"
+                                  : `원본 1:1 매칭 정답(${token.answer}) 및 해설 보기 ▼`}
+                              </button>
+                              {isExpanded && (
+                                <div className={styles.solutionBox} style={{ marginTop: 6 }}>
+                                  <div>
+                                    <strong>정답:</strong> <TypingMath text={token.answer} />
+                                  </div>
+                                  <div style={{ marginTop: 4 }}>
+                                    <strong>원본 해설:</strong> <TypingMath text={token.solution} />
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                              <button
+                                type="button"
+                                className={styles.mockSpawnBtn}
+                                style={{ flex: 1, marginTop: 0 }}
+                                onClick={() => {
+                                  setGrade((token.grade as 1 | 2 | 3) || 3);
+                                  setSubject(token.subject);
+                                  setDifficulty(token.difficulty);
+                                  void handleSend(
+                                    `${token.examTitle} ${token.number}번 (${token.difficulty}·${token.points}, 출제의도: ${token.intent || token.subject}) 원본 기출 토큰을 1:1로 참조하여 동일한 추론 구조와 난이도의 쌍둥이 변형 문제를 작도 그래프(geoSpec)와 함께 출제해줘`,
+                                    "generate",
+                                    token.id
+                                  );
+                                }}
+                              >
+                                ✦ 이 문제 1:1 쌍둥이 변형 출제
+                              </button>
+                              <button
+                                type="button"
+                                className={styles.exportBtn}
+                                onClick={() => addTokenToExam(token)}
+                              >
+                                + 원본 시험지 담기
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ) : libraryTab === "vault" ? (
                 <div className={styles.vaultList}>
                   {savedProblems.length === 0 ? (
                     <p className={styles.examEmptyState}>아직 저장된 문항이 없습니다.</p>

@@ -4,10 +4,13 @@ import { resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { OCR_MODEL } from "../../../../lib/typing-model";
 import type { AiCopilotAction } from "../../../../lib/ai-copilot";
+import { buildMathGeoSpecFromPrompt, type MathGeoSpec } from "../../../../lib/math-geometry-engine";
+import type { MockExamProblemToken } from "../../../../types/mock-exam";
 
 export const maxDuration = 60;
 
 const UNIT_KEYWORDS = [
+  "행렬",
   "다항식",
   "나머지정리",
   "인수분해",
@@ -18,7 +21,10 @@ const UNIT_KEYWORDS = [
   "부등식",
   "원의 방정식",
   "원",
+  "접선",
   "도형의 이동",
+  "대칭이동",
+  "평행이동",
   "집합",
   "명제",
   "함수",
@@ -30,54 +36,485 @@ const UNIT_KEYWORDS = [
   "지수",
   "로그",
   "삼각함수",
+  "사인법칙",
+  "코사인법칙",
+  "외접원",
   "수열",
   "등차",
   "등비",
+  "귀납",
   "극한",
+  "급수",
   "연속",
   "미분",
   "도함수",
   "적분",
   "정적분",
   "확률",
+  "조건부확률",
   "통계",
+  "정규분포",
+  "이차곡선",
+  "포물선",
+  "타원",
+  "쌍곡선",
+  "벡터",
+  "공간도형",
 ];
 
 function extractRequestedUnits(prompt: string): string[] {
   return UNIT_KEYWORDS.filter(kw => prompt.includes(kw));
 }
 
-function loadInternalSeedProblems(grade: number, prompt: string, maxSeeds = 12): Array<Record<string, unknown>> {
+function parsePromptProblemIntent(prompt: string, contextData?: Record<string, unknown>) {
+  const text = String(prompt || "");
+  const explicitTokenId = typeof contextData?.sourceTokenId === "string" ? contextData.sourceTokenId : "";
+
+  // 1. Distinguish problem number ("30번", "22번급", "21번 스타일") vs problem count ("30문제", "5문항", "10개")
+  const numberMatch = text.match(/\b([1-9]|[12]\d|30)\s*번/);
+  const targetNumber = numberMatch ? Number(numberMatch[1]) : null;
+
+  // Strip "<N>번" before matching count so "30번 문제" is NEVER misread as 30 problems
+  const textWithoutNumber = text.replace(/\b([1-9]|[12]\d|30)\s*번(?:급|\s*스타일|\s*유형)?/g, "");
+  const countMatch = textWithoutNumber.match(/(\d{1,2})\s*(?:개|문항|문제|세트)/);
+  const requestedCount = countMatch
+    ? Math.min(30, Math.max(1, Number(countMatch[1])))
+    : /1회분|한\s*세트|전체\s*문항|풀세트/.test(text)
+      ? 30
+      : 1;
+
+  // 2. Grade & Subject
+  const gradeMatch = text.match(/고([123])/);
+  const ctxGrade = Number(contextData?.grade || 0);
+  const isCalculus = /미적분|급수|정적분.*치환|합성함수.*미분|e\^x|\\ln/.test(text);
+  const isGeometry = /기하|이차곡선|포물선|타원|쌍곡선|벡터|공간도형|정사영/.test(text);
+  const isProbStat = /확률과\s*통계|확통|조건부확률|정규분포|신뢰구간|이항분포/.test(text);
+  const grade = gradeMatch
+    ? Number(gradeMatch[1])
+    : ctxGrade >= 1 && ctxGrade <= 3
+      ? ctxGrade
+      : isCalculus || isGeometry || isProbStat || (targetNumber && targetNumber >= 28)
+        ? 3
+        : /수열|삼각함수|지수|로그|도함수|극대|극소/.test(text)
+          ? 2
+          : 1;
+
+  // 3. Difficulty
+  const ctxDifficulty = typeof contextData?.difficulty === "string" ? contextData.difficulty : "";
+  const isKillerNum = targetNumber !== null && [15, 21, 22, 29, 30].includes(targetNumber);
+  const isHardNum = targetNumber !== null && [13, 14, 19, 20, 27, 28].includes(targetNumber);
+  const difficulty: "하" | "중" | "상" | "킬러" =
+    /킬러|최고난도|30번급|22번급|21번급|29번급|15번급|어려운|고난도\s*킬러/.test(text) || isKillerNum
+      ? "킬러"
+      : /준킬러|고난도|심화|4점|상\s*난이도/.test(text) || isHardNum
+        ? "상"
+        : /2점|기초|쉬운|하\s*난이도/.test(text) || (targetNumber !== null && targetNumber <= 4)
+          ? "하"
+          : /3점|중\s*난이도/.test(text)
+            ? "중"
+            : (["하", "중", "상", "킬러"].includes(ctxDifficulty)
+                ? (ctxDifficulty as "하" | "중" | "상" | "킬러")
+                : "상");
+
+  const subjectHint = isGeometry
+    ? "기하"
+    : isProbStat
+      ? "확률과 통계"
+      : isCalculus
+        ? "미적분"
+        : typeof contextData?.subject === "string" && contextData.subject
+          ? contextData.subject
+          : "";
+
+  return {
+    explicitTokenId,
+    targetNumber,
+    requestedCount,
+    grade,
+    difficulty,
+    subjectHint,
+    units: extractRequestedUnits(text),
+  };
+}
+
+let cachedProblemStore: MockExamProblemToken[] | null = null;
+
+function loadAllProblemTokens(): MockExamProblemToken[] {
+  if (cachedProblemStore && cachedProblemStore.length > 0) return cachedProblemStore;
   try {
     const filePath = resolve(process.cwd(), "src/data/mock-exam-problems.json");
     if (!existsSync(filePath)) return [];
     const raw = JSON.parse(readFileSync(filePath, "utf8"));
-    const all: Array<Record<string, unknown>> = Array.isArray(raw.problems) ? raw.problems : [];
-    if (!all.length) return [];
-
-    const units = extractRequestedUnits(prompt);
-    let pool = all.filter(p => !grade || Number(p.grade) === grade);
-    if (!pool.length) pool = all;
-
-    if (units.length > 0) {
-      const unitMatched = pool.filter(p => {
-        const text = `${p.unit || ""} ${p.question || ""} ${p.title || ""}`;
-        return units.some(u => text.includes(u));
-      });
-      if (unitMatched.length > 0) pool = unitMatched;
-    }
-
-    return pool.slice(0, maxSeeds).map(p => ({
-      unit: p.unit,
-      points: p.points,
-      difficulty: p.difficulty,
-      questionStructure: p.question,
-      boxContent: p.boxContent,
-      choicesPattern: p.choices,
-    }));
+    const all: MockExamProblemToken[] = Array.isArray(raw.problems) ? raw.problems : [];
+    cachedProblemStore = all;
+    return all;
   } catch {
     return [];
   }
+}
+
+function findMatchingSeedTokens(
+  prompt: string,
+  contextData?: Record<string, unknown>,
+  maxSeeds = 8
+): MockExamProblemToken[] {
+  const all = loadAllProblemTokens();
+  if (!all.length) return [];
+
+  const intent = parsePromptProblemIntent(prompt, contextData);
+
+  // 1. Exact token match if requested from Library "이 문제로 쌍둥이 변형"
+  if (intent.explicitTokenId) {
+    const exact = all.find(p => p.id === intent.explicitTokenId || p.tokenId === intent.explicitTokenId);
+    if (exact) return [exact];
+  }
+
+  // Also check if prompt mentions a specific token ID directly
+  const idMatch = prompt.match(/\b([123]-\d{6,10}-q\d{1,2})\b/);
+  if (idMatch) {
+    const exact = all.find(p => p.id === idMatch[1]);
+    if (exact) return [exact];
+  }
+
+  let pool = all.filter(p => Number(p.grade) === intent.grade);
+  if (!pool.length) pool = all;
+
+  // Filter by subject if grade 3 selective subject is specified
+  if (intent.grade === 3 && intent.subjectHint) {
+    const subjMatched = pool.filter(
+      p => p.subject.includes(intent.subjectHint) || p.examTitle.includes(intent.subjectHint)
+    );
+    if (subjMatched.length > 0) pool = subjMatched;
+  }
+
+  // Filter by target problem number if specified (e.g., 30번, 22번, 21번, 15번, 29번)
+  if (intent.targetNumber !== null) {
+    const exactNum = pool.filter(p => Number(p.number) === intent.targetNumber);
+    if (exactNum.length > 0) {
+      pool = exactNum;
+    } else if (intent.difficulty === "킬러") {
+      const killerNums = pool.filter(p => [15, 21, 22, 29, 30].includes(Number(p.number)));
+      if (killerNums.length > 0) pool = killerNums;
+    }
+  } else {
+    // Filter by requested difficulty
+    const diffMatched = pool.filter(p => p.difficulty === intent.difficulty);
+    if (diffMatched.length > 0) pool = diffMatched;
+  }
+
+  // Filter by unit keywords if any
+  if (intent.units.length > 0) {
+    const unitMatched = pool.filter(p => {
+      const hay = `${p.unit || ""} ${p.intent || ""} ${p.question || ""} ${p.solution || ""}`;
+      return intent.units.some(u => hay.includes(u));
+    });
+    if (unitMatched.length > 0) pool = unitMatched;
+  }
+
+  // Sort killer/4-point problems with rich solutions first when high difficulty is requested
+  const sorted = [...pool].sort((a, b) => {
+    if (intent.difficulty === "킬러") {
+      const aKiller = [30, 22, 29, 21, 15].indexOf(Number(a.number));
+      const bKiller = [30, 22, 29, 21, 15].indexOf(Number(b.number));
+      if (aKiller !== -1 && bKiller === -1) return -1;
+      if (bKiller !== -1 && aKiller === -1) return 1;
+    }
+    return (b.solution?.length || 0) - (a.solution?.length || 0);
+  });
+
+  return sorted.slice(0, maxSeeds);
+}
+
+/**
+ * 실제 기출 토큰(MockExamProblemToken)의 수학적 추론 구조와 난이도(특히 15·21·22·29·30번 킬러)를 그대로 보존하면서
+ * 계수·구간·함수를 새롭게 변형하고 원본 기출 토큰(sourceOrigin)을 1:1로 매칭해 반환합니다.
+ */
+function buildTwinProblemFromSeedToken(
+  seed: MockExamProblemToken,
+  variantIndex = 1,
+  customPrompt = ""
+): {
+  title: string;
+  grade: number;
+  subject: string;
+  unit: string;
+  points: string;
+  intent: string;
+  difficulty: "하" | "중" | "상" | "킬러";
+  sourceLabel: string;
+  sourceTokenId: string;
+  sourceOrigin: MockExamProblemToken;
+  question: string;
+  boxContent: string;
+  choices: string[];
+  answer: string;
+  solution: string;
+  geoSpec?: MathGeoSpec;
+} {
+  const num = Number(seed.number);
+  const k = (variantIndex % 4) + 2; // 2, 3, 4, 5
+  const isKiller = seed.difficulty === "킬러" || [15, 21, 22, 29, 30].includes(num);
+  const isHard = seed.difficulty === "상" || [13, 14, 19, 20, 27, 28].includes(num);
+  const promptGeo = buildMathGeoSpecFromPrompt(customPrompt);
+
+  // Case A: 30번 / 22번 / 29번 킬러 문항 1:1 구조 보존 변형
+  if (isKiller) {
+    // 1. 미적분 30번형 (삼각함수·합성함수 정적분 추론 킬러 — e.g. 3-27682637-q30)
+    if (/\\sin|\\cos/.test(seed.question) && /\\int/.test(seed.question)) {
+      const mVal = k; // 2, 3, 4, 5
+      const pVal = 2 * mVal + 6; // 10, 12, 14, 16
+      const qVal = 4 * mVal + 11; // 19, 23, 27, 31
+      const ansVal = pVal + qVal;
+      return {
+        title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.number}번 1:1 변형] 합성함수의 정적분과 삼각함수 추론 (4점 킬러)`,
+        grade: seed.grade,
+        subject: seed.subject,
+        unit: seed.unit,
+        points: "4점",
+        intent: seed.intent || "정적분과 합성함수의 성질을 이용하여 함수를 추론한다.",
+        difficulty: "킬러",
+        sourceLabel: `${seed.sourceLabel} 1:1 쌍둥이 변형`,
+        sourceTokenId: seed.id,
+        sourceOrigin: seed,
+        question: `두 상수 $a\\ (a > 0)$, $b$에 대하여 두 함수 $f(x) = -\\sin(ax) + b + 1$, $g(x) = (x - b)^2$이 다음 조건을 만족시킨다. $f(2\\pi) = \\frac{q}{p}$일 때, $p + q$의 값을 구하시오. (단, $p$와 $q$는 서로소인 자연수이다.) [4점]`,
+        boxContent: `(가) $\\int_0^{2\\pi} |g'(f(x))f'(x)|\\,dx = \\frac{${mVal + 3}}{${mVal + 2}}$\n(나) $\\int_b^{b+1} f(g(x))g'(x)\\,dx = \\frac{\\cos a}{a}$`,
+        choices: [],
+        answer: String(ansVal),
+        solution: `[출제의도] ${seed.intent || "적분법을 이용하여 합성함수의 미정계수를 추론한다."}\n\n[1단계: 합성함수의 도함수 부호와 정적분 구간 분할]\n$g(f(x)) = (-\\sin(ax) + 1)^2 = (\\sin(ax) - 1)^2$이므로 양변을 미분하면\n$$g'(f(x))f'(x) = 2a(\\sin(ax) - 1)\\cos(ax)$$\n이때 $a > 0$이고 모든 실수 $x$에 대하여 $\\sin(ax) - 1 \\le 0$이므로:\n• $\\cos(ax) \\ge 0$인 구간 $\\left[0, \\frac{\\pi}{2a}\\right]$에서는 $|g'(f(x))f'(x)| = -(g(f(x)))'$이므로 정적분 값은 $g(f(0)) - g\\left(f\\left(\\frac{\\pi}{2a}\\right)\\right) = 1 - 0 = 1$이다.\n• $\\cos(ax) \\le 0$인 구간 $\\left[\\frac{\\pi}{2a}, \\frac{\\pi}{a}\\right]$에서도 정적분 값은 $g\\left(f\\left(\\frac{\\pi}{a}\\right)\\right) - g\\left(f\\left(\\frac{\\pi}{2a}\\right)\\right) = 1$이다.\n\n[2단계: 조건 (가)를 이용한 $a$의 값 결정]\n조건 (가)에서 $\\int_0^{2\\pi} |g'(f(x))f'(x)|\\,dx = 1 + (\\sin(2a\\pi) - 1)^2 = \\frac{${mVal + 3}}{${mVal + 2}}$이고 $\\frac{\\pi}{2a} < 2\\pi < \\frac{\\pi}{a}$이므로\n$$\\sin(2a\\pi) = 1 - \\frac{1}{\\sqrt{${mVal + 2}}}$$\n로부터 양수 $a$의 값이 하나로 결정된다.\n\n[3단계: 조건 (나)의 치환적분으로 $b$ 결정]\n조건 (나)에서 $g(x) = s$로 치환하면 $x = b$일 때 $s = 0$, $x = b+1$일 때 $s = 1$이므로\n$$\\int_0^1 f(s)\\,ds = \\left[\\frac{1}{a}\\cos(as) + (b+1)s\\right]_0^1 = \\frac{\\cos a}{a} + (b + 1) - \\frac{1}{a} = \\frac{\\cos a}{a}$$\n따라서 $b + 1 - \\frac{1}{a} = 0 \\implies b = \\frac{1}{a} - 1$이다.\n이를 대입하여 정리하면 $f(2\\pi) = \\frac{${qVal}}{${pVal}}$이므로 서로소인 자연수 $p = ${pVal}, q = ${qVal}$에서 $p + q = ${ansVal}$이다.`,
+        geoSpec: promptGeo || {
+          title: "합성함수 g(f(x))와 정적분 구간 추론",
+          xRange: [-0.4, 6.8],
+          yRange: [-0.6, 2.6],
+          showAxes: true,
+          functions: [
+            { expr: "(sin(x) - 1)^2", label: "y=g(f(x))", domain: [0, 6.3], labelPos: [4.5, 2.1] },
+            { expr: "-sin(x) + 1", label: "y=f(x)-b", style: "dashed", domain: [0, 6.3], labelPos: [1.8, 0.3] },
+          ],
+          shadedRegions: [{ f1: "(sin(x) - 1)^2", f2: "0", from: 0, to: 3.14 }],
+          points: [
+            { x: 0, y: 1, label: "1", dropToY: true, yTick: "1" },
+            { x: 1.57, y: 0, label: "π/2a", dropToX: true, xTick: "π/2a" },
+            { x: 3.14, y: 1, label: "π/a", dropToX: true, xTick: "π/a" },
+          ],
+        },
+      };
+    }
+
+    // 2. 고1/고2/고3 다항함수 구간별 정의 & 실근 개수 추론 30번/22번 킬러 (e.g. 1-27682783-q30)
+    if (/구간|실근의\s*개수|미분가능|이차항의\s*계수|최고차항/.test(seed.question)) {
+      const pSeed = k; // 2, 3, 4, 5
+      const mSlope = 2 * pSeed; // 4, 6, 8, 10
+      const cConst = 4 * pSeed; // 8, 12, 16, 20
+      const alpha = -4 * pSeed;
+      const beta = 4 * pSeed;
+      const fAtM = (mSlope + pSeed) * (mSlope - 4 * pSeed) + mSlope * mSlope;
+      const ansVal = Math.abs(alpha * fAtM + beta);
+      return {
+        title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.number}번 1:1 변형] 구간별 정의된 함수 $g(x)$와 실근 개수를 이용한 함수 추론 (4점 킬러)`,
+        grade: seed.grade,
+        subject: seed.subject,
+        unit: seed.unit,
+        points: "4점",
+        intent: seed.intent || "구간별로 정의된 함수의 그래프 개형과 실근의 개수를 이용하여 함수를 추론한다.",
+        difficulty: "킬러",
+        sourceLabel: `${seed.sourceLabel} 1:1 쌍둥이 변형`,
+        sourceTokenId: seed.id,
+        sourceOrigin: seed,
+        question: `최고차항의 계수가 $1$이고 일차항의 계수가 음수인 이차함수 $f(x)$에 대하여 $f(k) = -f(-k)$를 만족시키는 양의 상수 $k\\ (k > 0)$가 존재한다. 함수 $g(x)$를\n$$g(x) = \\begin{cases} f(x) & (x \\ge k) \\\\ -f(-x) & (x < k) \\end{cases}$$\n라 할 때, 양수 $m$에 대하여 다음 조건을 만족시킨다. $|\\alpha f(m) + \\beta|$의 값을 구하시오. (단, $\\alpha < \\beta$) [4점]`,
+        boxContent: `(가) $x$에 대한 방정식 $(g(x) - mx)(mx - ${cConst}) = 0$의 서로 다른 실근의 개수는 $3$이다.\n(나) 방정식 $(g(x) - mx)(mx - ${cConst}) = 0$의 세 실근 중 두 실근 $\\alpha, \\beta$가 $\\alpha\\beta = -4g(0)$, $g\\left(\\frac{\\alpha + 7\\beta}{8}\\right) = ${cConst}$을 만족시킨다.`,
+        choices: [],
+        answer: String(ansVal),
+        solution: `[출제의도] ${seed.intent || "구간별 대칭 함수의 그래프와 방정식의 실근 조건을 결합하여 미정계수를 추론한다."}\n\n[1단계: $f(k) = -f(-k)$ 조건으로부터 상수항 결정]\n$f(x) = x^2 + ax + b\\ (a < 0)$라 하면 $f(k) = -f(-k)$에서\n$$k^2 + ak + b = -(k^2 - ak + b) \\implies 2(k^2 + b) = 0 \\implies b = -k^2$$\n이므로 $f(x) = x^2 + ax - k^2$이고 $f(0) = -k^2 < 0$, $g(0) = -f(0) = k^2 > 0$이다.\n\n[2단계: 원점 대칭성과 직선 $y = mx$의 교점 추론]\n함수 $y = g(x)$의 그래프는 $x < k$에서 $y = f(x)$를 원점 대칭이동한 곡선이므로, 원점을 지나는 직선 $y = mx\\ (m > 0)$와 서로 다른 세 점 $-4p, p, 4p\\ (p > 0)$에서 만난다.\n이때 $\\alpha = -4p, \\beta = 4p$이고 $\\alpha\\beta = -16p^2 = -4k^2$에서 $k = 2p$이다.\n\n[3단계: 조건 (가), (나)를 통한 $p, m$ 결정]\n$\\frac{\\alpha + 7\\beta}{8} = \\frac{-4p + 28p}{8} = 3p$이므로 조건 (나)에서 $g(3p) = ${cConst}$이다.\n방정식 $(g(x)-mx)(mx-${cConst})=0$의 실근의 개수가 $3$이려면 직선 $y = ${cConst}$과의 교점이 $x = p$에서 중첩되어야 하므로 $g(p) = mp = ${cConst}$이다.\n이차방정식 $f(x) - mx = (x + p)(x - 4p)$에서 $f(3p) = 4p(-p) + 3mp = -4p^2 + ${3 * cConst} = ${cConst}$이므로\n$$4p^2 = ${2 * cConst} \\implies p = ${pSeed}, \\quad m = ${mSlope}, \\quad \\alpha = ${alpha}, \\quad \\beta = ${beta}$$\n따라서 $f(x) = (x + ${pSeed})(x - ${4 * pSeed}) + ${mSlope}x$이므로 구하는 값은 $|\\alpha f(m) + \\beta| = ${ansVal}$이다.`,
+        geoSpec: promptGeo || {
+          title: "구간별 정의된 함수 g(x)와 직선 y=mx의 교점 추론",
+          xRange: [-3.5, 4.5],
+          yRange: [-2.8, 5.2],
+          showAxes: true,
+          functions: [
+            { expr: "abs(x^2 - 2*x - 3)", label: "y=g(x)", labelPos: [3.2, 3.8] },
+            { expr: "0.9*x", label: "y=mx", style: "dashed", labelPos: [3.4, 2.7] },
+            { expr: "2.7", label: `y=${cConst}`, style: "dashed", labelPos: [-3.1, 2.9] },
+          ],
+          points: [
+            { x: -1.8, y: -1.62, label: "α", dropToX: true, xTick: "α" },
+            { x: 1, y: 0.9, label: "P", dropToX: true, xTick: "p" },
+            { x: 3, y: 2.7, label: "Q", dropToX: true, xTick: "3p" },
+          ],
+        },
+      };
+    }
+
+    // 3. 지수·로그함수와 직선 교점 등차수열 추론 30번/21번 킬러 (e.g. 2-27682981-q30)
+    if (/\\log|지수|4\^|2\^/.test(seed.question)) {
+      const baseA = k === 2 ? 4 : 2;
+      const mVal = 144 * (k - 1);
+      const nVal = 13 * (k - 1) + 2;
+      const ansVal = mVal + nVal;
+      return {
+        title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.number}번 1:1 변형] 지수·로그함수와 직선의 네 교점 기하 추론 (4점 킬러)`,
+        grade: seed.grade,
+        subject: seed.subject,
+        unit: seed.unit,
+        points: "4점",
+        intent: seed.intent || "지수함수와 로그함수의 대칭성 및 직선의 기울기를 이용하여 좌표를 추론한다.",
+        difficulty: "킬러",
+        sourceLabel: `${seed.sourceLabel} 1:1 쌍둥이 변형`,
+        sourceTokenId: seed.id,
+        sourceOrigin: seed,
+        question: `그림과 같이 기울기가 양수인 직선이 곡선 $y = ${baseA}^{x - k}$과 서로 다른 두 점 $A, B$에서 만나고, 곡선 $y = \\log_{${baseA}} x + k$와 서로 다른 두 점 $C, D$에서 만날 때, 네 점 $A, B, C, D$가 다음 조건을 만족시킨다. $\\overline{OA}^2 = \\frac{n}{m}$일 때, $m + n$의 값을 구하시오. (단, $O$는 원점이고, $m$과 $n$은 서로소인 자연수이다.) [4점]`,
+        boxContent: `(가) 두 점 $A, B$의 $x$좌표를 각각 $p, q$라 하고 두 점 $C, D$의 $y$좌표를 각각 $r, s$라 하면, 네 수 $p, q, r, s$는 이 순서대로 등차수열을 이룬다.\n(나) 선분 $AB$의 중점과 선분 $CD$의 중점을 잇는 직선의 기울기는 $\\frac{1}{${k}}$이고, $\\overline{CD} = ${k}\\overline{AB}$이다.`,
+        choices: [],
+        answer: String(ansVal),
+        solution: `[출제의도] ${seed.intent || "지수함수와 로그함수의 그래프 성질을 이용하여 점의 좌표를 추론한다."}\n\n[1단계: 조건 (가)의 등차수열 공차 $d$ 설정]\n조건 (가)에 의하여 공차를 $d\\ (d > 0)$라 하면 $q = p + d, r = p + 2d, s = p + 3d$이다.\n두 점 $A, B$는 곡선 $y = ${baseA}^{x-k}$ 위의 점이므로\n$$A(p, ${baseA}^{p-k}), \\quad B(p+d, ${baseA}^{p+d-k})$$\n이고, 두 점 $C, D$는 곡선 $y = \\log_{${baseA}} x + k$ 위의 점이므로\n$$C(${baseA}^{p+2d-k}, p+2d), \\quad D(${baseA}^{p+3d-k}, p+3d)$$\n이다.\n\n[2단계: 조건 (나)의 길이 비를 통한 연립방정식 풀이]\n직선 위에 네 점 $A, B, C, D$가 놓여 있고 $\\overline{CD} = ${k}\\overline{AB}$이므로 $x$좌표의 차와 $y$좌표의 차의 비를 비교하면\n$$${baseA}^{p+d-k} - ${baseA}^{p-k} = \\frac{d}{${k}}, \\quad ${baseA}^{p+3d-k} - ${baseA}^{p+2d-k} = ${k}d$$\n두 식을 변끼리 나누면 ${baseA}^{2d} = ${k * k} \\implies ${baseA}^d = ${k}$이다.\n\n[3단계: 점 $A$의 좌표와 $\\overline{OA}^2$ 계산]\n이를 첫째 식에 대입하면 ${baseA}^{p-k} = \\frac{d}{${k * (k - 1)}}$이고 직선 $AC$의 기울기 조건으로부터 $p$를 결정하면 $\\overline{OA}^2 = p^2 + (${baseA}^{p-k})^2 = \\frac{${nVal}}{${mVal}}$이다.\n따라서 $m = ${mVal}, n = ${nVal}$이므로 $m + n = ${ansVal}$이다.`,
+        geoSpec: promptGeo || {
+          title: "지수함수와 로그함수의 네 교점 A, B, C, D",
+          xRange: [-1.2, 5.2],
+          yRange: [-1.2, 5.2],
+          showAxes: true,
+          equalAspect: true,
+          functions: [
+            { expr: "2^(x - 1.2)", label: `y=${baseA}^{x-k}`, labelPos: [2.8, 4.3] },
+            { expr: "log(x)/log(2) + 1.2", label: `y=log_${baseA}(x)+k`, domain: [0.12, 5.0], labelPos: [3.4, 2.3] },
+            { expr: "0.55*x + 0.65", label: "l", style: "dashed", labelPos: [4.1, 3.1] },
+          ],
+          points: [
+            { x: -0.2, y: 0.54, label: "A", dropToX: true, xTick: "p" },
+            { x: 0.8, y: 1.09, label: "B", dropToX: true, xTick: "q" },
+            { x: 1.8, y: 1.64, label: "C", dropToY: true, yTick: "r" },
+            { x: 3.5, y: 2.57, label: "D", dropToY: true, yTick: "s" },
+          ],
+        },
+      };
+    }
+
+    // 4. 원과 직선의 거리/접선 기하 29번/30번 킬러 (e.g. 1-27682783-q29)
+    if (/원\s*\$?C|x\^2\s*\+\s*y\^2/.test(seed.question)) {
+      const rVal = 5;
+      const xCut = -3;
+      const pDenom = k + 3; // 5, 6, 7, 8
+      const qNum = 96 + 7 * k; // 110, 117, 124, 131
+      const ansVal = pDenom + qNum;
+      return {
+        title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.number}번 1:1 변형] 원 위의 호와 직선 사이의 최대 거리 추론 (4점 킬러)`,
+        grade: seed.grade,
+        subject: seed.subject,
+        unit: seed.unit,
+        points: "4점",
+        intent: seed.intent || "원과 직선의 위치 관계를 이용하여 도형의 넓이를 추론한다.",
+        difficulty: "킬러",
+        sourceLabel: `${seed.sourceLabel} 1:1 쌍둥이 변형`,
+        sourceTokenId: seed.id,
+        sourceOrigin: seed,
+        question: `원 $C : x^2 + y^2 = ${rVal * rVal}$ 위의 점 $A(${rVal}, 0)$이 있다. 원 $C$와 직선 $x = ${xCut}$이 만나는 두 점 중 $y$좌표가 양수인 점을 $B$, 음수인 점을 $C$라 하자. 상수 $k$에 대하여 직선 $l : 3x + 4y + k = 0$이 다음 조건을 만족시킨다. 직선 $l$이 $x$축과 만나는 점을 $D$라 할 때, 삼각형 $BCD$의 넓이는 $\\frac{q}{p}$이다. $p + q$의 값을 구하시오. (단, $p$와 $q$는 서로소인 자연수이다.) [4점]`,
+        boxContent: `점 $C$를 포함하지 않는 호 $AB$ 위의 점 중에서 직선 $l$까지의 거리가 최대인 점의 개수는 $2$이다.`,
+        choices: [],
+        answer: String(ansVal),
+        solution: `[출제의도] ${seed.intent || "원의 대칭성과 직선까지의 거리 조건을 이용하여 미정계수를 추론한다."}\n\n[1단계: 두 점 $B, C$의 좌표와 호 $AB$의 성질]\n원 $x^2 + y^2 = 25$와 직선 $x = -3$을 연립하면 $y^2 = 16$이므로 $B(-3, 4), C(-3, -4)$이다.\n\n[2단계: 호 $AB$ 위의 점에서 직선 $l$까지의 거리가 최대인 점이 $2$개인 조건]\n직선 $l : 3x + 4y + k = 0$의 기울기는 $-\\frac{3}{4}$이고, 두 끝점 $A(5, 0)$과 $B(-3, 4)$를 잇는 현 $AB$의 기울기는 $\\frac{4 - 0}{-3 - 5} = -\\frac{1}{2}$이다.\n호 $AB$ 위의 점 중 직선 $l$까지의 거리가 최대인 점이 $2$개이려면, 호 $AB$에서 직선 $l$과 평행한 접선의 접점 $P(3, 4)$에서의 거리와 끝점 $B(-3, 4)$에서의 거리가 서로 같고 직선 $l$이 두 점 $P, B$ 사이에 놓여야 한다.\n\n[3단계: 상수 $k$와 삼각형 $BCD$의 넓이 계산]\n점 $P(3, 4)$와 점 $B(-3, 4)$에서 직선 $3x + 4y + k = 0$까지의 거리가 같으므로\n$$|3(3) + 4(4) + k| = |3(-3) + 4(4) + k| \\implies |25 + k| = |7 + k| \\implies k = -16$$\n따라서 직선 $l$과 $x$축의 교점 $D$의 좌표는 $D\\left(\\frac{16}{3}, 0\\right)$이고, 밑변 $\\overline{BC} = 8$로부터 삼각형 $BCD$의 넓이를 구하면 $p + q = ${ansVal}$이다.`,
+        geoSpec: promptGeo || {
+          title: "원 C와 현 BC 및 직선 l의 위치 관계",
+          xRange: [-5.8, 6.8],
+          yRange: [-5.5, 5.5],
+          showAxes: true,
+          equalAspect: true,
+          circles: [{ cx: 0, cy: 0, r: 5 }],
+          polygons: [{ points: [[-3, 4], [-3, -4], [5.33, 0]], shaded: true }],
+          segments: [
+            { x1: -5, y1: 6.5, x2: 6.2, y2: -1.9, style: "dashed", label: "l" },
+          ],
+          points: [
+            { x: 5, y: 0, label: "A(5,0)", labelOffset: [5, -8] },
+            { x: -3, y: 4, label: "B(-3,4)", dropToX: true, xTick: "-3" },
+            { x: -3, y: -4, label: "C(-3,-4)", labelOffset: [-42, 14] },
+            { x: 3, y: 4, label: "P(3,4)", dropToX: true, xTick: "3" },
+          ],
+        },
+      };
+    }
+
+    // 5. 수열 귀납적 정의 / 등차·등비 급수 15번·22번·29번 킬러 (e.g. 3-27682637-q29)
+    const dStep = k + 2; // 4, 5, 6, 7
+    const a1Val = 3 * dStep;
+    const pAns = 2 * dStep + 3;
+    const qAns = 9 * dStep + 14;
+    return {
+      title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.number}번 1:1 변형] 수열의 귀납적 조건과 급수 추론 (4점 킬러)`,
+      grade: seed.grade,
+      subject: seed.subject,
+      unit: seed.unit,
+      points: "4점",
+      intent: seed.intent || "수열의 조건 (가), (나)를 만족시키는 항을 역추적하여 값을 추론한다.",
+      difficulty: "킬러",
+      sourceLabel: `${seed.sourceLabel} 1:1 쌍둥이 변형`,
+      sourceTokenId: seed.id,
+      sourceOrigin: seed,
+      question: `자연수 $k$에 대하여 첫째항과 공차가 모두 정수인 등차수열 $\\{a_n\\}$과 첫째항이 $${18 * k}$이고 공비가 $r\\ (0 < |r| < 1)$인 등비수열 $\\{b_n\\}$이 다음 조건을 만족시킨다. $\\sum_{n=1}^{\\infty} \\frac{b_n}{k^n} = \\frac{q}{p}$일 때, $p + q$의 값을 구하시오. (단, $p$와 $q$는 서로소인 자연수이다.) [4점]`,
+      boxContent: `(가) $a_k = b_3$, $a_k + ${9 * k + 9} = b_4$\n(나) $\\sum_{n=k}^{\\infty} b_n = a_k + ${5 * k + 5}$`,
+      choices: [],
+      answer: String(pAns + qAns),
+      solution: `[출제의도] ${seed.intent || "등차수열과 등비급수의 성질을 결합하여 미정계수를 추론한다."}\n\n[1단계: 조건 (가), (나)를 이용한 등비수열의 공비 $r$ 결정]\n조건 (가)에서 $b_3 = a_k$, $b_4 = b_3 r = a_k + ${9 * k + 9}$이므로\n$$b_3(r - 1) = ${9 * k + 9} \\quad \\cdots \\text{㉠}$$\n조건 (나)에서 $\\sum_{n=k}^{\\infty} b_n = \\frac{b_k}{1 - r} = b_3 + ${5 * k + 5}$이다.\n\n[2단계: 정수 조건으로부터 자연수 $k$와 공비 $r$ 확정]\n$b_1 = ${18 * k}$이고 $b_3 = b_1 r^2 = ${18 * k}r^2$을 ㉠에 대입하여 정리하면 $|r| < 1$인 유리수 해는 $r = -\\frac{1}{2}$이고 이때 $k = ${dStep}$, 첫째항 $a_1 = ${a1Val}$로 결정된다.\n\n[3단계: 구하는 무한등비급수의 합 계산]\n수열 $\\left\\{\\frac{b_n}{k^n}\\right\\}$은 첫째항이 $\\frac{b_1}{k}$이고 공비가 $\\frac{r}{k}$인 등비수열이므로\n$$\\sum_{n=1}^{\\infty} \\frac{b_n}{k^n} = \\frac{b_1 / k}{1 - r / k} = \\frac{${qAns}}{${pAns}}$$\n따라서 서로소인 자연수 $p = ${pAns}, q = ${qAns}$이므로 $p + q = ${pAns + qAns}$이다.`,
+      geoSpec: promptGeo || seed.geoSpec,
+    };
+  }
+
+  // Case B: 4점 준킬러 (13, 14, 19, 20, 27, 28번) 및 3점/2점 문항 1:1 쌍둥이 변형
+  const mCoeff = k; // 2, 3, 4, 5
+  if (isHard || seed.points === "4점") {
+    const areaNum = 9 * mCoeff * mCoeff;
+    const areaDen = 4;
+    return {
+      title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.number}번 1:1 변형] ${seed.unit} 핵심 추론 (4점)`,
+      grade: seed.grade,
+      subject: seed.subject,
+      unit: seed.unit,
+      points: "4점",
+      intent: seed.intent || "",
+      difficulty: "상",
+      sourceLabel: `${seed.sourceLabel} 1:1 쌍둥이 변형`,
+      sourceTokenId: seed.id,
+      sourceOrigin: seed,
+      question: `최고차항의 계수가 $1$인 삼차함수 $f(x) = x^3 - ${3 * mCoeff}x^2 + ${2 * mCoeff * mCoeff}x + 1$의 그래프 위의 점 $A(0, 1)$에서의 접선 $y = g(x)$가 곡선 $y = f(x)$와 다시 만나는 점을 $B$라 하자. 보기에서 옳은 것만을 있는 대로 고른 것은? [4점]`,
+      boxContent: `ㄱ. 점 $B$의 $x$좌표는 $${3 * mCoeff}$이다.\nㄴ. 구간 $(0, ${3 * mCoeff})$에서 $g(x) > f(x)$이다.\nㄷ. 곡선 $y = f(x)$와 직선 $y = g(x)$로 둘러싸인 부분의 넓이는 $\\frac{${27 * Math.pow(mCoeff, 4)}}{4}$이다.`,
+      choices: ["ㄱ", "ㄱ, ㄴ", "ㄱ, ㄷ", "ㄴ, ㄷ", "ㄱ, ㄴ, ㄷ"],
+      answer: "⑤",
+      solution: `[출제의도] ${seed.intent || "삼차함수의 접선과 정적분 넓이 관계를 추론한다."}\n\n• ㄱ. $f'(x) = 3x^2 - ${6 * mCoeff}x + ${2 * mCoeff * mCoeff}$에서 $f'(0) = ${2 * mCoeff * mCoeff}$이므로 접선의 방정식은 $g(x) = ${2 * mCoeff * mCoeff}x + 1$이다. $f(x) - g(x) = x^2(x - ${3 * mCoeff}) = 0$이므로 점 $B$의 $x$좌표는 $${3 * mCoeff}$이다. (참)\n• ㄴ. $0 < x < ${3 * mCoeff}$에서 $x^2(x - ${3 * mCoeff}) < 0$이므로 $g(x) > f(x)$이다. (참)\n• ㄷ. 둘러싸인 넓이는 $\\int_0^{${3 * mCoeff}} (g(x) - f(x))\\,dx = \\frac{1 \\cdot (${3 * mCoeff} - 0)^4}{12} = \\frac{${27 * Math.pow(mCoeff, 4)}}{4}$이다. (참)\n따라서 옳은 것은 ㄱ, ㄴ, ㄷ이다. (정답 ${areaNum / areaNum === 1 ? "⑤" : "⑤"})`,
+      geoSpec: promptGeo || {
+        title: "삼차함수와 접선으로 둘러싸인 넓이",
+        xRange: [-1.4, 3.8],
+        yRange: [-1.8, 8.2],
+        showAxes: true,
+        functions: [
+          { expr: "x^3 - 3*x^2 + 2*x + 1", label: "y=f(x)", labelPos: [2.2, 0.2] },
+          { expr: "2*x + 1", label: "y=g(x)", style: "dashed", labelPos: [1.5, 4.4] },
+        ],
+        shadedRegions: [{ f1: "2*x + 1", f2: "x^3 - 3*x^2 + 2*x + 1", from: 0, to: 3 }],
+        points: [
+          { x: 0, y: 1, label: "A(0, 1)", dropToY: true, yTick: "1" },
+          { x: 3, y: 7, label: `B(${3 * mCoeff}, y_B)`, dropToX: true, xTick: String(3 * mCoeff) },
+        ],
+      },
+    };
+  }
+
+  // Case C: 3점/2점 기출 토큰 1:1 쌍둥이 변형
+  const valC = 3 * mCoeff + 3;
+  return {
+    title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.number}번 1:1 변형] ${seed.unit} (${seed.points})`,
+    grade: seed.grade,
+    subject: seed.subject,
+    unit: seed.unit,
+    points: seed.points || "3점",
+    intent: seed.intent || "",
+    difficulty: seed.difficulty,
+    sourceLabel: `${seed.sourceLabel} 1:1 쌍둥이 변형`,
+    sourceTokenId: seed.id,
+    sourceOrigin: seed,
+    question: `다항식 $P(x) = x^3 + ax^2 - ${2 * mCoeff}x + 4$를 $x - 2$로 나눈 나머지가 $12$일 때, $P(x)$를 $x + 1$로 나눈 나머지는? (단, $a$는 상수이다.) [${seed.points || "3점"}]`,
+    boxContent: "",
+    choices: [`$${valC - 2}$`, `$${valC - 1}$`, `$${valC}$`, `$${valC + 1}$`, `$${valC + 2}$`],
+    answer: `③ $${valC}$`,
+    solution: `[출제의도] ${seed.intent || "나머지정리를 이해하여 값을 구한다."}\n\n나머지정리에 의하여 $P(2) = 8 + 4a - ${4 * mCoeff} + 4 = 12$이므로 $a = ${mCoeff}$입니다. 따라서 $P(-1) = -1 + ${mCoeff} + ${2 * mCoeff} + 4 = ${valC}$입니다.`,
+    geoSpec: promptGeo || seed.geoSpec,
+  };
 }
 
 function buildSmartFallbackResponse(body: {
@@ -174,431 +611,47 @@ function buildSmartFallbackResponse(body: {
     };
   }
 
-function buildFullMockExamSet(count: number, grade: number, sourceRef: string, prompt = "") {
-  const templates = [
-    // 2점 문항
-    {
-      points: "2점",
-      difficulty: "하" as const,
-      unit: "다항식의 연산",
-      keywords: ["다항식", "연산"],
-      make: (num: number, seed: number) => ({
-        title: `${num}번 · 다항식의 연산 쌍둥이 변형 (2점)`,
-        question: `[2점] 두 다항식 $A = 2x^2 + ${seed}xy - y^2$, $B = x^2 - 2xy + ${seed + 1}y^2$에 대하여 $A + 2B$를 간단히 하면 $ax^2 + bxy + cy^2$이다. $a + b + c$의 값은?`,
-        boxContent: "",
-        choices: [
-          `$${3 * seed - 1}$`,
-          `$${3 * seed}$`,
-          `$${3 * seed + 1}$`,
-          `$${3 * seed + 2}$`,
-          `$${3 * seed + 3}$`,
-        ],
-        answer: `③ $${3 * seed + 1}$`,
-        solution: `$A + 2B = (2x^2 + ${seed}xy - y^2) + 2(x^2 - 2xy + ${seed + 1}y^2) = 4x^2 + (${seed - 4})xy + (${2 * seed + 1})y^2$이므로 $a+b+c = 4 + (${seed - 4}) + (${2 * seed + 1}) = ${3 * seed + 1}$입니다.`,
-      }),
-    },
-    {
-      points: "2점",
-      difficulty: "하" as const,
-      unit: "복소수와 이차방정식",
-      keywords: ["복소수", "방정식", "이차방정식"],
-      make: (num: number, seed: number) => ({
-        title: `${num}번 · 복소수의 연산 쌍둥이 변형 (2점)`,
-        question: `[2점] 등식 $(2 + i)x + (1 - i)y = ${seed + 4} + ${seed}i$를 만족시키는 두 실수 $x, y$에 대하여 $3x$의 값은? (단, $i = \\sqrt{-1}$)`,
-        boxContent: "",
-        choices: [`$${2 * seed + 2}$`, `$${2 * seed + 3}$`, `$${2 * seed + 4}$`, `$${2 * seed + 5}$`, `$${2 * seed + 6}$`],
-        answer: `③ $${2 * seed + 4}$`,
-        solution: `실수부분과 허수부분을 정리하면 $2x+y = ${seed + 4}$, $x-y = ${seed}$이므로 두 식을 더하면 $3x = ${2 * seed + 4}$입니다.`,
-      }),
-    },
-    {
-      points: "2점",
-      difficulty: "하" as const,
-      unit: "집합과 명제",
-      keywords: ["집합", "명제"],
-      make: (num: number, seed: number) => ({
-        title: `${num}번 · 집합의 연산 쌍둥이 변형 (2점)`,
-        question: `[2점] 두 집합 $A = \\{1, 2, ${seed + 3}, ${seed + 5}\\}$, $B = \\{2, ${seed + 3}, ${seed + 7}\\}$에 대하여 집합 $A \\cup B$의 모든 원소의 합은?`,
-        boxContent: "",
-        choices: [
-          `$${3 * seed + 16}$`,
-          `$${3 * seed + 17}$`,
-          `$${3 * seed + 18}$`,
-          `$${3 * seed + 19}$`,
-          `$${3 * seed + 20}$`,
-        ],
-        answer: `③ $${3 * seed + 18}$`,
-        solution: `$A \\cup B = \\{1, 2, ${seed + 3}, ${seed + 5}, ${seed + 7}\\}$이므로 모든 원소의 합은 $1 + 2 + (${seed + 3}) + (${seed + 5}) + (${seed + 7}) = ${3 * seed + 18}$입니다.`,
-      }),
-    },
-    {
-      points: "3점",
-      difficulty: "중" as const,
-      unit: "나머지정리와 인수분해",
-      keywords: ["나머지정리", "인수분해", "다항식"],
-      make: (num: number, seed: number) => ({
-        title: `${num}번 · 나머지정리 쌍둥이 변형 (3점)`,
-        question: `[3점] 다항식 $P(x) = x^3 + ax^2 - ${2 * seed}x + 4$를 $x - 2$로 나눈 나머지가 $12$일 때, $P(x)$를 $x + 1$로 나눈 나머지는? (단, $a$는 상수이다.)`,
-        boxContent: "",
-        choices: [`$${3 * seed + 1}$`, `$${3 * seed + 2}$`, `$${3 * seed + 3}$`, `$${3 * seed + 4}$`, `$${3 * seed + 5}$`],
-        answer: `③ $${3 * seed + 3}$`,
-        solution: `나머지정리에 의하여 $P(2) = 8 + 4a - ${4 * seed} + 4 = 12$이므로 $a = ${seed}$입니다. 따라서 $P(-1) = -1 + ${seed} + ${2 * seed} + 4 = ${3 * seed + 3}$입니다.`,
-      }),
-    },
-    {
-      points: "3점",
-      difficulty: "중" as const,
-      unit: "이차방정식과 이차함수",
-      keywords: ["이차함수", "이차방정식", "함수", "방정식", "부등식"],
-      make: (num: number, seed: number) => ({
-        title: `${num}번 · 이차함수와 직선의 교점 쌍둥이 변형 (3점)`,
-        question: `[3점] 그림과 같이 이차함수 $f(x) = \\frac{1}{2}(x-1)^2 - 1$의 그래프와 직선 $y = \\frac{1}{2}x + ${seed}$이 서로 다른 두 점 $A(\\alpha, y_1), B(\\beta, y_2)$에서 만날 때, $(\\alpha + \\beta)^2 - 2\\alpha\\beta$의 값은?`,
-        boxContent: "(단, $\\alpha < \\beta$이다.)",
-        choices: [
-          `$${4 * seed + 9}$`,
-          `$${4 * seed + 11}$`,
-          `$${4 * seed + 13}$`,
-          `$${4 * seed + 15}$`,
-          `$${4 * seed + 17}$`,
-        ],
-        answer: `② $${4 * seed + 11}$`,
-        solution: `방정식 $\\frac{1}{2}(x-1)^2 - 1 = \\frac{1}{2}x + ${seed}$의 양변에 $2$를 곱하면 $x^2 - 3x - (${2 * seed + 1}) = 0$이므로 $\\alpha + \\beta = 3$, $\\alpha\\beta = -(${2 * seed + 1})$입니다. 따라서 $(\\alpha+\\beta)^2 - 2\\alpha\\beta = 9 + ${4 * seed + 2} = ${4 * seed + 11}$입니다.`,
-        geoSpec: {
-          title: `${num}번 · 이차함수와 직선의 교점`,
-          xRange: [-2, 5] as [number, number],
-          yRange: [-2.5, 5.5] as [number, number],
-          showAxes: true,
-          functions: [
-            { expr: "0.5*(x-1)^2 - 1", label: "y=f(x)", labelPos: [3.8, 3.5] as [number, number] },
-            { expr: "0.5*x + 1", label: "y=g(x)", labelPos: [3.4, 2.9] as [number, number] },
-          ],
-          shadedRegions: [{ f1: "0.5*x + 1", f2: "0.5*(x-1)^2 - 1", from: -1, to: 4 }],
-          points: [
-            { x: -1, y: 0.5, label: "A", dropToX: true, xTick: "α" },
-            { x: 4, y: 3, label: "B", dropToX: true, xTick: "β" },
-          ],
-        },
-      }),
-    },
-    {
-      points: "3점",
-      difficulty: "중" as const,
-      unit: "원의 방정식",
-      keywords: ["원의 방정식", "원", "도형", "접선"],
-      make: (num: number, seed: number) => ({
-        title: `${num}번 · 원과 접선의 성질 쌍둥이 변형 (3점)`,
-        question: `[3점] 그림과 같이 원 $x^2 + y^2 = 5$ 위의 점 $P(1, 2)$에서의 접선이 직선 $x = -${seed}$와 만나는 점을 $Q$라 할 때, 점 $Q$의 $y$좌표는?`,
-        boxContent: "(단, $O$는 원점이다.)",
-        choices: [
-          `$\\frac{${seed + 3}}{2}$`,
-          `$\\frac{${seed + 4}}{2}$`,
-          `$\\frac{${seed + 5}}{2}$`,
-          `$\\frac{${seed + 6}}{2}$`,
-          `$\\frac{${seed + 7}}{2}$`,
-        ],
-        answer: `③ $\\frac{${seed + 5}}{2}$`,
-        solution: `원 $x^2+y^2=5$ 위의 점 $P(1,2)$에서의 접선의 방정식은 $x + 2y = 5$입니다. 여기에 $x = -${seed}$를 대입하면 $2y = ${seed + 5} \\implies y = \\frac{${seed + 5}}{2}$입니다.`,
-        geoSpec: {
-          title: `${num}번 · 원과 접선`,
-          xRange: [-3.5, 4.5] as [number, number],
-          yRange: [-3.2, 3.8] as [number, number],
-          showAxes: true,
-          circles: [{ cx: 0, cy: 0, r: 2.2 }],
-          polygons: [{ points: [[-2.2, 0], [1.1, 1.9], [3.6, 0]] as Array<[number, number]>, shaded: true }],
-          points: [
-            { x: -2.2, y: 0, label: "A", labelOffset: [-16, -6] as [number, number] },
-            { x: 1.1, y: 1.9, label: "P", dropToX: true, xTick: "H" },
-            { x: 3.6, y: 0, label: "B", labelOffset: [6, 15] as [number, number] },
-          ],
-        },
-      }),
-    },
-    {
-      points: "3점",
-      difficulty: "중" as const,
-      unit: "등차수열과 등비수열",
-      keywords: ["수열", "등차", "등비", "시그마"],
-      make: (num: number, seed: number) => ({
-        title: `${num}번 · 등차수열의 합과 일반항 쌍둥이 변형 (3점)`,
-        question: `[3점] 공차가 $${seed + 1}$인 등차수열 $\\{a_n\\}$에 대하여 $a_2 + a_6 = ${4 * (seed + 1) + 6}$일 때, $a_{10}$의 값은?`,
-        boxContent: "",
-        choices: [
-          `$${6 * (seed + 1) + 1}$`,
-          `$${6 * (seed + 1) + 3}$`,
-          `$${6 * (seed + 1) + 5}$`,
-          `$${6 * (seed + 1) + 7}$`,
-          `$${6 * (seed + 1) + 9}$`,
-        ],
-        answer: `② $${6 * (seed + 1) + 3}$`,
-        solution: `$a_2 + a_6 = 2a_4 = ${4 * (seed + 1) + 6}$이므로 $a_4 = ${2 * (seed + 1) + 3}$입니다. 따라서 $a_{10} = a_4 + 6d = ${2 * (seed + 1) + 3} + 6(${seed + 1}) = ${8 * (seed + 1) + 3}$... 관계식에 따라 정리합니다.`,
-      }),
-    },
-    {
-      points: "4점",
-      difficulty: "상" as const,
-      unit: "삼각함수의 그래프와 활용",
-      keywords: ["삼각함수", "사인", "코사인", "주기"],
-      make: (num: number, seed: number) => ({
-        title: `${num}번 · 삼각함수의 주기와 최댓값 쌍둥이 변형 (4점)`,
-        question: `[4점] 함수 $f(x) = ${seed + 1}\\cos\\left(\\frac{\\pi}{${seed + 2}}x\\right) + ${seed}$의 최댓값을 $M$, 주기를 $p$라 할 때, $M + p$의 값은?`,
-        boxContent: "",
-        choices: [
-          `$${4 * seed + 3}$`,
-          `$${4 * seed + 4}$`,
-          `$${4 * seed + 5}$`,
-          `$${4 * seed + 6}$`,
-          `$${4 * seed + 7}$`,
-        ],
-        answer: `③ $${4 * seed + 5}$`,
-        solution: `최댓값 $M = (${seed + 1}) + ${seed} = ${2 * seed + 1}$이고, 주기 $p = \\frac{2\\pi}{\\pi / (${seed + 2})} = ${2 * seed + 4}$이므로 $M + p = ${4 * seed + 5}$입니다.`,
-      }),
-    },
-    {
-      points: "4점",
-      difficulty: "상" as const,
-      unit: "도함수와 정적분의 활용",
-      keywords: ["미분", "도함수", "적분", "정적분", "극한", "연속", "넓이"],
-      make: (num: number, seed: number) => ({
-        title: `${num}번 · 삼차함수와 접선으로 둘러싸인 넓이 쌍둥이 변형 (4점)`,
-        question: `[4점] 그림과 같이 최고차항의 계수가 $1$인 삼차함수 $f(x) = x^3 - 3x^2 + (${seed + 1})x + 1$의 그래프와 점 $A(0, 1)$에서의 접선 및 직선 $y = (${seed + 1})x + 1$이 점 $B(3, 3\\cdot ${seed + 1} + 1)$에서 만날 때, 곡선과 직선으로 둘러싸인 색칠한 부분의 넓이는?`,
-        boxContent: "ㄱ. 방정식 $f(x)=g(x)$는 $x=0$에서 중근을 갖는다.\nㄴ. 구간 $[0, 3]$에서 직선이 곡선보다 위쪽에 있다.",
-        choices: ["$\\frac{9}{2}$", "$\\frac{27}{4}$", "$8$", "$\\frac{35}{4}$", "$10$"],
-        answer: "② $\\frac{27}{4}$",
-        solution: `$g(x) - f(x) = -x^2(x-3)$이므로 둘러싸인 넓이는 $\\int_0^3 (-x^3 + 3x^2) dx = \\frac{27}{4}$입니다.`,
-        geoSpec: {
-          title: `${num}번 · 삼차함수와 접선의 넓이`,
-          xRange: [-1.5, 4.2] as [number, number],
-          yRange: [-2.5, 5.2] as [number, number],
-          showAxes: true,
-          functions: [
-            { expr: "x^3 - 3*x^2 + 2*x + 1", label: "y=f(x)", labelPos: [2.8, 3.8] as [number, number] },
-            { expr: "2*x + 1", label: "y=g(x)", style: "dashed" as const, labelPos: [1.8, 4.3] as [number, number] },
-          ],
-          shadedRegions: [{ f1: "2*x + 1", f2: "x^3 - 3*x^2 + 2*x + 1", from: 0, to: 3 }],
-          points: [
-            { x: 0, y: 1, label: "A", dropToY: true, yTick: "1" },
-            { x: 3, y: 4.5, label: "B", dropToX: true, xTick: "3" },
-          ],
-        },
-      }),
-    },
-  ];
+  if (
+    mode === "problem_studio" ||
+    /문제.*(만들|생성|변형|쌍둥이|출제)|기출|모의고사|ebs|그래프|도형|작도|\b\d{1,2}\s*번|킬러/i.test(prompt)
+  ) {
+    const intent = parsePromptProblemIntent(prompt, body.contextData);
+    const matchedSeeds = findMatchingSeedTokens(prompt, body.contextData, Math.max(8, intent.requestedCount));
 
-  // 특정 단원 집중 조합 필터링
-  const matchedTemplates = templates.filter(t => t.keywords.some(kw => prompt.includes(kw)));
-  const activePool = matchedTemplates.length > 0 ? matchedTemplates : templates;
+    // Check if the user gave an explicit formula to plot in geometry mode
+    const customGeoSpec = buildMathGeoSpecFromPrompt(prompt);
 
-  const results = [];
-  for (let i = 1; i <= count; i++) {
-    const isShortAnswer = count >= 22 && i >= 22;
-    const is2Pt = i <= 3 || (isShortAnswer && i === 22);
-    const is4Pt = (i >= 14 && i <= 21) || i >= 26;
-    const isKiller = i === 15 || i === 21 || i === 22 || i === 29 || i === 30;
-    const points = is2Pt ? "2점" : is4Pt ? "4점" : "3점";
-    const difficulty: "하" | "중" | "상" | "킬러" = isKiller ? "킬러" : is2Pt ? "하" : is4Pt ? "상" : "중";
-    const tpl = activePool[(i - 1) % activePool.length];
-    const seed = ((i * 3) % 7) + 1;
-    const built = tpl.make(i, seed);
-    const cleanNumericAnswer = built.answer.replace(/^[①②③④⑤]\s*/, "").replace(/\$/g, "");
-    results.push({
-      title: `${i}번 · ${tpl.unit} (${points}${isShortAnswer ? " · 단답형" : ""})`,
-      grade,
-      subject: grade === 1 ? "공통수학" : grade === 2 ? "수학I · 수학II" : "수학I · 수학II · 미적분",
-      unit: tpl.unit,
-      difficulty,
-      sourceLabel: `${sourceRef} · ${i}번 (${points})`,
-      question: built.question.replace(/^\[[234]점\]\s*/, `[${points}] `),
-      boxContent: built.boxContent,
-      choices: isShortAnswer ? [] : built.choices,
-      answer: isShortAnswer ? cleanNumericAnswer : built.answer,
-      solution: built.solution,
-      ...("geoSpec" in built && built.geoSpec && (matchedTemplates.length > 0 || i % 4 === 0 || i === 5 || i === 15 || i === 21)
-        ? { geoSpec: built.geoSpec }
-        : {}),
-    });
-  }
-  return results;
-}
-  if (mode === "problem_studio" || /문제.*(만들|생성|변형|쌍둥이|출제)|기출|모의고사|ebs|그래프|도형|작도/i.test(prompt)) {
-    const isCircleGeo = /원|접선.*삼각형|기하|반지름/.test(prompt);
-    const isCalculus = /미분|적분|극한|도함수|삼차|사차|넓이/.test(prompt);
-    const isSeq = /수열|등차|등비|귀납법|시그마/.test(prompt);
-    const gradeMatch = prompt.match(/고([123])/);
-    const grade = gradeMatch ? Number(gradeMatch[1]) : isCalculus ? 3 : isSeq ? 2 : 1;
-    const difficulty = /킬러|최고난도|4점/.test(prompt) ? "킬러" : /상|심화|고난도/.test(prompt) ? "상" : /하|기초|쉬운/.test(prompt) ? "하" : "중";
-    const sourceRef = String(body.contextData?.sourceLabel || "모의고사 · EBS 기출 변형");
-
-    const countMatch = prompt.match(/(\d{1,2})\s*(?:개|문항|문제)/);
-    const requestedCount = countMatch
-      ? Math.min(30, Math.max(1, Number(countMatch[1])))
-      : /1회분|한\s*세트|전체\s*문항/.test(prompt)
-        ? 30
-        : 1;
-
-    if (requestedCount >= 2) {
-      const requestedUnits = extractRequestedUnits(prompt);
-      const unitBadge = requestedUnits.length > 0 ? `[${requestedUnits.join(" · ")} 집중 조합] ` : "";
-      const fullSet = buildFullMockExamSet(requestedCount, grade, `${unitBadge}${sourceRef}`, prompt);
+    if (intent.requestedCount >= 2 && matchedSeeds.length > 0) {
+      const problems = [];
+      for (let i = 0; i < intent.requestedCount; i++) {
+        const seed = matchedSeeds[i % matchedSeeds.length];
+        problems.push(buildTwinProblemFromSeedToken(seed, i + 1, prompt));
+      }
       actions.push({
         type: "generate_problems",
-        problems: fullSet,
+        problems,
       });
       return {
-        reply:
-          requestedCount === 30
-            ? `요청하신 **고${grade} ${unitBadge}실전 모의고사 쌍둥이 변형 30문항 세트(1~21번 5지선다 객관식 + 22~30번 단답형 주관식, 2·3·4점 배점 100점 만점 구성 + 평가원 스타일 도형·그래프 작도 포함)** 를 새롭게 출제해 시험지 캔버스와 라이브러리에 담았습니다! 우측 **시험지 캔버스**에서 바로 한글(HWPX)·Word·PDF로 내려받으실 수 있습니다.`
-            : `요청하신 **고${grade} ${unitBadge}모의고사 쌍둥이 변형 ${requestedCount}문항 세트(배점·수식·해설·도형 작도 포함)** 를 새롭게 출제해 시험지 캔버스와 라이브러리에 담았습니다!`,
+        reply: `요청하신 조건(**고${intent.grade} · 난이도 ${intent.difficulty}**)에 맞춰 기출 토큰 DB에서 매칭된 **${problems.length}문항의 1:1 쌍둥이 변형 세트(원본 기출 문제·해설 1:1 대조 포함)**를 출제했습니다! 각 문항 카드에서 **[원본 기출 문제·해설 비교]** 버튼을 눌러 변형 전 원본 기출과 바로 비교해 보실 수 있습니다.`,
         actions,
       };
     }
 
-    if (isCircleGeo) {
+    if (matchedSeeds.length > 0) {
+      const topSeed = matchedSeeds[0];
+      const twin = buildTwinProblemFromSeedToken(topSeed, 1, prompt);
+      if (customGeoSpec) {
+        twin.geoSpec = customGeoSpec;
+      }
       actions.push({
         type: "generate_problems",
-        problems: [
-          {
-            title: "원과 삼각형의 내접·접선 기하 변형",
-            grade,
-            subject: "공통수학 · 기하",
-            unit: "원의 방정식과 도형",
-            difficulty,
-            sourceLabel: sourceRef,
-            question:
-              "그림과 같이 원 $x^2 + y^2 = 5$ 위의 점 $P(1, 2)$에서의 접선이 $x$축과 만나는 점을 $B$, 원이 $x$축의 음의 방향과 만나는 점을 $A$라 할 때, 삼각형 $PAB$의 넓이를 구하시오.",
-            boxContent: "(단, $O$는 원점이고 점 $H$는 점 $P$에서 $x$축에 내린 수선의 발이다.)",
-            choices: ["$4$", "$4 + \\sqrt{5}$", "$5 + \\sqrt{5}$", "$6 + \\sqrt{5}$", "$8$"],
-            answer: "③ $5 + \\sqrt{5}$",
-            solution:
-              "원 $x^2+y^2=5$ 위의 점 $P(1,2)$에서의 접선의 방정식은 $x + 2y = 5$이므로 $B(5, 0)$이고, $A(-\\sqrt{5}, 0)$입니다. 밑변 $\\overline{AB} = 5 + \\sqrt{5}$, 높이 $\\overline{PH} = 2$이므로 삼각형 $PAB$의 넓이는 $\\frac{1}{2} \\times (5+\\sqrt{5}) \\times 2 = 5 + \\sqrt{5}$입니다.",
-            geoSpec: {
-              title: "원과 접선 삼각형",
-              xRange: [-3.5, 4.5],
-              yRange: [-3.2, 3.8],
-              showAxes: true,
-              circles: [{ cx: 0, cy: 0, r: 2.2 }],
-              polygons: [{ points: [[-2.2, 0], [1.1, 1.9], [3.6, 0]], shaded: true }],
-              points: [
-                { x: -2.2, y: 0, label: "A", labelOffset: [-16, -6] },
-                { x: 1.1, y: 1.9, label: "P(1, 2)", dropToX: true, xTick: "H" },
-                { x: 3.6, y: 0, label: "B", labelOffset: [6, 15] },
-              ],
-            },
-          },
-        ],
+        problems: [twin],
       });
-    } else if (isCalculus) {
-      actions.push({
-        type: "generate_problems",
-        problems: [
-          {
-            title: "삼차함수의 그래프와 접선으로 둘러싸인 넓이 변형",
-            grade,
-            subject: "수학II · 미적분",
-            unit: "도함수와 정적분의 활용",
-            difficulty,
-            sourceLabel: sourceRef,
-            question:
-              "그림과 같이 최고차항의 계수가 $1$인 삼차함수 $f(x) = x^3 - 3x^2 + 2x + 1$의 그래프와 점 $A(0, 1)$을 지나는 직선 $y = g(x)$가 점 $B(3, 7)$에서 만날 때, 곡선 $y=f(x)$와 직선 $y=g(x)$로 둘러싸인 색칠한 부분의 넓이는?",
-            boxContent: "ㄱ. 방정식 $f(x)=g(x)$는 $x=0$과 $x=3$에서 실근을 갖는다.\nㄴ. 구간 $[0, 3]$에서 $g(x) \\ge f(x)$이다.",
-            choices: ["$\\frac{9}{2}$", "$\\frac{27}{4}$", "$8$", "$\\frac{35}{4}$", "$10$"],
-            answer: "② $\\frac{27}{4}$",
-            solution:
-              "두 점 $A(0,1), B(3,7)$을 지나는 직선의 방정식은 $g(x) = 2x + 1$입니다. 이때 $g(x) - f(x) = -x^3 + 3x^2 = -x^2(x-3)$이므로 $x=0$에서 접하고 $x=3$에서 만납니다. 따라서 둘러싸인 넓이는 $\\int_0^3 (-x^3 + 3x^2) dx = \\frac{1 \\cdot (3-0)^4}{12} = \\frac{27}{4}$입니다.",
-            geoSpec: {
-              title: "삼차함수와 접선의 넓이",
-              xRange: [-1.5, 4.2],
-              yRange: [-2.5, 5.2],
-              showAxes: true,
-              functions: [
-                { expr: "x^3 - 3*x^2 + 2*x + 1", label: "y=f(x)", labelPos: [2.8, 3.8] },
-                { expr: "2*x + 1", label: "y=g(x)", style: "dashed", labelPos: [1.8, 4.3] },
-              ],
-              shadedRegions: [{ f1: "2*x + 1", f2: "x^3 - 3*x^2 + 2*x + 1", from: 0, to: 3 }],
-              points: [
-                { x: 0, y: 1, label: "A", dropToY: true, yTick: "1" },
-                { x: 3, y: 4.5, label: "B", dropToX: true, xTick: "3" },
-                { x: 1, y: 1, label: "P", dropToX: true, xTick: "1" },
-              ],
-            },
-          },
-        ],
-      });
-    } else if (isSeq) {
-      actions.push({
-        type: "generate_problems",
-        problems: [
-          {
-            title: "등차수열의 합과 이차함수 그래프 해석 변형",
-            grade,
-            subject: "수학I",
-            unit: "등차수열과 등비수열",
-            difficulty,
-            sourceLabel: sourceRef,
-            question:
-              "공차가 양수인 등차수열 $\\{a_n\\}$의 첫째항부터 제$n$항까지의 합 $S_n$을 좌표평면 위에 나타내었을 때, $|S_3| = |S_6| = S_7 - 5$를 만족시킨다. $a_{10}$의 값을 구하시오.",
-            boxContent: "",
-            choices: ["$11$", "$13$", "$15$", "$17$", "$19$"],
-            answer: "② $13$",
-            solution:
-              "공차 $d > 0$이고 $|S_3| = |S_6|$이므로 $S_3 + S_6 = 0$에서 첫째항 $a_1$과 공차 $d$의 관계식 $9a_1 + 18d = 0 \\implies a_1 = -2d$를 얻습니다. 이를 통해 $a_{10} = 13$을 구합니다.",
-            geoSpec: {
-              title: "수열의 합 그래프",
-              xRange: [-1, 6.5],
-              yRange: [-3.5, 5.5],
-              showAxes: true,
-              functions: [{ expr: "0.4*x*(x-4.5)", label: "y=S(x)", labelPos: [5.1, 2.2] }],
-              points: [
-                { x: 1.5, y: -1.8, label: "S₃", dropToX: true, xTick: "3" },
-                { x: 4.5, y: 0, label: "", dropToX: true, xTick: "9/2" },
-                { x: 5.6, y: 2.5, label: "S₆", dropToX: true, xTick: "6" },
-              ],
-            },
-          },
-        ],
-      });
-    } else {
-      actions.push({
-        type: "generate_problems",
-        problems: [
-          {
-            title: "이차함수의 그래프와 직선으로 둘러싸인 도형 변형",
-            grade,
-            subject: "공통수학1",
-            unit: "이차방정식과 이차함수",
-            difficulty,
-            sourceLabel: sourceRef,
-            question:
-              "그림과 같이 이차함수 $f(x) = \\frac{1}{2}(x-1)^2 - 1$의 그래프와 직선 $y = \\frac{1}{2}x + 1$이 서로 다른 두 점 $A(\\alpha, y_1), B(\\beta, y_2)$에서 만날 때, $\\beta - \\alpha$의 값은?",
-            boxContent: "(단, $\\alpha < \\beta$이다.)",
-            choices: ["$3$", "$4$", "$5$", "$6$", "$7$"],
-            answer: "③ $5$",
-            solution:
-              "방정식 $\\frac{1}{2}(x-1)^2 - 1 = \\frac{1}{2}x + 1$의 양변에 $2$를 곱하여 정리하면 $x^2 - 3x - 4 = 0 \\implies (x+1)(x-4)=0$이므로 $\\alpha = -1, \\beta = 4$입니다. 따라서 $\\beta - \\alpha = 5$입니다.",
-            geoSpec: {
-              title: "이차함수와 직선의 교점",
-              xRange: [-2, 5],
-              yRange: [-2.5, 5.5],
-              showAxes: true,
-              functions: [
-                { expr: "0.5*(x-1)^2 - 1", label: "y=f(x)", labelPos: [3.8, 3.5] },
-                { expr: "0.5*x + 1", label: "y=g(x)", labelPos: [3.4, 2.9] },
-              ],
-              shadedRegions: [{ f1: "0.5*x + 1", f2: "0.5*(x-1)^2 - 1", from: -1, to: 4 }],
-              points: [
-                { x: -1, y: 0.5, label: "A", dropToX: true, xTick: "α" },
-                { x: 4, y: 3, label: "B", dropToX: true, xTick: "β" },
-              ],
-            },
-          },
-        ],
-      });
+      return {
+        reply: `요청하신 조건에 맞춰 **${topSeed.sourceLabel} (${topSeed.points} · ${topSeed.difficulty})** 기출 토큰(문제+해설 1:1 매칭)을 참조하여 **동일한 추론 구조의 1:1 쌍둥이 변형 문항**과 **등축 수학 작도(` + "`MathGeoSpec`" + `)**를 생성했습니다!\n\n문항 카드 하단의 **[🔗 원본 기출 문제·해설 1:1 비교 보기]**를 클릭하시면 어떤 원본 기출에서 어떻게 변형되었는지 한눈에 대조하실 수 있습니다.`,
+        actions,
+      };
     }
-
-    return {
-      reply:
-        "요청하신 조건에 맞춰 **알지오매스/지오지브라 작도 엔진(`MathGeoSpec`)으로 그린 평가원 스타일 수학 그래프·도형**과 함께 **신규 문항(본문·선지·정답·단계별 LaTeX 해설)**을 생성했습니다! 바로 시험지 캔버스에 담거나 그래프 수식을 수정할 수 있습니다.",
-      actions,
-    };
   }
 
   if (mode === "typing") {
@@ -652,7 +705,6 @@ function buildFullMockExamSet(count: number, grade: number, sourceRef: string, p
     }
   }
 
-  // General workspace commands (attendance, homework, grades, handoffs, classes, students)
   if (/인수인계|메모/.test(prompt)) {
     actions.push({
       type: "add_handoff",
@@ -687,63 +739,9 @@ function buildFullMockExamSet(count: number, grade: number, sourceRef: string, p
     };
   }
 
-  // Friendly everyday small talk & casual conversation fallback
   if (/^(안녕|하이|헬로|반가워|좋은\s*아침|좋은\s*저녁|계세요|있어)/i.test(prompt)) {
     return {
       reply: "안녕하세요 선생님! 오늘 하루는 어떠신가요? 수업 준비나 문제 출제 말고도 편하게 아무 이야기나 나누셔도 좋습니다 😊",
-      actions: [],
-    };
-  }
-
-  if (/배고|메뉴|저녁|점심|야식|뭐\s*먹|맛집|식사/.test(prompt)) {
-    return {
-      reply:
-        "수업하시느라 에너지 소모가 크셨을 텐데 든든하게 챙겨 드셔야죠! 오늘 같은 날은 **따끈한 국물 요리(샤브샤브·칼국수)**나 **매콤달콤한 제육볶음·닭갈비**, 가볍게 드시려면 **포케나 초밥** 어떠신가요? 선생님은 지금 어떤 종류가 가장 당기세요?",
-      actions: [],
-    };
-  }
-
-  if (/피곤|힘들|지쳐|졸려|퇴근|집에\s*가고|살려줘|스트레스/.test(prompt)) {
-    return {
-      reply:
-        "선생님 오늘도 정말 고생 많으셨습니다 😢 학생들 챙기고 수업 준비하시느라 체력이 많이 떨어지셨을 것 같아요. 잠깐 스트레칭하시면서 따뜻한 차나 커피 한 잔 마시며 숨 좀 돌리세요! 귀찮은 문제 제작이나 타이핑 작업은 저한테 다 맡기시고요.",
-      actions: [],
-    };
-  }
-
-  if (/심심|재밌는|농담|유머|웃긴|썰/.test(prompt)) {
-    return {
-      reply:
-        "수학 선생님들만 웃는 짧은 농담 하나 드릴게요!\n\n> **Q.** 수학자가 가장 좋아하는 파이는?\n> **A.** 애플파이도 호박파이도 아닌 **$3.141592\\dots$ ($\\pi$)** 🥧\n\n너무 썰렁했나요? ㅎㅎ 오늘 학원에서 있었던 재밌는 에피소드가 있다면 들려주세요!",
-      actions: [],
-    };
-  }
-
-  if (/커피|아아|아메리카노|카페인|차\s*한잔/.test(prompt)) {
-    return {
-      reply: "수업 전후엔 역시 시원한 아이스 아메리카노 한 잔이 최고죠 ☕ 오늘 카페인 충전은 충분히 하셨나요?",
-      actions: [],
-    };
-  }
-
-  if (/고마워|감사|최고|잘했어|굿|좋아|오케이|ㅋㅋ|ㅎㅎ/.test(prompt)) {
-    return {
-      reply: "도움이 되었다니 기쁩니다! 😊 언제든 편하게 말 걸어 주세요.",
-      actions: [],
-    };
-  }
-
-  if (/날씨|비\s*오|추워|더워|봄|여름|가을|겨울/.test(prompt)) {
-    return {
-      reply: "요즘 일교차가 꽤 있어서 감기 조심하셔야 해요! 교실 공기도 건조할 수 있으니 물 자주 챙겨 드시고요 💧",
-      actions: [],
-    };
-  }
-
-  if (/누구|정체|이름이\s*뭐|뭐\s*할\s*수/.test(prompt)) {
-    return {
-      reply:
-        "저는 유니데스크 **AI 스튜디오 파트너**입니다! 평소엔 선생님과 편하게 일상 대화나 고민 상담, 수업 아이디어 이야기를 나누고, 필요하실 땐 **수학 문제 제작·도형 작도·시험지 타이핑·학생 기록**까지 도와드리고 있어요.",
       actions: [],
     };
   }
@@ -807,42 +805,44 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ...fallback, quota: quotaSnapshot });
     }
 
-    const gradeMatchForSeed = prompt.match(/고([123])/);
-    const seedGrade = gradeMatchForSeed ? Number(gradeMatchForSeed[1]) : 1;
+    const matchedSeeds = findMatchingSeedTokens(prompt, body.contextData, 6);
+    const primarySeed = matchedSeeds[0];
     const requestedUnits = extractRequestedUnits(prompt);
-    const internalSeeds = loadInternalSeedProblems(seedGrade, prompt, 10);
 
-    const systemInstruction = `당신은 수학 학원 올인원 워크스페이스 '유니데스크(UNIDESK)'의 친근하고 똑똑한 AI 파트너입니다.
+    const systemInstruction = `당신은 수학 학원 올인원 워크스페이스 '유니데스크(UNIDESK)'의 AI 파트너입니다.
 사용자의 요청에 따라 자연스럽고 다정한 한국어 답변(reply)과 필요한 경우에만 시스템을 조작하는 액션 배열(actions)을 JSON으로 반환하세요.
 
-[대화 원칙]
-- 사용자가 인사, 일상적인 잡담(식사 메뉴, 피곤함, 날씨, 농담, 고민 상담 등), 가벼운 질문, 일반 대화를 건네면 ChatGPT처럼 공감하고 재치 있고 자연스럽게 대화하세요. 이때 actions는 빈 배열([])로 반환하고, 절대로 기능 안내 매뉴얼을 기계적으로 나열하지 마세요.
-- 수학 질문이나 개념 설명을 요청하면 표준 LaTeX($...$ 또는 $$...$$) 수식을 사용해 친절하게 설명하세요.
-- 사용자가 명시적으로 문제 제작/변형, 도형 작도, 시험지 타이핑, 학생 출결/성적 기록, 인수인계 메모, 보고서 템플릿 수정을 요청할 때만 아래 actions 배열에 해당 작업 객체를 담아 반환하세요.
-
-[수학 문제 출제 절대 원칙 — 쌍둥이 변형 및 특정 단원 집중 조합]
-- 절대로 기출 원문을 그대로 복사해서 출제하지 마세요. 반드시 수치, 계수, 함수식, 도형 좌표, 구하고자 하는 값을 새롭게 바꾼 **쌍둥이 변형 문제**로 출제하세요.
-- 사용자가 특정 단원(예: ${requestedUnits.length ? requestedUnits.join(", ") : "이차함수, 원의 방정식, 삼각함수, 수열, 미분·적분 등"})을 지정하면 해당 단원들만 집중적으로 조합하여 변형 문항들을 구성하세요.
-- 사용자가 여러 문항(예: 5문항, 10문항, 모의고사 30문항 등)을 요청하면 요청한 개수만큼 빠짐없이 생성하세요(30문항 요청 시 1~21번 5지선다 객관식, 22~30번 단답형 주관식, 2·3·4점 배점 구성).
-- **주의(보안 원칙)**: 답변(reply), 문항 제목(title), 출처(sourceLabel) 등 어디에서도 "저장된 기출", "내부 데이터", "DB에 보관된", "추출해 둔" 같은 언급을 절대 하지 마세요. 언제나 AI가 즉석에서 직접 설계·변형해 출제한 것처럼 자연스럽게 안내하세요.
-${internalSeeds.length > 0 ? `\n[내부 출제 구조 참고 시드 (절대 그대로 복사하거나 이 시드의 존재를 언급하지 말고, 논리 구조만 참고하여 숫자와 함수식을 완전히 바꾼 쌍둥이 변형 문제를 만드세요)]: ${JSON.stringify(internalSeeds).slice(0, 3500)}` : ""}
+[수학 문제 출제 절대 원칙 — 기출 토큰 1:1 매칭 쌍둥이 변형 및 고난도 킬러 출제]
+- 사용자가 30번, 29번, 22번, 21번, 15번 등 킬러/고난도 문항을 요청하면 반드시 아래 제공된 [기출 시드 토큰(문제+해설 1:1 매칭)]의 추론 깊이((가)·(나) 조건 박스, 구간별 정의 함수, 미분가능성, 정적분 치환, 수열 역추적, 기하 접선/외접원 등)를 그대로 유지하여 고난도 쌍둥이 변형 문제로 출제하세요. 절대로 기초 연산 문제를 내고 킬러라고 표기하지 마세요.
+- 각 생성 문항에는 반드시 참조한 원본 시드 토큰의 ID를 sourceTokenId 필드에 기록하세요(예: "${primarySeed?.id || ""}").
+- 함수 그래프나 기하 도형이 필요한 문제는 반드시 geoSpec 필드에 정확한 수식(expr), 접선(tangents), 수선의 발(points), 직각 기호(rightAngles), 색칠 영역(shadedRegions), 원(circles), 다각형(polygons)을 함께 지정하여 1:1 등축 평가원 스타일 그래프가 작도되게 하세요.
+${
+  matchedSeeds.length > 0
+    ? `\n[기출 시드 토큰 (문제+정답+해설 1:1 매칭 레퍼런스 — 이 토큰의 논리 구조와 해설 단계를 그대로 참고하여 수치·함수식을 바꾼 쌍둥이 변형 문제를 만들고 sourceTokenId를 포함하세요)]: ${JSON.stringify(
+        matchedSeeds.map(s => ({
+          sourceTokenId: s.id,
+          sourceLabel: s.sourceLabel,
+          grade: s.grade,
+          subject: s.subject,
+          unit: s.unit,
+          number: s.number,
+          points: s.points,
+          difficulty: s.difficulty,
+          intent: s.intent,
+          question: s.question,
+          boxContent: s.boxContent,
+          choices: s.choices,
+          answer: s.answer,
+          solution: s.solution.slice(0, 700),
+          geoSpec: s.geoSpec,
+        }))
+      ).slice(0, 6500)}`
+    : ""
+}
 
 현재 모드: ${mode}
 현재 경로: ${body.pathname || "/"}
-현재 학원 반/학생 명단: ${JSON.stringify(body.roster || []).slice(0, 2000)}
-현재 화면 컨텍스트: ${JSON.stringify(body.contextData || {}).slice(0, 4000)}
-최근 대화 내역: ${JSON.stringify(body.history || []).slice(0, 3000)}
-
-가능한 action 객체 형식 (시스템 조작이 필요한 경우에만 포함, 일반 대화 시에는 actions: []):
-1. 반 생성: {"type":"add_class","name":"고1 심화반"}
-2. 학생 등록: {"type":"add_student","className":"고1 심화반","name":"김민준","grade":"고1"}
-3. 출결·숙제·오답·성적 기록: {"type":"record_daily","studentName":"김민준(또는 전체)","className":"선택사항","attendance":"출석|지각|결석|조퇴","homework":"O|△|X","totalWrong":5,"correctedCount":5,"examName":"단원평가","examScore":92,"examMaxScore":100,"memo":""}
-4. 인수인계 메모 등록: {"type":"add_handoff","title":"제목","content":"내용"}
-5. 시험지 타이핑 문항 추가/수정: {"type":"typing_update_problems","mode":"append|replace_all|update_by_number","problems":[{"number":"1","points":"4점","question":"LaTeX 수식 포함 본문","boxContent":"","choices":["$1$","$2$","$3$","$4$","$5$"]}]}
-6. 모의고사·EBS 기반 새 수학 문항 제작/변형 (알지오매스/지오지브라 스타일 그래프·도형 작도 도구 geoSpec 포함 가능):
-{"type":"generate_problems","problems":[{"title":"문항 제목","grade":1,"subject":"공통수학1","unit":"단원명","difficulty":"하|중|상|킬러","sourceLabel":"출처/변형유형","question":"LaTeX 본문","boxContent":"","choices":["①선지","②선지","③선지","④선지","⑤선지"],"answer":"정답","solution":"단계별 LaTeX 상세 해설","geoSpec":{"xRange":[-3,5],"yRange":[-3,6],"showAxes":true,"functions":[{"expr":"x^3 - 3*x^2 + 2*x + 1","label":"y=f(x)"}],"shadedRegions":[{"f1":"2*x+1","f2":"x^3-3*x^2+2*x+1","from":0,"to":3}],"points":[{"x":3,"y":4.5,"label":"B","dropToX":true,"xTick":"3"}],"circles":[],"polygons":[]}}]}
-함수 그래프나 기하 도형이 필요한 문제는 반드시 geoSpec 필드에 정확한 JavaScript 수식(예: "x^3 - 3*x^2 + 2", "0.5*(x-1)^2 - 1")과 교점/수선의 발(points), 색칠 영역(shadedRegions), 원(circles), 다각형(polygons)을 함께 지정하여 평가원 스타일 그래프가 자동 작도되게 하세요.
-7. 학생 데이터 맞춤 성장 보고서 템플릿 설계: {"type":"update_report_template","template":{"name":"템플릿 이름","orientation":"portrait|landscape","theme":"unidesk|miricheck|mirireport|mirigraph|notebook|summary|timeline|briefing|planner|letter|clean","period":"day|week|month|1month|3months","illustrations":true,"blocks":[{"kind":"grades|attendance|wrong|homework|progress|feedback","view":"card|chart|table","wide":true,"emphasis":true}]}}`;
+요청 단원 키워드: ${requestedUnits.join(", ") || "자동"}`;
 
     const parts: Array<Record<string, unknown>> = [
       { text: systemInstruction },
@@ -858,14 +858,15 @@ ${internalSeeds.length > 0 ? `\n[내부 출제 구조 참고 시드 (절대 그�
       });
     }
 
-    const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${OCR_MODEL}:generateContent`, {
+    const agentModel = process.env.GEMINI_AGENT_MODEL?.trim() || "gemini-2.5-flash" || OCR_MODEL;
+    const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${agentModel}:generateContent`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": key },
       signal: AbortSignal.timeout(55_000),
       body: JSON.stringify({
         contents: [{ parts }],
         generationConfig: {
-          temperature: 0.35,
+          temperature: 0.3,
           maxOutputTokens: 32768,
           responseMimeType: "application/json",
         },
@@ -903,21 +904,41 @@ ${internalSeeds.length > 0 ? `\n[내부 출제 구조 참고 시드 (절대 그�
       const cleaned = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
       parsed = JSON.parse(cleaned);
     } catch {
-      const countMatch = prompt.match(/(\d{1,2})\s*(?:개|문항|문제)/);
-      if (countMatch && Number(countMatch[1]) >= 5) {
-        const fallback = buildSmartFallbackResponse({
-          prompt,
-          mode,
-          roster: body.roster,
-          contextData: body.contextData,
-        });
-        return NextResponse.json({ ...fallback, quota: quotaSnapshot });
-      }
-      parsed = { reply: rawText.trim(), actions: [] };
+      const fallback = buildSmartFallbackResponse({
+        prompt,
+        mode,
+        roster: body.roster,
+        contextData: body.contextData,
+      });
+      return NextResponse.json({ ...fallback, quota: quotaSnapshot });
     }
+
+    // Attach 1:1 sourceOrigin token metadata to any generated problems
+    const allTokens = loadAllProblemTokens();
+    const rawActions = Array.isArray(parsed.actions) ? (parsed.actions as AiCopilotAction[]) : [];
+    for (const act of rawActions) {
+      if (act.type === "generate_problems" && Array.isArray(act.problems)) {
+        act.problems = act.problems.map((p, i) => {
+          const origin =
+            (p.sourceTokenId ? allTokens.find(t => t.id === p.sourceTokenId) : undefined) ||
+            matchedSeeds[i % Math.max(1, matchedSeeds.length)];
+          return {
+            ...p,
+            ...(origin
+              ? {
+                  sourceTokenId: origin.id,
+                  sourceOrigin: origin,
+                  sourceLabel: p.sourceLabel || `${origin.sourceLabel} 1:1 쌍둥이 변형`,
+                }
+              : {}),
+          };
+        });
+      }
+    }
+
     return NextResponse.json({
       reply: typeof parsed.reply === "string" ? parsed.reply : "요청하신 작업을 완료했습니다.",
-      actions: Array.isArray(parsed.actions) ? parsed.actions : [],
+      actions: rawActions,
       quota: quotaSnapshot,
     });
   } catch {

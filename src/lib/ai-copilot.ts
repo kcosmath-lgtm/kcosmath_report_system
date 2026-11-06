@@ -127,43 +127,14 @@ export interface AiCopilotResponse {
   reply: string;
   actions: AiCopilotAction[];
   appliedSummary: string[];
+  createdProblems?: GeneratedMathProblem[];
   quota?: AiQuotaSnapshot;
 }
 
 const LOCAL_PROBLEMS_KEY = "cosmath:generated-problems:v1";
 let generatedProblemsTableMissing = false;
 
-export async function loadGeneratedProblems(): Promise<GeneratedMathProblem[]> {
-  if (!usesLocalStorage() && !generatedProblemsTableMissing) {
-    try {
-      const { data, error } = await supabase
-        .from("cosmath_generated_problems")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(200);
-      if (error) {
-        generatedProblemsTableMissing = true;
-      } else if (Array.isArray(data)) {
-        return data.map(row => ({
-          id: String(row.id),
-          title: String(row.title || "AI 생성 문항"),
-          grade: Number(row.grade || 1),
-          subject: String(row.subject || "공통수학"),
-          unit: String(row.unit || ""),
-          difficulty: (["하", "중", "상", "킬러"].includes(row.difficulty) ? row.difficulty : "중") as GeneratedMathProblem["difficulty"],
-          sourceLabel: String(row.source_label || "AI 출제"),
-          question: String(row.question || ""),
-          boxContent: String(row.box_content || ""),
-          choices: Array.isArray(row.choices) ? row.choices.map(String) : [],
-          answer: String(row.answer || ""),
-          solution: String(row.solution || ""),
-          createdAt: String(row.created_at || new Date().toISOString()),
-        }));
-      }
-    } catch {
-      // Fallback to localStorage
-    }
-  }
+function readLocalGeneratedProblems(): GeneratedMathProblem[] {
   try {
     const raw = typeof window !== "undefined" ? localStorage.getItem(LOCAL_PROBLEMS_KEY) : null;
     if (raw) {
@@ -176,6 +147,57 @@ export async function loadGeneratedProblems(): Promise<GeneratedMathProblem[]> {
   return [];
 }
 
+export async function loadGeneratedProblems(): Promise<GeneratedMathProblem[]> {
+  const localItems = readLocalGeneratedProblems();
+  const localById = new Map(localItems.map(item => [item.id, item]));
+
+  if (!usesLocalStorage() && !generatedProblemsTableMissing) {
+    try {
+      const { data, error } = await supabase
+        .from("cosmath_generated_problems")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (error) {
+        generatedProblemsTableMissing = true;
+      } else if (Array.isArray(data) && data.length > 0) {
+        const remoteItems: GeneratedMathProblem[] = data.map(row => {
+          const id = String(row.id);
+          const localMatch = localById.get(id);
+          return {
+            id,
+            title: String(row.title || localMatch?.title || "AI 생성 문항"),
+            grade: Number(row.grade || localMatch?.grade || 1),
+            subject: String(row.subject || localMatch?.subject || "공통수학"),
+            unit: String(row.unit || localMatch?.unit || ""),
+            points: localMatch?.points,
+            intent: localMatch?.intent,
+            difficulty: (["하", "중", "상", "킬러"].includes(row.difficulty)
+              ? row.difficulty
+              : localMatch?.difficulty || "중") as GeneratedMathProblem["difficulty"],
+            sourceLabel: String(row.source_label || localMatch?.sourceLabel || "AI 출제"),
+            sourceTokenId: localMatch?.sourceTokenId,
+            sourceOrigin: localMatch?.sourceOrigin,
+            question: String(row.question || localMatch?.question || ""),
+            boxContent: String(row.box_content ?? localMatch?.boxContent ?? ""),
+            choices: Array.isArray(row.choices) ? row.choices.map(String) : localMatch?.choices || [],
+            answer: String(row.answer ?? localMatch?.answer ?? ""),
+            solution: String(row.solution ?? localMatch?.solution ?? ""),
+            figure: localMatch?.figure,
+            geoSpec: localMatch?.geoSpec,
+            createdAt: String(row.created_at || localMatch?.createdAt || new Date().toISOString()),
+          };
+        });
+        const remoteIds = new Set(remoteItems.map(r => r.id));
+        return [...remoteItems, ...localItems.filter(l => !remoteIds.has(l.id))].slice(0, 200);
+      }
+    } catch {
+      // Fallback to localStorage
+    }
+  }
+  return localItems;
+}
+
 export async function saveGeneratedProblems(items: Omit<GeneratedMathProblem, "id" | "createdAt">[]): Promise<GeneratedMathProblem[]> {
   const now = new Date().toISOString();
   const created: GeneratedMathProblem[] = items.map(item => ({
@@ -183,6 +205,17 @@ export async function saveGeneratedProblems(items: Omit<GeneratedMathProblem, "i
     id: crypto.randomUUID(),
     createdAt: now,
   }));
+
+  try {
+    const existing = readLocalGeneratedProblems();
+    const merged = [...created, ...existing.filter(e => !created.some(c => c.id === e.id))].slice(0, 200);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(LOCAL_PROBLEMS_KEY, JSON.stringify(merged));
+      window.dispatchEvent(new CustomEvent("cosmath-ai-problems-generated", { detail: created }));
+    }
+  } catch {
+    // Ignore
+  }
 
   if (!usesLocalStorage() && !generatedProblemsTableMissing) {
     try {
@@ -207,16 +240,6 @@ export async function saveGeneratedProblems(items: Omit<GeneratedMathProblem, "i
     }
   }
 
-  try {
-    const existing = await loadGeneratedProblems();
-    const merged = [...created, ...existing.filter(e => !created.some(c => c.id === e.id))].slice(0, 200);
-    if (typeof window !== "undefined") {
-      localStorage.setItem(LOCAL_PROBLEMS_KEY, JSON.stringify(merged));
-      window.dispatchEvent(new CustomEvent("cosmath-ai-problems-generated", { detail: created }));
-    }
-  } catch {
-    // Ignore
-  }
   return created;
 }
 
@@ -321,7 +344,10 @@ function kstToday(): string {
   return kst.toISOString().slice(0, 10);
 }
 
-export async function executeCopilotActions(actions: AiCopilotAction[]): Promise<string[]> {
+export async function executeCopilotActions(
+  actions: AiCopilotAction[],
+  outCreatedProblems?: GeneratedMathProblem[]
+): Promise<string[]> {
   const summaries: string[] = [];
   if (!actions?.length) return summaries;
 
@@ -471,6 +497,9 @@ export async function executeCopilotActions(actions: AiCopilotAction[]): Promise
           })
         );
         const saved = await saveGeneratedProblems(enriched);
+        if (outCreatedProblems) {
+          outCreatedProblems.push(...saved);
+        }
         summaries.push(`새 수학 문항 ${saved.length}건(알지오매스/지오지브라형 그래프 포함)을 제작하여 보관함에 저장했습니다`);
       } else if (action.type === "update_report_template" && action.template) {
         const rawBlocks = Array.isArray(action.template.blocks) && action.template.blocks.length > 0
@@ -577,12 +606,14 @@ export async function sendAiCopilotMessage(params: {
   }
 
   const actions: AiCopilotAction[] = Array.isArray(data?.actions) ? data.actions : [];
-  const appliedSummary = await executeCopilotActions(actions);
+  const createdProblems: GeneratedMathProblem[] = [];
+  const appliedSummary = await executeCopilotActions(actions, createdProblems);
 
   return {
     reply: String(data?.reply || "요청하신 작업을 처리했습니다."),
     actions,
     appliedSummary,
+    createdProblems,
     quota,
   };
 }

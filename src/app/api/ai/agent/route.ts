@@ -66,11 +66,17 @@ function extractRequestedUnits(prompt: string): string[] {
   return UNIT_KEYWORDS.filter(kw => prompt.includes(kw));
 }
 
+function isProblemGenerationPrompt(prompt: string, mode: string): boolean {
+  if (mode === "problem_studio") return true;
+  if (/보고서\s*템플릿|리포트\s*(템플릿|양식|디자인)/.test(prompt)) return false;
+  return /문제|문항|킬러|출제|변형|쌍둥이|모의고사|기출|ebs|그래프|도형|작도|\b\d{1,2}\s*번|\d{1,2}\s*개/i.test(prompt);
+}
+
 function parsePromptProblemIntent(prompt: string, contextData?: Record<string, unknown>) {
   const text = String(prompt || "");
   const explicitTokenId = typeof contextData?.sourceTokenId === "string" ? contextData.sourceTokenId : "";
 
-  // 1. Distinguish problem number ("30번", "22번급", "21번 스타일") vs problem count ("30문제", "5문항", "10개")
+  // 1. Distinguish problem number ("30번", "22번급", "21번 스타일") vs problem count ("30문제", "15문제", "5문항", "10개")
   const numberMatch = text.match(/\b([1-9]|[12]\d|30)\s*번/);
   const targetNumber = numberMatch ? Number(numberMatch[1]) : null;
 
@@ -83,38 +89,45 @@ function parsePromptProblemIntent(prompt: string, contextData?: Record<string, u
       ? 30
       : 1;
 
-  // 2. Grade & Subject
+  // 2. Difficulty (check prompt keywords first!)
+  const ctxDifficulty = typeof contextData?.difficulty === "string" ? contextData.difficulty : "";
+  const isKillerNum = targetNumber !== null && [15, 21, 22, 29, 30].includes(targetNumber);
+  const isHardNum = targetNumber !== null && [13, 14, 19, 20, 27, 28].includes(targetNumber);
+  const isKillerPrompt = /킬러|최고난도|30번급|22번급|21번급|29번급|15번급|어려운|고난도\s*킬러/.test(text) || isKillerNum;
+  const difficulty: "하" | "중" | "상" | "킬러" = isKillerPrompt
+    ? "킬러"
+    : /준킬러|고난도|심화|4점|상\s*난이도/.test(text) || isHardNum
+      ? "상"
+      : /2점|기초|쉬운|하\s*난이도/.test(text) || (targetNumber !== null && targetNumber <= 4)
+        ? "하"
+        : /3점|중\s*난이도/.test(text)
+          ? "중"
+          : ["하", "중", "상", "킬러"].includes(ctxDifficulty)
+            ? (ctxDifficulty as "하" | "중" | "상" | "킬러")
+            : "상";
+
+  // 3. Grade & Subject (check prompt signals BEFORE contextData fallback so "킬러문제로 15문제" isn't stuck on default grade 1)
   const gradeMatch = text.match(/고([123])/);
   const ctxGrade = Number(contextData?.grade || 0);
   const isCalculus = /미적분|급수|정적분.*치환|합성함수.*미분|e\^x|\\ln/.test(text);
   const isGeometry = /기하|이차곡선|포물선|타원|쌍곡선|벡터|공간도형|정사영/.test(text);
   const isProbStat = /확률과\s*통계|확통|조건부확률|정규분포|신뢰구간|이항분포/.test(text);
+  const isGrade1Topic = /공통수학|다항식|나머지정리|복소수|이차방정식|원의\s*방정식|집합|명제|경우의\s*수/.test(text);
+  const isGrade2Topic = /수열|삼각함수|지수|로그|도함수|극대|극소|정적분/.test(text);
+
   const grade = gradeMatch
     ? Number(gradeMatch[1])
-    : ctxGrade >= 1 && ctxGrade <= 3
-      ? ctxGrade
-      : isCalculus || isGeometry || isProbStat || (targetNumber && targetNumber >= 28)
-        ? 3
-        : /수열|삼각함수|지수|로그|도함수|극대|극소/.test(text)
+    : isCalculus || isGeometry || isProbStat || (targetNumber && targetNumber >= 28)
+      ? 3
+      : isGrade1Topic
+        ? 1
+        : isGrade2Topic
           ? 2
-          : 1;
-
-  // 3. Difficulty
-  const ctxDifficulty = typeof contextData?.difficulty === "string" ? contextData.difficulty : "";
-  const isKillerNum = targetNumber !== null && [15, 21, 22, 29, 30].includes(targetNumber);
-  const isHardNum = targetNumber !== null && [13, 14, 19, 20, 27, 28].includes(targetNumber);
-  const difficulty: "하" | "중" | "상" | "킬러" =
-    /킬러|최고난도|30번급|22번급|21번급|29번급|15번급|어려운|고난도\s*킬러/.test(text) || isKillerNum
-      ? "킬러"
-      : /준킬러|고난도|심화|4점|상\s*난이도/.test(text) || isHardNum
-        ? "상"
-        : /2점|기초|쉬운|하\s*난이도/.test(text) || (targetNumber !== null && targetNumber <= 4)
-          ? "하"
-          : /3점|중\s*난이도/.test(text)
-            ? "중"
-            : (["하", "중", "상", "킬러"].includes(ctxDifficulty)
-                ? (ctxDifficulty as "하" | "중" | "상" | "킬러")
-                : "상");
+          : isKillerPrompt
+            ? 3
+            : ctxGrade >= 1 && ctxGrade <= 3
+              ? ctxGrade
+              : 2;
 
   const subjectHint = isGeometry
     ? "기하"
@@ -130,6 +143,7 @@ function parsePromptProblemIntent(prompt: string, contextData?: Record<string, u
     explicitTokenId,
     targetNumber,
     requestedCount,
+    hasExplicitGrade: Boolean(gradeMatch),
     grade,
     difficulty,
     subjectHint,
@@ -180,7 +194,7 @@ function findMatchingSeedTokens(
   if (!pool.length) pool = all;
 
   // Filter by subject if grade 3 selective subject is specified
-  if (intent.grade === 3 && intent.subjectHint) {
+  if (intent.grade === 3 && intent.subjectHint && /미적분|기하|확률과\s*통계|확통/.test(prompt)) {
     const subjMatched = pool.filter(
       p => p.subject.includes(intent.subjectHint) || p.examTitle.includes(intent.subjectHint)
     );
@@ -200,6 +214,19 @@ function findMatchingSeedTokens(
     // Filter by requested difficulty
     const diffMatched = pool.filter(p => p.difficulty === intent.difficulty);
     if (diffMatched.length > 0) pool = diffMatched;
+  }
+
+  // If user requested many problems (e.g., "킬러문제로 15문제") and current grade pool has fewer than maxSeeds,
+  // supplement with matching difficulty tokens across all grades so every problem has a distinct real seed token!
+  if (pool.length < maxSeeds && !intent.hasExplicitGrade) {
+    const existingIds = new Set(pool.map(p => p.id));
+    const extraDiff = all.filter(p => !existingIds.has(p.id) && p.difficulty === intent.difficulty);
+    pool = [...pool, ...extraDiff];
+    if (pool.length < maxSeeds && intent.difficulty === "킬러") {
+      const extraIds = new Set(pool.map(p => p.id));
+      const extraFourPt = all.filter(p => !extraIds.has(p.id) && p.points === "4점");
+      pool = [...pool, ...extraFourPt];
+    }
   }
 
   // Filter by unit keywords if any
@@ -611,10 +638,7 @@ function buildSmartFallbackResponse(body: {
     };
   }
 
-  if (
-    mode === "problem_studio" ||
-    /문제.*(만들|생성|변형|쌍둥이|출제)|기출|모의고사|ebs|그래프|도형|작도|\b\d{1,2}\s*번|킬러/i.test(prompt)
-  ) {
+  if (isProblemGenerationPrompt(prompt, mode)) {
     const intent = parsePromptProblemIntent(prompt, body.contextData);
     const matchedSeeds = findMatchingSeedTokens(prompt, body.contextData, Math.max(8, intent.requestedCount));
 
@@ -632,7 +656,7 @@ function buildSmartFallbackResponse(body: {
         problems,
       });
       return {
-        reply: `요청하신 조건(**고${intent.grade} · 난이도 ${intent.difficulty}**)에 맞춰 기출 토큰 DB에서 매칭된 **${problems.length}문항의 1:1 쌍둥이 변형 세트(원본 기출 문제·해설 1:1 대조 포함)**를 출제했습니다! 각 문항 카드에서 **[원본 기출 문제·해설 비교]** 버튼을 눌러 변형 전 원본 기출과 바로 비교해 보실 수 있습니다.`,
+        reply: `요청하신 조건(**고${intent.grade} · 난이도 ${intent.difficulty}**)에 맞춰 기출 토큰 DB에서 매칭된 **${problems.length}문항의 1:1 쌍둥이 변형 세트(원본 기출 문제·해설 1:1 대조 포함)**를 출제하여 시험지 캔버스와 보관함에 담았습니다! 각 문항 카드에서 **[원본 기출 문제·해설 1:1 비교 ▼]** 버튼을 눌러 변형 전 원본 기출과 바로 비교해 보실 수 있습니다.`,
         actions,
       };
     }
@@ -794,8 +818,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const intent = parsePromptProblemIntent(prompt, body.contextData);
+    const isProbReq = isProblemGenerationPrompt(prompt, mode);
+
     const key = process.env.GEMINI_API_KEY?.trim();
-    if (!key) {
+    // For multi-problem batch requests (e.g. "킬러문제로 15문제 만들어달라") or when API key is absent,
+    // use the deterministic 1:1 seed token twin engine so all N problems are generated reliably without truncation.
+    if (!key || (isProbReq && intent.requestedCount >= 3 && !body.imageBase64)) {
       const fallback = buildSmartFallbackResponse({
         prompt,
         mode,
@@ -805,21 +834,50 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ...fallback, quota: quotaSnapshot });
     }
 
-    const matchedSeeds = findMatchingSeedTokens(prompt, body.contextData, 6);
+    const matchedSeeds = findMatchingSeedTokens(prompt, body.contextData, Math.max(8, intent.requestedCount));
     const primarySeed = matchedSeeds[0];
     const requestedUnits = extractRequestedUnits(prompt);
 
     const systemInstruction = `당신은 수학 학원 올인원 워크스페이스 '유니데스크(UNIDESK)'의 AI 파트너입니다.
-사용자의 요청에 따라 자연스럽고 다정한 한국어 답변(reply)과 필요한 경우에만 시스템을 조작하는 액션 배열(actions)을 JSON으로 반환하세요.
+사용자의 요청에 따라 자연스럽고 다정한 한국어 답변(reply)과 필요한 경우 시스템을 조작하는 액션 배열(actions)을 반드시 아래 JSON 스키마로 반환하세요.
+
+[응답 JSON 스키마]
+{
+  "reply": "사용자에게 보여줄 안내 메시지",
+  "actions": [
+    {
+      "type": "generate_problems",
+      "problems": [
+        {
+          "title": "문항 제목",
+          "grade": ${intent.grade},
+          "subject": "${intent.subjectHint || "수학"}",
+          "unit": "단원명",
+          "points": "${intent.difficulty === "킬러" || intent.difficulty === "상" ? "4점" : "3점"}",
+          "difficulty": "${intent.difficulty}",
+          "sourceTokenId": "${primarySeed?.id || ""}",
+          "sourceLabel": "기출 변형 출처",
+          "question": "LaTeX 수식($...$)이 포함된 발문",
+          "boxContent": "(가)/(나) 조건 또는 ㄱ, ㄴ, ㄷ 보기 (없으면 빈 문자열)",
+          "choices": ["① 선지1", "② 선지2", "③ 선지3", "④ 선지4", "⑤ 선지5"],
+          "answer": "정답",
+          "solution": "[출제의도] 및 단계별 상세 해설",
+          "geoSpec": { "xRange": [-3, 4], "yRange": [-2, 6], "showAxes": true, "functions": [{ "expr": "x^3 - 3*x + 1", "label": "y=f(x)" }] }
+        }
+      ]
+    }
+  ]
+}
 
 [수학 문제 출제 절대 원칙 — 기출 토큰 1:1 매칭 쌍둥이 변형 및 고난도 킬러 출제]
+- 사용자가 수학 문제 출제/변형을 요청하면 반드시 actions 배열에 "type": "generate_problems" 액션을 포함하여 요청한 문항 수(${intent.requestedCount}문항)만큼 문제를 생성하세요.
 - 사용자가 30번, 29번, 22번, 21번, 15번 등 킬러/고난도 문항을 요청하면 반드시 아래 제공된 [기출 시드 토큰(문제+해설 1:1 매칭)]의 추론 깊이((가)·(나) 조건 박스, 구간별 정의 함수, 미분가능성, 정적분 치환, 수열 역추적, 기하 접선/외접원 등)를 그대로 유지하여 고난도 쌍둥이 변형 문제로 출제하세요. 절대로 기초 연산 문제를 내고 킬러라고 표기하지 마세요.
 - 각 생성 문항에는 반드시 참조한 원본 시드 토큰의 ID를 sourceTokenId 필드에 기록하세요(예: "${primarySeed?.id || ""}").
 - 함수 그래프나 기하 도형이 필요한 문제는 반드시 geoSpec 필드에 정확한 수식(expr), 접선(tangents), 수선의 발(points), 직각 기호(rightAngles), 색칠 영역(shadedRegions), 원(circles), 다각형(polygons)을 함께 지정하여 1:1 등축 평가원 스타일 그래프가 작도되게 하세요.
 ${
   matchedSeeds.length > 0
     ? `\n[기출 시드 토큰 (문제+정답+해설 1:1 매칭 레퍼런스 — 이 토큰의 논리 구조와 해설 단계를 그대로 참고하여 수치·함수식을 바꾼 쌍둥이 변형 문제를 만들고 sourceTokenId를 포함하세요)]: ${JSON.stringify(
-        matchedSeeds.map(s => ({
+        matchedSeeds.slice(0, 6).map(s => ({
           sourceTokenId: s.id,
           sourceLabel: s.sourceLabel,
           grade: s.grade,
@@ -916,10 +974,30 @@ ${
     // Attach 1:1 sourceOrigin token metadata to any generated problems
     const allTokens = loadAllProblemTokens();
     const rawActions = Array.isArray(parsed.actions) ? (parsed.actions as AiCopilotAction[]) : [];
+    let genAction = rawActions.find(a => a.type === "generate_problems") as
+      | Extract<AiCopilotAction, { type: "generate_problems" }>
+      | undefined;
+
+    if (isProbReq && matchedSeeds.length > 0) {
+      if (!genAction) {
+        genAction = { type: "generate_problems", problems: [] };
+        rawActions.push(genAction);
+      }
+      if (!Array.isArray(genAction.problems)) {
+        genAction.problems = [];
+      }
+      while (genAction.problems.length < intent.requestedCount) {
+        const idx = genAction.problems.length;
+        const seed = matchedSeeds[idx % matchedSeeds.length];
+        genAction.problems.push(buildTwinProblemFromSeedToken(seed, idx + 1, prompt));
+      }
+    }
+
     for (const act of rawActions) {
       if (act.type === "generate_problems" && Array.isArray(act.problems)) {
         act.problems = act.problems.map((p, i) => {
           const origin =
+            p.sourceOrigin ||
             (p.sourceTokenId ? allTokens.find(t => t.id === p.sourceTokenId) : undefined) ||
             matchedSeeds[i % Math.max(1, matchedSeeds.length)];
           return {

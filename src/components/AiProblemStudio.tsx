@@ -737,19 +737,33 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
 
       const latestVault = await loadGeneratedProblems();
       setSavedProblems(latestVault);
-      // Pick the newly generated problems from this turn
-      const genCount = response.actions.reduce(
-        (acc, a) =>
-          acc +
-          (a.type === "generate_problems"
-            ? a.problems.length
-            : a.type === "typing_update_problems"
+      // Pick the newly generated problems from this turn directly from response.createdProblems
+      if (response.createdProblems && response.createdProblems.length > 0) {
+        createdProblems.push(...response.createdProblems);
+      } else {
+        const genCount = response.actions.reduce(
+          (acc, a) =>
+            acc +
+            (a.type === "generate_problems"
               ? a.problems.length
-              : 0),
-        0
-      );
-      if (genCount > 0) {
-        createdProblems.push(...latestVault.slice(0, genCount));
+              : a.type === "typing_update_problems"
+                ? a.problems.length
+                : 0),
+          0
+        );
+        if (genCount > 0) {
+          createdProblems.push(...latestVault.slice(0, genCount));
+        }
+      }
+
+      if (createdProblems.length > 0) {
+        setExamProblems(prev => {
+          const existingIds = new Set(prev.map(p => p.id));
+          return [...prev, ...createdProblems.filter(cp => !existingIds.has(cp.id))];
+        });
+        if (createdProblems.length >= 2) {
+          setCanvasPanel("exam");
+        }
       }
 
       if (response.quota) {
@@ -931,104 +945,6 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
 
   const renderComposer = (isCentered: boolean) => (
     <div className={`${styles.composerContainer} ${isCentered ? styles.composerCentered : styles.composerDocked}`}>
-      {(mode === "generate" || mode === "geometry" || mode === "default") && (
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "center",
-            gap: 6,
-            marginBottom: 8,
-            fontSize: 12,
-          }}
-        >
-          <select
-            value={grade}
-            onChange={e => {
-              const g = Number(e.target.value) as 1 | 2 | 3;
-              setGrade(g);
-              setMockGrade(g);
-            }}
-            style={{
-              height: 28,
-              borderRadius: 999,
-              border: "1px solid #cbd5e1",
-              background: "#f8fafc",
-              padding: "0 10px",
-              fontSize: 12,
-              fontWeight: 600,
-              color: "#1e293b",
-            }}
-            aria-label="출제 학년"
-          >
-            <option value={1}>고1</option>
-            <option value={2}>고2</option>
-            <option value={3}>고3</option>
-          </select>
-          <select
-            value={subject}
-            onChange={e => setSubject(e.target.value)}
-            style={{
-              height: 28,
-              borderRadius: 999,
-              border: "1px solid #cbd5e1",
-              background: "#f8fafc",
-              padding: "0 10px",
-              fontSize: 12,
-              fontWeight: 600,
-              color: "#1e293b",
-            }}
-            aria-label="출제 과목"
-          >
-            <option value="공통수학1">공통수학1</option>
-            <option value="공통수학2">공통수학2</option>
-            <option value="대수">대수 (수학I)</option>
-            <option value="미적분">미적분</option>
-            <option value="기하">기하</option>
-            <option value="확률과 통계">확률과 통계</option>
-          </select>
-          <select
-            value={difficulty}
-            onChange={e => setDifficulty(e.target.value as "킬러" | "상" | "중" | "하")}
-            style={{
-              height: 28,
-              borderRadius: 999,
-              border: difficulty === "킬러" ? "1px solid #dc2626" : "1px solid #cbd5e1",
-              background: difficulty === "킬러" ? "#fef2f2" : "#f8fafc",
-              padding: "0 10px",
-              fontSize: 12,
-              fontWeight: 700,
-              color: difficulty === "킬러" ? "#b91c1c" : "#1e293b",
-            }}
-            aria-label="출제 난이도"
-          >
-            <option value="킬러">🔥 킬러 (15·21·22·29·30번 4점)</option>
-            <option value="상">상 (핵심 4점)</option>
-            <option value="중">중 (3점)</option>
-            <option value="하">하 (2점)</option>
-          </select>
-          <button
-            type="button"
-            onClick={() => {
-              setLibraryTab("tokens");
-              setCanvasPanel("library");
-            }}
-            style={{
-              height: 28,
-              borderRadius: 999,
-              border: "1px solid #bfdbfe",
-              background: "#eff6ff",
-              color: "#1d4ed8",
-              padding: "0 10px",
-              fontSize: 12,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            📚 기출 문제·해설 1:1 토큰 라이브러리 ({allProblemTokens.length}문항)
-          </button>
-        </div>
-      )}
       {sources.length > 0 && (
         <div className={styles.attachmentStrip}>
           <div className={styles.attachmentItems}>
@@ -1248,10 +1164,13 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
             <button
               type="button"
               className={`${styles.navItem} ${canvasPanel === "library" ? styles.navItemActive : ""}`}
-              onClick={() => setCanvasPanel(c => (c === "library" ? "none" : "library"))}
+              onClick={() => {
+                setLibraryTab("tokens");
+                setCanvasPanel(c => (c === "library" ? "none" : "library"));
+              }}
             >
               <BookOpen size={17} />
-              <span>라이브러리 ({savedProblems.length})</span>
+              <span>라이브러리 ({allProblemTokens.length + savedProblems.length})</span>
             </button>
             <button
               type="button"
@@ -1355,6 +1274,16 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
             <span className={styles.quotaPill}>
               ✦ 학원 한도 오늘 <strong>{quota?.dailyPct ?? 0}%</strong>
             </span>
+            <button
+              type="button"
+              className={`${styles.headerCanvasBtn} ${canvasPanel === "library" ? styles.headerCanvasBtnActive : ""}`}
+              onClick={() => {
+                setLibraryTab("tokens");
+                setCanvasPanel(c => (c === "library" ? "none" : "library"));
+              }}
+            >
+              <BookOpen size={14} /> 라이브러리 ({allProblemTokens.length + savedProblems.length})
+            </button>
             <button
               type="button"
               className={`${styles.headerCanvasBtn} ${canvasPanel === "report" ? styles.headerCanvasBtnActive : ""}`}

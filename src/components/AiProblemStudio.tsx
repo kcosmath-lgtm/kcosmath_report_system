@@ -257,7 +257,6 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
 
   // Mock Exam Archive & Token Library filter state
   const [mockGrade, setMockGrade] = useState<1 | 2 | 3>(3);
-  const [mockDiffFilter, setMockDiffFilter] = useState<"all" | "킬러" | "상" | "중" | "하">("all");
   const [mockSearch, setMockSearch] = useState("");
 
   const threadsKey = `cosmath:ai-studio:threads:${workspace?.id || "local"}`;
@@ -927,7 +926,6 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
 
   const filteredTokens = allProblemTokens
     .filter(t => t.grade === mockGrade)
-    .filter(t => (mockDiffFilter === "all" ? true : t.difficulty === mockDiffFilter))
     .filter(t => {
       if (!mockSearch.trim()) return true;
       const q = mockSearch.trim().toLowerCase();
@@ -1987,7 +1985,7 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
 
               {libraryTab === "tokens" ? (
                 <div className={styles.mockArchiveList}>
-                  <div className={styles.mockFilterRow} style={{ flexWrap: "wrap", gap: 6 }}>
+                  <div className={styles.mockFilterRow}>
                     {[1, 2, 3].map(g => (
                       <button
                         key={g}
@@ -1998,22 +1996,11 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                         고{g}
                       </button>
                     ))}
-                    {(["all", "킬러", "상", "중", "하"] as const).map(diff => (
-                      <button
-                        key={diff}
-                        type="button"
-                        className={mockDiffFilter === diff ? styles.geoPresetChipActive : styles.geoPresetChip}
-                        onClick={() => setMockDiffFilter(diff)}
-                      >
-                        {diff === "all" ? "전체" : diff === "킬러" ? "🔥 킬러(15·21·22·29·30)" : diff}
-                      </button>
-                    ))}
                     <input
                       type="search"
                       value={mockSearch}
                       onChange={e => setMockSearch(e.target.value)}
                       placeholder="문항번호(예: 30번)·단원·수식·해설 검색..."
-                      style={{ width: "100%" }}
                     />
                   </div>
                   <div className={styles.vaultList}>

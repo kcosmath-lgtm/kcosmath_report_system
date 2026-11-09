@@ -241,18 +241,6 @@ export default function StudentDailyRecords({
   }, [date, reload, rosterRevision, dateReady]);
 
   useEffect(() => {
-    if (dirty.length > 0 || dirtyBooks.length > 0 || busy) return;
-    const onExternalRecordChange = () => setReload(r => r + 1);
-    window.addEventListener('cosmath-records-changed', onExternalRecordChange);
-    const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('cosmath-records') : null;
-    if (channel) channel.onmessage = onExternalRecordChange;
-    return () => {
-      window.removeEventListener('cosmath-records-changed', onExternalRecordChange);
-      channel?.close();
-    };
-  }, [dirty.length, dirtyBooks.length, busy]);
-
-  useEffect(() => {
     if (!dirty.length) return;
     const guard = (e: BeforeUnloadEvent) => {
       e.preventDefault();
@@ -278,7 +266,29 @@ export default function StudentDailyRecords({
   }
 
   function completeWrongAnswers(id: string) {
-    edit(id, r => ({ ...r, wrong: { ...r.wrong, corrected_count: r.wrong.total_wrong, completed: true } }));
+    edit(id, r => {
+      const isAlreadyDone = Boolean(
+        r.wrong.completed || (r.wrong.total_wrong > 0 && r.wrong.corrected_count >= r.wrong.total_wrong)
+      );
+      if (isAlreadyDone) {
+        return {
+          ...r,
+          wrong: {
+            ...r.wrong,
+            corrected_count: 0,
+            completed: false,
+          },
+        };
+      }
+      return {
+        ...r,
+        wrong: {
+          ...r.wrong,
+          corrected_count: r.wrong.total_wrong,
+          completed: true,
+        },
+      };
+    });
   }
 
   function addExamFor(studentId: string) {
@@ -1013,8 +1023,16 @@ export default function StudentDailyRecords({
                           <div className={styles.miniWidget}>
                             <div>
                               <div className={styles.widgetTitle}>오답 클리닉</div>
-                              <div className={styles.widgetValue}>
-                                {wrongDone}/{wrongTotal}문항 <span>({wrongPct}%)</span>
+                              <div className={styles.widgetValue} style={wrongPct === 100 ? { color: '#059669' } : undefined}>
+                                {wrongPct === 100 ? (
+                                  '오답 완료'
+                                ) : wrongTotal > 0 ? (
+                                  <>
+                                    {wrongDone}/{wrongTotal}문항 <span>({wrongPct}%)</span>
+                                  </>
+                                ) : (
+                                  '오답 미완료'
+                                )}
                               </div>
                               <div className={styles.widgetControls}>
                                 <button
@@ -1082,22 +1100,9 @@ export default function StudentDailyRecords({
                                 <button
                                   type="button"
                                   className={styles.donePillBtn}
-                                  onClick={() =>
-                                    edit(s.id, cur => {
-                                      const nextTotal = cur.wrong.total_wrong > 0 ? cur.wrong.total_wrong : 5;
-                                      return {
-                                        ...cur,
-                                        wrong: {
-                                          ...cur.wrong,
-                                          total_wrong: nextTotal,
-                                          corrected_count: nextTotal,
-                                          completed: true,
-                                        },
-                                      };
-                                    })
-                                  }
+                                  onClick={() => completeWrongAnswers(s.id)}
                                 >
-                                  완료✓
+                                  {wrongPct === 100 ? '오답 완료 ✓' : '오답 완료'}
                                 </button>
                               </div>
                             </div>
@@ -1479,10 +1484,10 @@ export default function StudentDailyRecords({
                             type="button"
                             className={styles.completeWrong}
                             aria-label={`${s.name} 오답 완료`}
-                            disabled={isDoneWrong || !Number.isInteger(r.wrong.total_wrong) || r.wrong.total_wrong <= 0}
+                            disabled={!Number.isInteger(r.wrong.total_wrong) || r.wrong.total_wrong < 0}
                             onClick={() => completeWrongAnswers(s.id)}
                           >
-                            <Check size={12} /> {isDoneWrong ? '완료됨' : '오답 완료'}
+                            <Check size={12} /> {isDoneWrong ? '오답 완료' : '오답 완료'}
                           </button>
                         </div>
                       </td>

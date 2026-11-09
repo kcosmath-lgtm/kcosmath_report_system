@@ -29,14 +29,11 @@ import {
 import StudentSidebar from '../../../components/layout/Sidebar';
 import LandingMenu from '../../../components/LandingMenu';
 import {useAuth} from '../../../components/AuthProvider';
-import {loadStudentDaily,loadWrongAnswerRange,loadProgress,saveStudentDaily,saveProgress} from '../../../lib/report-storage';
+import {loadStudentDaily,loadWrongAnswerRange,loadProgress,saveWrongAnswer} from '../../../lib/report-storage';
 import {loadActiveAiReportTemplate,loadAiReportTemplates,saveActiveAiReportTemplate} from '../../../lib/ai-copilot';
 import {reportMonths} from '../../../lib/wrong-answer-report';
 import type {ReportStudent} from '../../../types/report';
-import type {StudentDailyRecord} from '../../../types/student-daily';
-import type {WrongAnswerRecord} from '../../../types/wrong-answer';
-import type {ProgressBook,ProgressEntry} from '../../../types/progress';
-import ReportSheets,{type Preview,type ReportEditHandlers} from './ReportSheets';
+import ReportSheets,{type Preview} from './ReportSheets';
 import {
  periodStart,
  isTemplate,
@@ -136,13 +133,7 @@ export default function NewReportPage(){
  const [enabledKinds, setEnabledKinds] = useState<Kind[]>(ALL_KINDS);
  const [showNextHomework, setShowNextHomework] = useState(true);
  const [hideEmpty, setHideEmpty] = useState(false);
- const [spanOverrides, setSpanOverrides] = useState<Partial<Record<Kind, BlockSpan>>>({
-  attendance: 12,
-  homework: 6,
-  grades: 6,
-  progress: 12,
-  feedback: 12,
- });
+ const [spanOverrides, setSpanOverrides] = useState<Partial<Record<Kind, BlockSpan>>>({});
  const [heightOverrides, setHeightOverrides] = useState<Partial<Record<Kind, BlockHeight>>>({});
  const [academyName, setAcademyName] = useState('');
  const [customTitle, setCustomTitle] = useState('');
@@ -367,17 +358,57 @@ export default function NewReportPage(){
 
  const select=useCallback((next:ReportStudent[])=>{setStudents(next);setActive(current=>next.some(s=>s.id===current)?current:next[0]?.id??'');},[]);
 
+ const feedbackSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+ const handleEditFeedback = useCallback((studentId: string, date: string, memo: string) => {
+  setReports(prev => {
+   const next = prev.map(r => {
+    if (r.id !== studentId) return r;
+    const idx = r.wrong.findIndex(w => w.record_date === date);
+    let nextWrong = [...r.wrong];
+    let targetRecord;
+    if (idx >= 0) {
+     targetRecord = { ...nextWrong[idx], memo };
+     nextWrong[idx] = targetRecord;
+    } else {
+     targetRecord = {
+      id: `${studentId}_${date}`,
+      student_id: studentId,
+      record_date: date,
+      total_wrong: 0,
+      corrected_count: 0,
+      completed: false,
+      homework_status: null,
+      memo,
+      version: 1,
+     };
+     nextWrong.push(targetRecord);
+     nextWrong = nextWrong.sort((a, b) => a.record_date.localeCompare(b.record_date));
+    }
+    const timerKey = `${studentId}:${date}`;
+    if (feedbackSaveTimers.current[timerKey]) clearTimeout(feedbackSaveTimers.current[timerKey]);
+    const recToSave = targetRecord;
+    feedbackSaveTimers.current[timerKey] = setTimeout(() => {
+     void saveWrongAnswer(recToSave);
+    }, 350);
+    return { ...r, wrong: nextWrong };
+   });
+   return next;
+  });
+ }, []);
+
  useEffect(()=>{
   let cancelled=false;
   const months=reportMonths(start,end);
   if(!students.length||!months.length||months.length>12||start>end)return;
+  const historyStart=dayjs(end).subtract(2,'month').startOf('month').format('YYYY-MM-DD');
+  const dailyMonths=reportMonths(historyStart<start?historyStart:start,end);
   async function load(){
    setLoading(true);setReports([]);setMessage('');
    try{
-    const [daily,wrong]=await Promise.all([Promise.all(months.map(loadStudentDaily)),loadWrongAnswerRange(start,end,students.map(s=>s.id))]);
+    const [daily,wrong]=await Promise.all([Promise.all((dailyMonths.length?dailyMonths:months).map(loadStudentDaily)),loadWrongAnswerRange(start,end,students.map(s=>s.id))]);
     const output:Preview[]=[];
     for(let offset=0;offset<students.length;offset+=4){
-     const batch=await Promise.all(students.slice(offset,offset+4).map(async student=>{const progress=await loadProgress(student.id);return {...student,start,end,daily:daily.flat().filter(r=>r.student_id===student.id&&r.record_date>=start&&r.record_date<=end).sort((a,b)=>a.record_date.localeCompare(b.record_date)),wrong:wrong.filter(r=>r.student_id===student.id&&r.record_date>=start&&r.record_date<=end),books:progress.books,entries:progress.entries.filter(e=>e.record_date<=end).sort((a,b)=>a.record_date.localeCompare(b.record_date)||a.created_at.localeCompare(b.created_at))};}));
+     const batch=await Promise.all(students.slice(offset,offset+4).map(async student=>{const progress=await loadProgress(student.id);return {...student,start,end,daily:daily.flat().filter(r=>r.student_id===student.id&&r.record_date<=end).sort((a,b)=>a.record_date.localeCompare(b.record_date)),wrong:wrong.filter(r=>r.student_id===student.id&&r.record_date>=start&&r.record_date<=end),books:progress.books,entries:progress.entries.filter(e=>e.record_date<=end).sort((a,b)=>a.record_date.localeCompare(b.record_date)||a.created_at.localeCompare(b.created_at))};}));
      if(cancelled)return;output.push(...batch);
     }
     if(!cancelled)setReports(output);
@@ -392,249 +423,6 @@ export default function NewReportPage(){
  const ready=valid&&!loading&&students.length>0&&current.length===students.length;
  const activeReport = current.find(r => r.id === active) ?? current[0];
  const activeIdx = current.findIndex(r => r.id === (activeReport?.id ?? ''));
-
- const [syncState, setSyncState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
- const isSelfSavingRef = useRef(false);
- const reportsRef = useRef(reports);
- useEffect(() => {
-  reportsRef.current = reports;
- }, [reports]);
-
- // 학생관리 탭(/students) 등 외부에서 기록이 저장되었을 때 보고서 자동 새로고침
- useEffect(() => {
-  const onExternalRecordsChanged = () => {
-   if (isSelfSavingRef.current) return;
-   setRevision(v => v + 1);
-  };
-  window.addEventListener('cosmath-records-changed', onExternalRecordsChanged);
-  const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('cosmath-records') : null;
-  if (channel) channel.onmessage = onExternalRecordsChanged;
-  return () => {
-   window.removeEventListener('cosmath-records-changed', onExternalRecordsChanged);
-   channel?.close();
-  };
- }, []);
-
- // 보고서 위에서 출결·숙제·오답·진도·피드백을 클릭/입력했을 때 학생관리 DB와 상호 저장하는 핸들러
- const editHandlers: ReportEditHandlers = useMemo(() => ({
-  onUpdateDailyWrong: async (studentId, recordDate, patch) => {
-   const targetReport = reportsRef.current.find(r => r.id === studentId);
-   if (!targetReport) return;
-
-   const existingDaily = targetReport.daily.find(d => d.record_date === recordDate);
-   const existingWrong = targetReport.wrong.find(w => w.record_date === recordDate);
-
-   const baseDaily: StudentDailyRecord = existingDaily ?? {
-    id: crypto.randomUUID(),
-    student_id: studentId,
-    record_date: recordDate,
-    attendance: '출석',
-    reason: '',
-    exams: [],
-    version: 0,
-   };
-   const baseWrong: WrongAnswerRecord = existingWrong ?? {
-    id: crypto.randomUUID(),
-    student_id: studentId,
-    record_date: recordDate,
-    total_wrong: 0,
-    corrected_count: 0,
-    completed: false,
-    homework_status: 'O',
-    memo: '',
-    version: 0,
-   };
-
-   const nextTotal = patch.total_wrong !== undefined ? Math.max(0, patch.total_wrong) : baseWrong.total_wrong;
-   const rawFixed = patch.corrected_count !== undefined ? Math.max(0, patch.corrected_count) : baseWrong.corrected_count;
-   const nextFixed = Math.min(nextTotal, rawFixed);
-
-   const nextDaily: StudentDailyRecord = {
-    ...baseDaily,
-    ...(patch.attendance !== undefined ? { attendance: patch.attendance } : {}),
-    ...(patch.reason !== undefined ? { reason: patch.reason } : {}),
-   };
-   const nextWrong: WrongAnswerRecord = {
-    ...baseWrong,
-    ...(patch.homework_status !== undefined ? { homework_status: patch.homework_status } : {}),
-    total_wrong: nextTotal,
-    corrected_count: nextFixed,
-    completed: nextTotal > 0 && nextFixed === nextTotal,
-    ...(patch.memo !== undefined ? { memo: patch.memo } : {}),
-   };
-
-   // 1) Optimistic UI update
-   setReports(prev =>
-    prev.map(r => {
-     if (r.id !== studentId) return r;
-     const nextDailyList = existingDaily
-      ? r.daily.map(d => (d.record_date === recordDate ? nextDaily : d))
-      : [...r.daily, nextDaily].sort((a, b) => a.record_date.localeCompare(b.record_date));
-     const nextWrongList = existingWrong
-      ? r.wrong.map(w => (w.record_date === recordDate ? nextWrong : w))
-      : [...r.wrong, nextWrong].sort((a, b) => a.record_date.localeCompare(b.record_date));
-     return { ...r, daily: nextDailyList, wrong: nextWrongList };
-    })
-   );
-
-   // 2) Persist to Student Management storage
-   try {
-    isSelfSavingRef.current = true;
-    setSyncState('saving');
-    const saved = await saveStudentDaily([{ daily: nextDaily, wrong: nextWrong }]);
-    if (saved[0]) {
-     setReports(prev =>
-      prev.map(r => {
-       if (r.id !== studentId) return r;
-       return {
-        ...r,
-        daily: r.daily.map(d => (d.record_date === recordDate ? saved[0].daily : d)),
-        wrong: r.wrong.map(w => (w.record_date === recordDate ? saved[0].wrong : w)),
-       };
-      })
-     );
-    }
-    setSyncState('saved');
-   } catch {
-    setSyncState('error');
-    setMessage('변경사항 저장 중 충돌이 발생했습니다. [기록 새로고침] 후 다시 시도해 주세요.');
-   } finally {
-    setTimeout(() => {
-     isSelfSavingRef.current = false;
-    }, 150);
-   }
-  },
-
-  onUpdateProgress: async (studentId, params) => {
-   const targetReport = reportsRef.current.find(r => r.id === studentId);
-   if (!targetReport) return;
-
-   const existingBook =
-    (params.bookId ? targetReport.books.find(b => b.id === params.bookId) : undefined) ??
-    targetReport.books.find(b => !b.archived) ??
-    targetReport.books[0];
-
-   const baseBook: ProgressBook = existingBook ?? {
-    id: crypto.randomUUID(),
-    student_id: studentId,
-    title: params.newBookTitle || '개념원리 공통수학',
-    curriculum: '2022 개정',
-    course: '공통수학',
-    units: [{ id: 'u1', group: '전범위', name: '수업 진도' }],
-    states: { u1: '진행 중' },
-    version: 0,
-    total_pages: params.totalPages ?? 100,
-    completed_page: params.completedPage ?? 0,
-    archived: false,
-   };
-
-   const nextTotalPages = params.totalPages !== undefined ? params.totalPages : (baseBook.total_pages ?? 100);
-   const nextDonePages =
-    params.completedPage !== undefined
-     ? Math.max(0, Math.min(nextTotalPages || 10000, params.completedPage))
-     : (baseBook.completed_page ?? 0);
-
-   const nextBook: ProgressBook = {
-    ...baseBook,
-    total_pages: nextTotalPages,
-    completed_page: nextDonePages,
-   };
-
-   const existingEntry =
-    (params.entryId ? targetReport.entries.find(e => e.id === params.entryId) : undefined) ??
-    targetReport.entries.find(e => e.book_id === nextBook.id && e.record_date === params.recordDate);
-
-   const nextEntry: ProgressEntry = {
-    id: existingEntry?.id ?? crypto.randomUUID(),
-    book_id: nextBook.id,
-    record_date: params.recordDate,
-    unit_ids: existingEntry?.unit_ids ?? nextBook.units.slice(0, 1).map(u => u.id),
-    scope: params.scope !== undefined ? params.scope : (existingEntry?.scope ?? ''),
-    homework: params.homework !== undefined ? params.homework : (existingEntry?.homework ?? ''),
-    due_date: params.dueDate !== undefined ? params.dueDate : (existingEntry?.due_date ?? null),
-    memo: params.memo !== undefined ? params.memo : (existingEntry?.memo ?? ''),
-    states: nextBook.states,
-    created_at: existingEntry?.created_at || new Date().toISOString(),
-    units_snapshot: nextBook.units,
-    total_pages_snapshot: nextTotalPages,
-    completed_page: nextDonePages,
-   };
-
-   // Optimistic update
-   setReports(prev =>
-    prev.map(r => {
-     if (r.id !== studentId) return r;
-     const nextBooks = existingBook
-      ? r.books.map(b => (b.id === nextBook.id ? nextBook : b))
-      : [...r.books, nextBook];
-     const nextEntries = existingEntry
-      ? r.entries.map(e => (e.id === nextEntry.id ? nextEntry : e))
-      : [...r.entries, nextEntry];
-     return { ...r, books: nextBooks, entries: nextEntries };
-    })
-   );
-
-   try {
-    isSelfSavingRef.current = true;
-    setSyncState('saving');
-    const saved = await saveProgress(nextBook, {
-     ...nextEntry,
-     // cosmath_save_progress inserts a new snapshot entry id on each save in SQL
-     id: crypto.randomUUID(),
-    });
-    setReports(prev =>
-     prev.map(r => {
-      if (r.id !== studentId) return r;
-      const nextBooks = r.books.some(b => b.id === saved.book.id)
-       ? r.books.map(b => (b.id === saved.book.id ? saved.book : b))
-       : [...r.books, saved.book];
-      const filteredEntries = r.entries.filter(e => e.id !== nextEntry.id);
-      return {
-       ...r,
-       books: nextBooks,
-       entries: saved.entry ? [...filteredEntries, saved.entry] : r.entries,
-      };
-     })
-    );
-    setSyncState('saved');
-   } catch {
-    setSyncState('error');
-    setMessage('진도 기록 저장 중 오류가 발생했습니다. [기록 새로고침] 후 다시 시도해 주세요.');
-   } finally {
-    setTimeout(() => {
-     isSelfSavingRef.current = false;
-    }, 150);
-   }
-  },
-
-  onUpdateComment: async (studentId, commentId, newText, fallbackDate) => {
-   const targetReport = reportsRef.current.find(r => r.id === studentId);
-   if (!targetReport) return;
-
-   if (commentId.startsWith('wrong-')) {
-    await editHandlers.onUpdateDailyWrong(studentId, fallbackDate, { memo: newText });
-    return;
-   }
-   if (commentId.startsWith('att-')) {
-    await editHandlers.onUpdateDailyWrong(studentId, fallbackDate, { reason: newText });
-    return;
-   }
-   if (commentId.startsWith('entry-')) {
-    const rawEntryId = commentId.replace(/^entry-/, '');
-    const foundEntry = targetReport.entries.find(e => e.id === rawEntryId);
-    if (foundEntry) {
-     await editHandlers.onUpdateProgress(studentId, {
-      bookId: foundEntry.book_id,
-      entryId: foundEntry.id,
-      recordDate: foundEntry.record_date,
-      memo: newText,
-     });
-     return;
-    }
-   }
-   await editHandlers.onUpdateDailyWrong(studentId, fallbackDate, { memo: newText });
-  },
- }), []);
 
  const snapshotKey=`cosmath-daily-snapshot:v2:${workspace?.id}:${user?.id}:${start}:${end}`;
  function saveReports(){try{localStorage.setItem(snapshotKey,JSON.stringify({version:1,reports:current,template}));setMessage(`${current.length}명 보고서를 현재 브라우저에 저장했습니다. 원본 수업 기록은 변경되지 않습니다.`);}catch{setMessage('브라우저 저장 공간이 부족하거나 저장이 차단되었습니다. 이미지 일괄 저장을 이용해 주세요.');}}
@@ -666,7 +454,7 @@ export default function NewReportPage(){
    for(const node of nodes){const report=current.find(r=>r.id===node.dataset.report);if(!report)throw new Error('Missing student');const pages=Array.from(node.querySelectorAll<HTMLElement>('[data-sheet]'));
     for(let index=0;index<pages.length;index++){
      await Promise.all(Array.from(pages[index].querySelectorAll('img')).map(img=>img.decode()));
-     const blob=await toBlob(pages[index],{pixelRatio:2,width:pageWidth,height:pages[index].offsetHeight,style:{zoom:'1'},backgroundColor:'#ffffff',cacheBust:false});if(!blob)throw new Error('Image failed');
+     const blob=await toBlob(pages[index],{pixelRatio:2,width:pageWidth,height:pages[index].offsetHeight,style:{zoom:'1'},backgroundColor:'#ffffff',cacheBust:false,filter:node=>!(node instanceof HTMLElement&&node.dataset.exportHide==='true')});if(!blob)throw new Error('Image failed');
      zip.file(`${safeName(report.group)}_${safeName(report.name)}_${safeName(report.id)}/${String(index+1).padStart(2,'0')}_${end}_${orientation}.png`,blob);
      completed++;setMessage(`이미지 생성 중 ${completed} / ${total}`);
     }
@@ -695,23 +483,6 @@ export default function NewReportPage(){
      <label>기준 날짜<input type="date" value={end} disabled={exporting} onChange={e=>setEnd(e.target.value)}/></label>
      <span className={styles.rangeBadge}>조회 기간: {start===end?end:`${start} ~ ${end}`}</span>
      <button disabled={loading||exporting||!students.length} onClick={()=>setRevision(v=>v+1)}><RefreshCw size={14}/> 기록 새로고침</button>
-     <span
-      style={{
-       display:'inline-flex',
-       alignItems:'center',
-       gap:5,
-       padding:'4px 10px',
-       borderRadius:999,
-       fontSize:11,
-       fontWeight:800,
-       background:syncState==='saving'?'#fef3c7':syncState==='saved'?'#dcfce7':'#eff6ff',
-       color:syncState==='saving'?'#b45309':syncState==='saved'?'#166534':'#1d4ed8',
-       border:`1px solid ${syncState==='saving'?'#fde68a':syncState==='saved'?'#bbf7d0':'#bfdbfe'}`,
-      }}
-      title="보고서에서 출석·숙제·오답·진도·피드백을 클릭하거나 입력하면 학생관리 탭과 실시간 상호 저장됩니다."
-     >
-      {syncState==='saving'?'⏳ 학생관리 저장 중...':syncState==='saved'?'✅ 학생관리 저장 완료':'🔗 보고서 직접 편집 · 학생관리 실시간 연동'}
-     </span>
     </div>
 
     <div className={styles.toolbarActions}>
@@ -907,7 +678,7 @@ export default function NewReportPage(){
       {/* 좌측: 학원별 빠른 프리셋 & 요소별 칸 너비/세로 크기/순서 조절 */}
       <div>
        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8,flexWrap:'wrap',gap:8}}>
-        <strong style={{fontSize:13,color:'#0f172a'}}>1. 요소별 칸 크기(너비·분량) 및 배치 순서 조절</strong>
+        <strong style={{fontSize:13,color:'#0f172a'}}>1. 요소별 크기(분량) 및 배치 순서 조절</strong>
         <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
          {academyQuickPresets.map(preset => (
           <button
@@ -929,7 +700,6 @@ export default function NewReportPage(){
 
        <div style={{display:'grid',gap:6}}>
         {enabledKinds.map((k, idx) => {
-         const curSpan = spanOverrides[k] ?? (k === 'attendance' || k === 'progress' || k === 'feedback' ? 12 : 6);
          const curHeight = heightOverrides[k] ?? 'md';
          return (
           <div
@@ -969,50 +739,26 @@ export default function NewReportPage(){
             </button>
            </div>
 
-           <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-            <div style={{display:'inline-flex',alignItems:'center',gap:3}}>
-             <span style={{fontSize:11,color:'#64748b',marginRight:3}}>가로칸:</span>
-             {SPAN_OPTIONS.map(opt => (
-              <button
-               key={opt.value}
-               type="button"
-               onClick={() => setSpanOverrides(prev => ({ ...prev, [k]: opt.value }))}
-               style={{
-                padding:'3px 7px',
-                fontSize:11,
-                fontWeight:curSpan === opt.value ? 800 : 500,
-                background:curSpan === opt.value ? '#1e40af' : '#f8fafc',
-                color:curSpan === opt.value ? '#ffffff' : '#475569',
-                border:curSpan === opt.value ? '1px solid #1e40af' : '1px solid #cbd5e1',
-                borderRadius:6,
-               }}
-              >
-               {opt.label}
-              </button>
-             ))}
-            </div>
-
-            <div style={{display:'inline-flex',alignItems:'center',gap:3}}>
-             <span style={{fontSize:11,color:'#64748b',marginRight:3}}>세로분량:</span>
-             {HEIGHT_OPTIONS.map(opt => (
-              <button
-               key={opt.value}
-               type="button"
-               onClick={() => setHeightOverrides(prev => ({ ...prev, [k]: opt.value }))}
-               style={{
-                padding:'3px 7px',
-                fontSize:11,
-                fontWeight:curHeight === opt.value ? 800 : 500,
-                background:curHeight === opt.value ? '#0f766e' : '#f8fafc',
-                color:curHeight === opt.value ? '#ffffff' : '#475569',
-                border:curHeight === opt.value ? '1px solid #0f766e' : '1px solid #cbd5e1',
-                borderRadius:6,
-               }}
-              >
-               {opt.label}
-              </button>
-             ))}
-            </div>
+           <div style={{display:'inline-flex',alignItems:'center',gap:3}}>
+            <span style={{fontSize:11,color:'#64748b',marginRight:3}}>크기(분량):</span>
+            {HEIGHT_OPTIONS.map(opt => (
+             <button
+              key={opt.value}
+              type="button"
+              onClick={() => setHeightOverrides(prev => ({ ...prev, [k]: opt.value }))}
+              style={{
+               padding:'3px 9px',
+               fontSize:11,
+               fontWeight:curHeight === opt.value ? 800 : 500,
+               background:curHeight === opt.value ? '#1e40af' : '#f8fafc',
+               color:curHeight === opt.value ? '#ffffff' : '#475569',
+               border:curHeight === opt.value ? '1px solid #1e40af' : '1px solid #cbd5e1',
+               borderRadius:6,
+              }}
+             >
+              {opt.label}
+             </button>
+            ))}
            </div>
           </div>
          );
@@ -1165,7 +911,7 @@ export default function NewReportPage(){
     ):(
      current.map(report=>(
       <div key={report.id} data-report={report.id} data-active={active===report.id} className={styles.reportStack}>
-       <ReportSheets preview={report} template={template} onEdit={editHandlers}/>
+       <ReportSheets preview={report} template={template} onEditFeedback={handleEditFeedback}/>
       </div>
      ))
     )}
@@ -1260,7 +1006,7 @@ export default function NewReportPage(){
      >
       <div style={{ '--preview-scale': 1.15, width: pageWidth * 1.15 } as CSSProperties}>
        <div style={{ zoom: 1.15 } as CSSProperties}>
-        <ReportSheets preview={activeReport} template={template} onEdit={editHandlers}/>
+        <ReportSheets preview={activeReport} template={template} onEditFeedback={handleEditFeedback}/>
        </div>
       </div>
      </div>

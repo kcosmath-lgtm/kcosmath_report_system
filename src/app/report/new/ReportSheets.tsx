@@ -1,4 +1,4 @@
-import {useEffect,useState,type CSSProperties} from 'react';
+import {useState,type CSSProperties} from 'react';
 import dayjs from 'dayjs';
 import {
  Check,
@@ -18,7 +18,8 @@ import {
  Calendar,
  TrendingUp,
  Megaphone,
- Plus,
+ X,
+ RotateCcw,
 } from 'lucide-react';
 import {progressPercent,type ProgressBook,type ProgressEntry} from '../../../types/progress';
 import {wrongAnswerStatus,type StudentDailyRecord} from '../../../types/student-daily';
@@ -39,274 +40,180 @@ export type Preview={
  entries:ProgressEntry[];
 };
 
-export interface ReportEditHandlers {
- onUpdateDailyWrong: (
-  studentId: string,
-  recordDate: string,
-  patch: {
-   attendance?: StudentDailyRecord['attendance'];
-   reason?: string;
-   homework_status?: WrongAnswerRecord['homework_status'];
-   total_wrong?: number;
-   corrected_count?: number;
-   memo?: string;
-  }
- ) => void;
- onUpdateProgress: (
-  studentId: string,
-  params: {
-   bookId?: string;
-   entryId?: string;
-   recordDate: string;
-   scope?: string;
-   homework?: string;
-   dueDate?: string | null;
-   memo?: string;
-   completedPage?: number;
-   totalPages?: number;
-   newBookTitle?: string;
-  }
- ) => void;
- onUpdateComment: (
-  studentId: string,
-  commentId: string,
-  newText: string,
-  fallbackDate: string
- ) => void;
-}
-
-function InlineTextField({
- value,
- placeholder,
- onCommit,
- style,
- ariaLabel,
-}: {
- value: string;
- placeholder?: string;
- onCommit: (next: string) => void;
- style?: CSSProperties;
- ariaLabel?: string;
-}) {
- const [draft, setDraft] = useState(value);
- useEffect(() => {
-  setDraft(value);
- }, [value]);
- return (
-  <input
-   type="text"
-   value={draft}
-   placeholder={placeholder}
-   aria-label={ariaLabel || placeholder || '텍스트 직접 입력'}
-   className={styles.inlineTextInput}
-   style={style}
-   onChange={e => setDraft(e.target.value)}
-   onBlur={() => {
-    if (draft !== value) onCommit(draft);
-   }}
-   onKeyDown={e => {
-    if (e.key === 'Enter') {
-     e.currentTarget.blur();
-    }
-   }}
-  />
- );
-}
-
-function InlineTextareaField({
- value,
- placeholder,
- onCommit,
- style,
- ariaLabel,
-}: {
- value: string;
- placeholder?: string;
- onCommit: (next: string) => void;
- style?: CSSProperties;
- ariaLabel?: string;
-}) {
- const [draft, setDraft] = useState(value);
- useEffect(() => {
-  setDraft(value);
- }, [value]);
- return (
-  <textarea
-   rows={Math.max(2, Math.min(5, draft.split('\n').length))}
-   value={draft}
-   placeholder={placeholder}
-   aria-label={ariaLabel || placeholder || '코멘트 직접 입력'}
-   className={styles.inlineTextarea}
-   style={style}
-   onChange={e => setDraft(e.target.value)}
-   onBlur={() => {
-    if (draft !== value) onCommit(draft);
-   }}
-   onKeyDown={e => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-     e.currentTarget.blur();
-    }
-   }}
-  />
- );
-}
-
 const shortDate=(v:string)=>dayjs(v).format('M/D');
 const korWeekdays=['일','월','화','수','목','금','토'] as const;
 const monToSunLabels=['월','화','수','목','금','토','일'] as const;
+
+function isWrongRecordDone(w?: WrongAnswerRecord | null): boolean {
+ if (!w) return false;
+ return Boolean(w.completed || (w.total_wrong > 0 && w.corrected_count >= w.total_wrong));
+}
 
 function computeStudentData(p:Preview){
  const daily=p.daily.filter(r=>r.record_date>=p.start&&r.record_date<=p.end);
  const wrong=p.wrong.filter(r=>r.record_date>=p.start&&r.record_date<=p.end);
  const entriesInPeriod=p.entries.filter(r=>r.record_date>=p.start&&r.record_date<=p.end);
  const single=p.start===p.end;
- const dateLabel=single?dayjs(p.end).format('YYYY.MM.DD'):`${dayjs(p.start).format('YYYY.MM.DD')} ~ ${dayjs(p.end).format('YYYY.MM.DD')}`;
+ const dateLabel=single?dayjs(p.end).format('YYYY.MM.DD'):`${dayjs(p.start).format('YYYY.MM.DD')} ~ ${dayjs(p.end).format('MM.DD')}`;
  const daySpanCount=Math.max(1,dayjs(p.end).diff(dayjs(p.start),'day')+1);
 
- // 1. 출결 (StudentDailyRecord)
+ // 1. 출결 집계 (출석 / 지각 / 결석)
  const attended=daily.filter(r=>r.attendance==='출석').length;
  const late=daily.filter(r=>r.attendance==='지각').length;
  const absent=daily.filter(r=>r.attendance==='결석').length;
- const earlyLeave=daily.filter(r=>r.attendance==='조퇴').length;
- const recordedAtt=daily.filter(r=>r.attendance).length;
- const attRate=recordedAtt>0?Math.round(attended/recordedAtt*100):null;
- const todayAttRecord=daily.find(r=>r.record_date===p.end)??daily[daily.length-1];
- const todayAtt=todayAttRecord?.attendance||'';
- const todayAttReason=todayAttRecord?.reason.trim()||'';
+ const recordedAtt=daily.filter(r=>Boolean(r.attendance)).length;
+ const attRate=recordedAtt>0?Math.round((attended/recordedAtt)*100):null;
+ const todayDaily=daily.find(r=>r.record_date===p.end)??daily[daily.length-1];
+ const todayAtt=todayDaily?.attendance||'';
+ const todayAttReason=todayDaily?.reason?.trim()||'';
 
- // 주간(월~일 7일) 출결/숙제/오답 타임라인
- const weekMonday=dayjs(p.end).subtract((dayjs(p.end).day()+6)%7,'day');
- const weekDays=Array.from({length:7}).map((_,idx)=>{
-  const d=weekMonday.add(idx,'day').format('YYYY-MM-DD');
-  const dRec=p.daily.find(r=>r.record_date===d);
-  const wRec=p.wrong.find(r=>r.record_date===d);
+ // 주간 요일별(월~일) 배열 생성
+ const endRef=dayjs(p.end);
+ const mondayRef=endRef.subtract((endRef.day()+6)%7,'day');
+ const weekDays=monToSunLabels.map((label,idx)=>{
+  const d=mondayRef.add(idx,'day');
+  const dStr=d.format('YYYY-MM-DD');
+  const dRec=daily.find(r=>r.record_date===dStr);
+  const wRec=wrong.find(r=>r.record_date===dStr);
+  const eRecs=entriesInPeriod.filter(r=>r.record_date===dStr);
+  const wrongDone=isWrongRecordDone(wRec);
   return {
-   date:d,
-   label:monToSunLabels[idx],
-   short:dayjs(d).format('M/D'),
-   dayNum:dayjs(d).format('D'),
+   label,
+   date:dStr,
+   short:d.format('M/D'),
+   dayNum:d.format('D'),
    attendance:dRec?.attendance||'',
-   reason:dRec?.reason.trim()||'',
    hw:wRec?.homework_status||null,
-   totalWrong:wRec?.total_wrong??null,
-   fixedWrong:wRec?.corrected_count??null,
+   wrongCompleted:wrongDone,
+   totalWrong:wRec?wRec.total_wrong:null,
+   fixedWrong:wRec?wRec.corrected_count:null,
    exams:dRec?.exams??[],
+   entries:eRecs,
   };
  });
 
- // 월간 달력 그리드 (해당 월 1일 ~ 말일)
- const monthRef=dayjs(p.end);
- const monthStart=monthRef.startOf('month');
+ // 월간 달력 셀 생성 (기준월 1일 ~ 말일)
+ const monthRef=dayjs(p.end).startOf('month');
  const daysInMonth=monthRef.daysInMonth();
- const startDow=monthStart.day(); // 0(일) ~ 6(토)
- const calendarCells:(null|{
-  day:number;
-  date:string;
-  attendance:StudentDailyRecord['attendance'];
-  hw:WrongAnswerRecord['homework_status'];
-  examCount:number;
- })[]=[];
+ const startDow=monthRef.day();
+ const calendarCells:(null|{day:number;date:string;attendance:string;hw:string|null})[]=[];
  for(let i=0;i<startDow;i++)calendarCells.push(null);
- for(let d=1;d<=daysInMonth;d++){
-  const fullDate=monthStart.date(d).format('YYYY-MM-DD');
-  const dRec=daily.find(r=>r.record_date===fullDate);
-  const wRec=wrong.find(r=>r.record_date===fullDate);
+ for(let day=1;day<=daysInMonth;day++){
+  const dStr=monthRef.date(day).format('YYYY-MM-DD');
+  const dRec=p.daily.find(r=>r.record_date===dStr);
+  const wRec=p.wrong.find(r=>r.record_date===dStr);
   calendarCells.push({
-   day:d,
-   date:fullDate,
+   day,
+   date:dStr,
    attendance:dRec?.attendance||'',
    hw:wRec?.homework_status||null,
-   examCount:dRec?.exams.length??0,
   });
  }
- while(calendarCells.length%7!==0)calendarCells.push(null);
 
- // 2. 숙제 검사 (WrongAnswerRecord.homework_status: O / △ / X)
- const hwLabels={O:'완료', '△':'일부 완료', X:'미완료'} as const;
- const hwRecorded=wrong.filter(r=>r.homework_status);
+ // 2. 숙제 검사 집계
+ const hwLabels:Record<'O'|'△'|'X',string> = {O:'완료', '△':'일부 완료', X:'미완료'};
+ const hwRecorded=wrong.filter(r=>r.homework_status==='O'||r.homework_status==='△'||r.homework_status==='X');
  const hwDone=hwRecorded.filter(r=>r.homework_status==='O').length;
  const hwPartial=hwRecorded.filter(r=>r.homework_status==='△').length;
  const hwMiss=hwRecorded.filter(r=>r.homework_status==='X').length;
- const hwRate=hwRecorded.length>0?Math.round((hwDone+hwPartial*0.5)/hwRecorded.length*100):null;
- const todayWrongRecord=wrong.find(r=>r.record_date===p.end)??wrong[wrong.length-1];
- const todayHwStatus=todayWrongRecord?.homework_status||null;
- const todayTotalWrong=todayWrongRecord?.total_wrong??0;
- const todayFixedWrong=todayWrongRecord?.corrected_count??0;
- const todayWrongMemo=todayWrongRecord?.memo??'';
+ const hwRate=hwRecorded.length>0?Math.round(((hwDone+hwPartial*0.5)/hwRecorded.length)*100):null;
+ const todayWrong=wrong.find(r=>r.record_date===p.end)??wrong[wrong.length-1];
+ const todayHwStatus=todayWrong?.homework_status??null;
 
- // 3. 오답 클리닉 (WrongAnswerRecord.total_wrong, corrected_count, memo)
- const hasWrongRecord=wrong.length>0;
- const totalWrong=wrong.reduce((n,r)=>n+r.total_wrong,0);
- const fixedWrong=wrong.reduce((n,r)=>n+r.corrected_count,0);
+ // 3. 오답 클리닉 집계 (오답 완료 버튼 또는 전체 수정 시 '오답 완료'로 표시)
+ const todayTotalWrong=todayWrong?.total_wrong??0;
+ const todayFixedWrong=todayWrong?.corrected_count??0;
+ const todayWrongCompleted=isWrongRecordDone(todayWrong);
+ const todayWrongMemo=todayWrong?.memo?.trim()||'';
+
+ const totalWrong=wrong.reduce((a,b)=>a+b.total_wrong,0);
+ const fixedWrong=wrong.reduce((a,b)=>a+b.corrected_count,0);
  const remainWrong=Math.max(0,totalWrong-fixedWrong);
- const wrongRate=totalWrong>0?Math.round(fixedWrong/totalWrong*100):hasWrongRecord?100:null;
- const wrongSymbol=wrongAnswerStatus(totalWrong,fixedWrong);
-
- // 4. 시험 성적 (StudentDailyRecord.exams)
- const exams=daily.flatMap(r=>
-  r.exams
-   .filter(e=>Number.isFinite(e.score)&&Number.isFinite(e.max_score)&&e.max_score>0&&e.score>=0&&e.score<=e.max_score)
-   .map(e=>({...e,date:r.record_date,rate:Math.round(e.score/e.max_score*100)}))
+ const wrongCompletedDays=wrong.filter(w=>isWrongRecordDone(w)).length;
+ const periodWrongCompleted=Boolean(
+  (single && todayWrongCompleted) ||
+  (wrong.length>0 && wrong.every(w=>isWrongRecordDone(w))) ||
+  (totalWrong>0 && fixedWrong>=totalWrong)
  );
+ const hasWrongRecord=wrong.length>0 && (periodWrongCompleted || totalWrong>0 || wrongCompletedDays>0);
+ const wrongRate=periodWrongCompleted
+  ? 100
+  : totalWrong>0
+    ? Math.round((fixedWrong/totalWrong)*100)
+    : null;
+ const wrongSymbol=periodWrongCompleted ? '○' : wrongAnswerStatus(totalWrong,fixedWrong);
+
+ // 4. 시험·테스트 성적 집계 (일간/주간/월간 모두 기준일 이전 최근 성적 히스토리 포함)
+ const allDailyUpToEnd=[...p.daily]
+  .filter(r=>r.record_date<=p.end)
+  .sort((a,b)=>a.record_date.localeCompare(b.record_date));
+ const allRecentExams=allDailyUpToEnd.flatMap(r=>
+  r.exams.map(e=>({
+   ...e,
+   date:r.record_date,
+   rate:e.max_score>0?Math.round((e.score/e.max_score)*100):0,
+  }))
+ );
+ const exams=allRecentExams.slice(-16);
  const avgScore=exams.length>0?Math.round(exams.reduce((a,b)=>a+b.rate,0)/exams.length):null;
  const maxScore=exams.length>0?Math.max(...exams.map(e=>e.rate)):null;
 
- // 5. 교재 및 진도 기록 (ProgressBook & ProgressEntry)
+ // 5. 교재별 진도 및 당일/기간 진도 히스토리
  const activeBooks=p.books.filter(b=>!b.archived);
- const bookProgressList=activeBooks.map(book=>{
-  const periodBookEntries=entriesInPeriod.filter(e=>e.book_id===book.id);
-  const latestEntry=[...p.entries].reverse().find(e=>e.book_id===book.id);
-  const firstEntry=periodBookEntries[0]??latestEntry;
-  const refEntry=periodBookEntries[periodBookEntries.length-1]??latestEntry;
-  const units=refEntry?.units_snapshot??book.units;
-  const totalPages=refEntry?.total_pages_snapshot||book.total_pages||units.length;
-  const donePages=refEntry?.total_pages_snapshot?(refEntry.completed_page??0):book.total_pages?(book.completed_page??0):units.filter(u=>(refEntry?.states??book.states)[u.id]==='완료').length;
-  const pct=totalPages>0?Math.min(100,Math.round(donePages/totalPages*100)):progressPercent(book);
-  const scopes=periodBookEntries.map(e=>e.scope.trim()).filter(Boolean);
-  const firstScope=firstEntry?.scope.trim()||'첫 단원';
-  const lastScope=refEntry?.scope.trim()||`${donePages}/${totalPages}p`;
-  const kindBadge=/모의|실모|기출|N제/i.test(book.title)?'실전·기출':/개념|바이블|정석|원리/i.test(book.title)?'개념서':'문제집';
+ const bookProgressList=activeBooks.map(b=>{
+  const pct=progressPercent(b);
+  const bEntries=p.entries.filter(e=>e.book_id===b.id);
+  const periodBEntries=entriesInPeriod.filter(e=>e.book_id===b.id);
+  const firstInPeriod=periodBEntries[0]??bEntries[0];
+  const latest=bEntries[bEntries.length-1];
+  const currentUnits=b.units.filter(u=>b.states[u.id]==='진행 중').map(u=>u.name);
+  const doneUnits=b.units.filter(u=>b.states[u.id]==='완료').length;
+  const startScope=firstInPeriod?.scope?.trim()||currentUnits[0]||'첫 단원';
+  const endScope=latest?.scope?.trim()||currentUnits.slice(0,2).join(', ')||(doneUnits>0?`${doneUnits}개 단원 완료`:'진행 중');
+  const journeyLabel=
+   periodBEntries.length>=2&&startScope!==endScope
+    ? `${startScope} → ${endScope}`
+    : endScope;
   return {
-   id:book.id,
-   title:book.title,
-   curriculum:book.curriculum,
-   course:book.course,
-   kindBadge,
-   scope:scopes.length?scopes.join(' / '):(refEntry?.scope.trim()||'진도 범위 미기록'),
-   rawLastScope:refEntry?.scope.trim()||'',
-   latestEntryId:refEntry?.id,
-   latestHomework:refEntry?.homework.trim()||'',
-   latestDueDate:refEntry?.due_date||null,
-   firstScope,
-   lastScope,
-   journeyLabel:scopes.length>=2?`${scopes[0]} → ${scopes[scopes.length-1]}`:(refEntry?.scope.trim()||`${donePages}p / ${totalPages}p (${pct}%)`),
-   recordDate:refEntry?.record_date||'',
-   totalPages,
-   donePages,
+   id:b.id,
+   title:b.title,
+   curriculum:b.curriculum,
+   course:b.course,
    pct,
-   hasPeriodEntry:periodBookEntries.length>0,
+   donePages:latest?.completed_page??b.completed_page??0,
+   totalPages:latest?.total_pages_snapshot??b.total_pages??0,
+   doneUnits,
+   totalUnits:b.units.length,
+   scope:latest?.scope?.trim()||currentUnits.slice(0,2).join(', ')||'학습 범위 미기록',
+   journeyLabel,
+   latestHomework:latest?.homework?.trim()||'',
+   latestDueDate:latest?.due_date||null,
+   recordDate:latest?.record_date||null,
   };
  });
- const avgProgress=bookProgressList.length>0?Math.round(bookProgressList.reduce((a,b)=>a+b.pct,0)/bookProgressList.length):null;
 
- // 기간 내 일자별 진도 기록 (주간 진도표용)
+ const avgProgress=
+  bookProgressList.length>0
+   ? Math.round(bookProgressList.reduce((a,b)=>a+b.pct,0)/bookProgressList.length)
+   : null;
+
+ // 기간 내 작성된 진도 엔트리 상세 목록
  const periodProgressLogs=entriesInPeriod.map(e=>{
   const book=p.books.find(b=>b.id===e.book_id);
-  const units=e.units_snapshot??book?.units??[];
-  const total=e.total_pages_snapshot||book?.total_pages||units.length;
-  const done=e.total_pages_snapshot?(e.completed_page??0):units.filter(u=>e.states[u.id]==='완료').length;
-  const pct=total>0?Math.min(100,Math.round(done/total*100)):0;
+  const unitNames=(book?.units??[]).filter(u=>e.unit_ids.includes(u.id)).map(u=>u.name);
+  const total=e.total_pages_snapshot??book?.total_pages??0;
+  const done=e.completed_page??book?.completed_page??0;
+  const pct=total>0?Math.min(100,Math.round((done/total)*100)):book?progressPercent(book):0;
   return {
    id:e.id,
    bookId:e.book_id,
-   entryId:e.id,
    date:e.record_date,
    bookTitle:book?.title||'교재',
-   course:book?.course||'수학',
-   scope:e.scope.trim()||'학습 범위 미기록',
-   rawScope:e.scope,
+   course:book?.course||'',
+   scope:e.scope.trim()||unitNames.join(', ')||'단원 학습 진행',
    homework:e.homework.trim(),
    dueDate:e.due_date,
+   memo:e.memo.trim(),
    pct,
    done,
    total,
@@ -318,8 +225,6 @@ function computeStudentData(p:Preview){
   .filter(e=>e.homework.trim())
   .map(e=>({
    id:e.id,
-   bookId:e.book_id,
-   entryId:e.id,
    date:e.record_date,
    bookTitle:p.books.find(b=>b.id===e.book_id)?.title||'교재',
    homework:e.homework.trim(),
@@ -350,53 +255,6 @@ function computeStudentData(p:Preview){
   }
  }
 
- // 8. 날마다 리듬 막대 데이터 (최근 최대 14개 기록일 또는 주간 7일)
- const dailyRhythmBars = (() => {
-  const dateSet = new Set<string>();
-  daily.forEach(d => dateSet.add(d.record_date));
-  wrong.forEach(w => dateSet.add(w.record_date));
-  entriesInPeriod.forEach(e => dateSet.add(e.record_date));
-  const sortedDates = [...dateSet].sort();
-  if (sortedDates.length >= 3) {
-   return sortedDates.slice(-14).map(d => {
-    const dRec = daily.find(r => r.record_date === d);
-    const wRec = wrong.find(r => r.record_date === d);
-    const eRecs = entriesInPeriod.filter(r => r.record_date === d);
-    const exAvg = dRec?.exams?.length
-     ? Math.round(dRec.exams.reduce((a, b) => a + (b.max_score > 0 ? (b.score / b.max_score) * 100 : 0), 0) / dRec.exams.length)
-     : null;
-    const scoreVal = exAvg !== null
-     ? exAvg
-     : wRec?.homework_status === 'O'
-       ? 92
-       : wRec?.homework_status === '△'
-         ? 68
-         : dRec?.attendance === '출석'
-           ? 84
-           : eRecs.length > 0
-             ? 80
-             : 45;
-    const dow = korWeekdays[dayjs(d).day()];
-    return {
-     date: d,
-     dayNum: dayjs(d).format('D'),
-     dow,
-     isWeekend: dayjs(d).day() === 0 || dayjs(d).day() === 6,
-     value: Math.max(18, Math.min(100, scoreVal)),
-     label: exAvg !== null ? `${exAvg}점` : (wRec?.homework_status || dRec?.attendance || '기록'),
-    };
-   });
-  }
-  return weekDays.map((wd, idx) => ({
-   date: wd.date,
-   dayNum: wd.dayNum,
-   dow: wd.label,
-   isWeekend: idx >= 5,
-   value: wd.attendance === '출석' ? (wd.hw === 'O' ? 95 : 80) : wd.hw === 'O' ? 88 : 24,
-   label: wd.attendance || '-',
-  }));
- })();
-
  return {
   daily,
   wrong,
@@ -407,7 +265,6 @@ function computeStudentData(p:Preview){
   attended,
   late,
   absent,
-  earlyLeave,
   recordedAtt,
   attRate,
   todayAtt,
@@ -424,6 +281,8 @@ function computeStudentData(p:Preview){
   todayHwStatus,
   todayTotalWrong,
   todayFixedWrong,
+  todayWrongCompleted,
+  periodWrongCompleted,
   todayWrongMemo,
   hasWrongRecord,
   totalWrong,
@@ -439,11 +298,273 @@ function computeStudentData(p:Preview){
   periodProgressLogs,
   homeworkTasks,
   comments,
-  dailyRhythmBars,
  };
 }
 
 type StudentData = ReturnType<typeof computeStudentData>;
+
+/* ============================================================================
+ * 시험 시리즈 그룹핑 & 공통 성적 시각화 컴포넌트 (모든 템플릿 · 모든 기간 공통 적용)
+ * - 같은 날 시험을 2개 이상 보거나 시험 종류가 여러 개일 때 그래프를 각각 분리 생성
+ * - 보여주기 싫은 그래프는 우측 상단 '✕ 그래프 숨기기' 버튼으로 즉시 제거 가능
+ * - 각 그래프별 성적 1~3개: 가로 막대 리스트 / 4개 이상: 꺾은선 그래프
+ * ============================================================================ */
+interface ExamSeriesGroup {
+ key: string;
+ title: string;
+ exams: StudentData['exams'];
+ avgScore: number;
+ maxScore: number;
+}
+
+function buildExamSeriesGroups(allExams: StudentData['exams']): ExamSeriesGroup[] {
+ if (allExams.length === 0) return [];
+ const buckets = new Map<string, { title: string; exams: StudentData['exams'] }>();
+ const perDateNameCount = new Map<string, number>();
+
+ for (const ex of allExams) {
+  const baseName = (ex.name || '단원평가').trim() || '단원평가';
+  const dateNameKey = `${ex.date}__${baseName}`;
+  const slotIdx = (perDateNameCount.get(dateNameKey) ?? 0) + 1;
+  perDateNameCount.set(dateNameKey, slotIdx);
+
+  const seriesKey = slotIdx === 1 ? baseName : `${baseName}#${slotIdx}`;
+  const seriesTitle = slotIdx === 1 ? baseName : `${baseName} (${slotIdx}차)`;
+  const bucket = buckets.get(seriesKey) ?? { title: seriesTitle, exams: [] };
+  bucket.exams.push(ex);
+  buckets.set(seriesKey, bucket);
+ }
+
+ return Array.from(buckets.entries()).map(([key, b]) => {
+  const sliced = b.exams.slice(-8);
+  const avgScore = sliced.length > 0 ? Math.round(sliced.reduce((sum, e) => sum + e.rate, 0) / sliced.length) : 0;
+  const maxScore = sliced.length > 0 ? Math.max(...sliced.map(e => e.rate)) : 0;
+  return {
+   key,
+   title: b.title,
+   exams: sliced,
+   avgScore,
+   maxScore,
+  };
+ });
+}
+
+function SingleSeriesGraph({
+ exams,
+ avgScore,
+ maxScore,
+}: {
+ exams: StudentData['exams'];
+ avgScore: number;
+ maxScore: number;
+}) {
+ const isLineChart = exams.length >= 4;
+ const chartExams = isLineChart ? exams.slice(-6) : exams.slice(-3);
+ const latestExam = exams[exams.length - 1];
+
+ return (
+  <div className={styles.gradesSplitLayout}>
+   <div className={styles.gradesSplitLeft}>
+    {!isLineChart ? (
+     /* 1~3개: 깔끔한 가로 막대형 */
+     <div className={styles.saebomHorizBarGroup}>
+      {chartExams.map(ex => (
+       <div key={ex.id} className={styles.saebomHorizBarRow}>
+        <div className={styles.saebomHorizDate}>
+         <b>{shortDate(ex.date)}</b>
+         <small>{ex.name}</small>
+        </div>
+        <div className={styles.saebomHorizTrack}>
+         <div
+          className={styles.saebomBarSolid}
+          style={{ width: `${Math.max(8, ex.rate)}%` }}
+         />
+        </div>
+        <div className={styles.saebomHorizScore}>
+         <strong>{ex.rate}점</strong>
+         <small>{ex.score}/{ex.max_score}</small>
+        </div>
+       </div>
+      ))}
+     </div>
+    ) : (
+     /* 4개 이상: 꺾은선 그래프 (왼쪽 배치) */
+     <svg viewBox="0 0 340 132" className={styles.monthTrendSvg} role="img" aria-label="최근 시험 성적 추이 꺾은선 그래프">
+      {[25, 50, 75, 100].map(v => {
+       const y = 102 - v * 0.74;
+       return (
+        <g key={v}>
+         <line x1="26" x2="322" y1={y} y2={y} stroke="#e2e8f0" strokeDasharray="2 2"/>
+         <text x="4" y={y + 3} fontSize="8" fill="#64748b">{v}</text>
+        </g>
+       );
+      })}
+      <line x1="26" x2="322" y1="102" y2="102" stroke="#cbd5e1" strokeWidth="1.2"/>
+
+      {(() => {
+       const count = chartExams.length;
+       const step = 272 / Math.max(1, count - 1);
+       const pts = chartExams.map((ex, idx) => ({
+        ex,
+        idx,
+        cx: count === 1 ? 174 : 38 + idx * step,
+        cy: 102 - Math.max(0, Math.min(100, ex.rate)) * 0.74,
+       }));
+       const polyPoints = pts.map(pt => `${pt.cx},${pt.cy}`).join(' ');
+       const areaPoints = `${pts[0].cx},102 ${polyPoints} ${pts[pts.length - 1].cx},102`;
+
+       return (
+        <>
+         <polygon
+          points={areaPoints}
+          fill="var(--theme-bar, #3b82f6)"
+          opacity="0.14"
+         />
+         <polyline
+          fill="none"
+          stroke="var(--theme-accent, #2563eb)"
+          strokeWidth="2.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          points={polyPoints}
+         />
+         {pts.map(({ ex, idx, cx, cy }) => {
+          const isLast = idx === pts.length - 1;
+          return (
+           <g key={ex.id}>
+            <circle
+             cx={cx}
+             cy={cy}
+             r={isLast ? 4.5 : 3.8}
+             fill={isLast ? 'var(--theme-accent, #2563eb)' : '#ffffff'}
+             stroke="var(--theme-accent, #2563eb)"
+             strokeWidth="2.2"
+            />
+            <text x={cx} y={cy - 7} textAnchor="middle" fontSize="9" fontWeight="800" fill="#0f172a">
+             {ex.rate}점
+            </text>
+            <text x={cx} y="116" textAnchor="middle" fontSize="8" fontWeight="700" fill="#334155">
+             {shortDate(ex.date)}
+            </text>
+            <text x={cx} y="127" textAnchor="middle" fontSize="7.5" fill="#64748b">
+             {ex.name.slice(0, 6)}
+            </text>
+           </g>
+          );
+         })}
+        </>
+       );
+      })()}
+     </svg>
+    )}
+   </div>
+
+   <div className={styles.gradesSplitRight}>
+    <div className={styles.saebomDailyCheckItem}>
+     <span>최근 응시 · 최고</span>
+     <strong>{exams.length}회 응시 (최고 {maxScore}점)</strong>
+    </div>
+    <div className={styles.saebomDailyCheckItem}>
+     <span>최근 평균 성취도</span>
+     <strong style={{ color: 'var(--theme-accent, #2563eb)' }}>
+      {avgScore}점
+     </strong>
+    </div>
+    {latestExam && (
+     <div className={styles.saebomDailyCheckItem}>
+      <span>최근 응시 결과 ({shortDate(latestExam.date)})</span>
+      <strong>{latestExam.name} · {latestExam.rate}점</strong>
+     </div>
+    )}
+   </div>
+  </div>
+ );
+}
+
+function AdaptiveGradesDisplay({
+ exams,
+ variant,
+ emptyText,
+}: {
+ exams: StudentData['exams'];
+ avgScore?: number | null;
+ maxScore?: number | null;
+ variant: 'saebom' | 'theme';
+ emptyText: string;
+}) {
+ const seriesGroups = buildExamSeriesGroups(exams);
+ const [hiddenKeys, setHiddenKeys] = useState<string[]>([]);
+
+ if (seriesGroups.length === 0) {
+  if (variant === 'saebom') {
+   return (
+    <>
+     <p style={{ margin: 0, fontSize: 11.5, color: '#64748b' }}>{emptyText}</p>
+     <div className={styles.saebomDailyCheckGrid}>
+      <div className={styles.saebomDailyCheckItem}>
+       <span>최근 응시 내역</span>
+       <strong>미응시</strong>
+      </div>
+      <div className={styles.saebomDailyCheckItem}>
+       <span>평균 성취도</span>
+       <strong>-</strong>
+      </div>
+     </div>
+    </>
+   );
+  }
+  return (
+   <div className={styles.emptyBox}>
+    <GraduationCap size={20}/>
+    <p>{emptyText}</p>
+   </div>
+  );
+ }
+
+ const visibleGroups = seriesGroups.filter(g => !hiddenKeys.includes(g.key));
+ const hiddenCount = seriesGroups.length - visibleGroups.length;
+
+ return (
+  <div className={styles.examSeriesStack}>
+   {visibleGroups.map(group => (
+    <div key={group.key} className={styles.examSeriesBlock}>
+     <div className={styles.examSeriesSubHead}>
+      <span className={styles.examSeriesBadge}>
+       📊 {group.title} ({group.exams.length}회 · 평균 {group.avgScore}점)
+      </span>
+      <button
+       type="button"
+       className={styles.hideGraphBtn}
+       data-export-hide="true"
+       onClick={() => setHiddenKeys(prev => [...prev, group.key])}
+       title="이 성적 그래프를 보고서에서 숨깁니다"
+      >
+       <X size={11}/> 그래프 숨기기
+      </button>
+     </div>
+     <SingleSeriesGraph
+      exams={group.exams}
+      avgScore={group.avgScore}
+      maxScore={group.maxScore}
+     />
+    </div>
+   ))}
+
+   {hiddenCount > 0 && (
+    <div style={{ display: 'flex', justifyContent: 'flex-end' }} data-export-hide="true">
+     <button
+      type="button"
+      className={styles.restoreGraphBtn}
+      data-export-hide="true"
+      onClick={() => setHiddenKeys([])}
+     >
+      <RotateCcw size={11}/> 숨긴 성적 그래프 다시 보기 ({hiddenCount}개)
+     </button>
+    </div>
+   )}
+  </div>
+ );
+}
 
 interface LayoutConfig {
  enabledSet: Set<Kind>;
@@ -464,7 +585,7 @@ function buildLayoutConfig(template: Template, s: StudentData): LayoutConfig {
   switch (k) {
    case 'attendance': return s.recordedAtt > 0 || Boolean(s.todayAtt);
    case 'homework': return s.hwRecorded.length > 0 || Boolean(s.todayHwStatus);
-   case 'wrong': return s.hasWrongRecord && s.totalWrong > 0;
+   case 'wrong': return s.hasWrongRecord;
    case 'grades': return s.exams.length > 0;
    case 'progress': return s.bookProgressList.length > 0 || s.periodProgressLogs.length > 0;
    case 'feedback': return true;
@@ -475,9 +596,7 @@ function buildLayoutConfig(template: Template, s: StudentData): LayoutConfig {
 
  const getSpan = (k: Kind, fallback: BlockSpan): BlockSpan => {
   const found = rawBlocks.find(b => b.kind === k);
-  if (!found) return fallback;
-  if (found.span) return found.span;
-  if (found.wide) return 12;
+  if (found?.span) return found.span;
   return fallback;
  };
 
@@ -506,22 +625,12 @@ function buildLayoutConfig(template: Template, s: StudentData): LayoutConfig {
  };
 }
 
-const attCycleOrder: StudentDailyRecord['attendance'][] = ['출석', '지각', '결석'];
-function nextAttendance(cur: string | null | undefined): StudentDailyRecord['attendance'] {
- const idx = attCycleOrder.indexOf(cur as StudentDailyRecord['attendance']);
- return attCycleOrder[(idx + 1) % attCycleOrder.length];
-}
-const hwCycleOrder: ('O' | '△' | 'X')[] = ['O', '△', 'X'];
-function nextHomework(cur: string | null | undefined): 'O' | '△' | 'X' {
- const idx = cur ? hwCycleOrder.indexOf(cur as 'O' | '△' | 'X') : -1;
- return hwCycleOrder[(idx + 1) % hwCycleOrder.length];
-}
-
 /* ============================================================================
  * [기본형 스타일] 📘 클린 블루 & 화이트 에디토리얼 시트 (SaebomForestSheet)
  * - 깔끔한 순백색(#ffffff) 바탕 + 로열 블루(#2563eb) 포인트
+ * - 출석(초록) / 지각(노랑) / 결석(빨강) 직관적 색상 구분
+ * - 오답 완료 시 문항 수 대신 '오답 완료'로 깔끔하게 표기
  * - 일간(day) / 주간(week) / 월간(month) 주기에 따라 양식이 각각 다르게 구성
- * - 출석·숙제 클릭 변경 및 오답·진도·피드백 직접 텍스트 입력 지원 (학생관리 탭 상호 저장)
  * ============================================================================ */
 function SaebomForestSheet({
  p,
@@ -530,7 +639,7 @@ function SaebomForestSheet({
  template,
  period,
  periodKor,
- onEdit,
+ onEditFeedback,
 }: {
  p: Preview;
  s: StudentData;
@@ -538,7 +647,7 @@ function SaebomForestSheet({
  template: Template;
  period: 'day' | 'week' | 'month';
  periodKor: string;
- onEdit?: ReportEditHandlers;
+ onEditFeedback?: (studentId: string, date: string, memo: string) => void;
 }) {
  const academyTitle = template.academyName?.trim() || '유니데스크';
  const cycleBadge =
@@ -551,38 +660,35 @@ function SaebomForestSheet({
      : `${academyTitle} 월간 종합 평가 리포트`;
  const reportHeadline = template.customTitle?.trim() || defaultHeadline;
 
- // 1) '— 한눈에' 카드에 들어갈 활성 지표 수집 (클릭 및 인라인 편집 지원)
+ // 1) '— 한눈에' 카드에 들어갈 활성 지표 수집
  const summaryMetrics: {
   key: Kind;
   label: string;
   value: string;
   sub: string;
   accent?: boolean;
-  onClickValue?: () => void;
-  clickHint?: string;
+  toneColor?: string;
  }[] = [];
 
  if (cfg.hasKind('attendance')) {
-  const cycleTodayAtt = onEdit
-   ? () => onEdit.onUpdateDailyWrong(p.id, p.end, { attendance: nextAttendance(s.todayAtt || '출석') })
-   : undefined;
+  const attStatus = s.todayAtt || '출석';
+  const attColor =
+   attStatus === '출석' ? '#15803d' : attStatus === '지각' ? '#b45309' : attStatus === '결석' ? '#b91c1c' : '#0f172a';
   if (period === 'day') {
    summaryMetrics.push({
     key: 'attendance',
-    label: '오늘 출결 상태 (클릭 변경)',
-    value: s.todayAtt || (s.attended > 0 ? '출석' : '출석'),
-    sub: s.todayAttReason || (s.todayAtt === '출석' ? '당일 정상 등원 완료' : `${s.dateLabel} 수업 출결`),
-    onClickValue: cycleTodayAtt,
-    clickHint: '클릭하여 출석 → 지각 → 결석 전환',
+    label: '오늘 출결 상태',
+    value: attStatus,
+    sub: s.todayAttReason || (attStatus === '출석' ? '당일 정상 등원 완료' : `${s.dateLabel} 출결 확인`),
+    toneColor: attColor,
    });
   } else if (period === 'week') {
    summaryMetrics.push({
     key: 'attendance',
     label: '주간 출석 일수',
     value: `${s.attended}일`,
-    sub: `이번 주 기록 ${s.recordedAtt}일 중 등원율 ${s.attRate ?? 100}%`,
-    onClickValue: cycleTodayAtt,
-    clickHint: '클릭하여 기준일 출결 전환',
+    sub: `이번 주 기록 ${s.recordedAtt}일 중 출석률 ${s.attRate ?? 100}%`,
+    toneColor: '#15803d',
    });
   } else {
    summaryMetrics.push({
@@ -590,23 +696,18 @@ function SaebomForestSheet({
     label: '월간 누적 출석',
     value: `${s.attended}일`,
     sub: `${s.absent === 0 ? '월간 결석 없음' : `결석 ${s.absent}일 · 지각 ${s.late}일`} (출석률 ${s.attRate ?? 100}%)`,
-    onClickValue: cycleTodayAtt,
-    clickHint: '클릭하여 기준일 출결 전환',
+    toneColor: '#15803d',
    });
   }
  }
+
  if (cfg.hasKind('homework')) {
-  const cycleTodayHw = onEdit
-   ? () => onEdit.onUpdateDailyWrong(p.id, p.end, { homework_status: nextHomework(s.todayHwStatus) })
-   : undefined;
   if (period === 'day') {
    summaryMetrics.push({
     key: 'homework',
-    label: '당일 과제 검사 (클릭 변경)',
+    label: '당일 과제 검사',
     value: s.todayHwStatus ? `${s.hwLabels[s.todayHwStatus]} (${s.todayHwStatus})` : s.hwRate !== null ? `${s.hwRate}%` : '완료 (O)',
-    sub: s.hwRecorded.length > 0 ? `제출 과제 확인 완료 (클릭 시 O/△/X 변경)` : '클릭하여 O / △ / X 선택',
-    onClickValue: cycleTodayHw,
-    clickHint: '클릭하여 완료(O) → 일부(△) → 미완료(X) 전환',
+    sub: '당일 제출 과제 확인 완료',
    });
   } else {
    summaryMetrics.push({
@@ -614,11 +715,10 @@ function SaebomForestSheet({
     label: period === 'week' ? '주간 과제 수행률' : '월간 과제 성실도',
     value: `${s.hwRate ?? 100}%`,
     sub: `검사 ${s.hwRecorded.length}회 중 완료(O) ${s.hwDone}회 · 일부(△) ${s.hwPartial}회`,
-    onClickValue: cycleTodayHw,
-    clickHint: '클릭하여 기준일 숙제 상태(O/△/X) 전환',
    });
   }
  }
+
  if (cfg.hasKind('grades')) {
   summaryMetrics.push({
    key: 'grades',
@@ -632,12 +732,16 @@ function SaebomForestSheet({
      : '해당 기간 시험 기록 없음',
   });
  }
+
  if (cfg.hasKind('wrong')) {
+  const isWrongDone = period === 'day' ? s.todayWrongCompleted : s.periodWrongCompleted;
   summaryMetrics.push({
    key: 'wrong',
-   label: period === 'day' ? '당일 오답 클리닉' : period === 'week' ? '주간 오답 해결률' : '월간 오답 완주율',
-   value: s.wrongRate !== null ? `${s.wrongRate}%` : '완료',
-   sub: `오답 ${s.totalWrong}문항 중 ${s.fixedWrong}문항 수정 완료`,
+   label: period === 'day' ? '당일 오답 클리닉' : period === 'week' ? '주간 오답 클리닉' : '월간 오답 클리닉',
+   value: isWrongDone ? '오답 완료' : s.wrongRate !== null ? `${s.wrongRate}%` : '오답 완료',
+   sub: isWrongDone
+    ? (period === 'day' ? '당일 오답 클리닉 완료 확인' : '기간 내 오답 클리닉 완료 확인')
+    : `오답 ${s.totalWrong}문항 중 ${s.fixedWrong}문항 해결 진행 중`,
    accent: true,
   });
  } else if (cfg.hasKind('progress')) {
@@ -656,12 +760,10 @@ function SaebomForestSheet({
    : s.bookProgressList.map(b => ({
       id: b.id,
       bookId: b.id,
-      entryId: b.latestEntryId,
       date: b.recordDate || p.end,
       bookTitle: b.title,
       course: b.course,
       scope: b.journeyLabel,
-      rawScope: b.rawLastScope,
       homework: b.latestHomework,
       dueDate: b.latestDueDate,
       pct: b.pct,
@@ -670,7 +772,6 @@ function SaebomForestSheet({
      }));
 
  const bookRowsLimit = cfg.getRowLimit('progress', 5);
- const examRowsLimit = cfg.getRowLimit('grades', period === 'month' ? 4 : 3);
 
  // 도넛 게이지 계산 (숙제 실행률 또는 오답 해결률)
  const ringPct = cfg.hasKind('homework')
@@ -689,35 +790,9 @@ function SaebomForestSheet({
 
  const bluePalette = ['#2563eb', '#3b82f6', '#60a5fa', '#0284c7', '#6366f1'];
 
- const weeklyBars = s.weekDays.map((wd, idx) => {
-  const exAvg = wd.exams.length
-   ? Math.round(wd.exams.reduce((a, b) => a + (b.max_score > 0 ? (b.score / b.max_score) * 100 : 0), 0) / wd.exams.length)
-   : null;
-  const val =
-   exAvg !== null
-    ? exAvg
-    : wd.hw === 'O'
-      ? 94
-      : wd.hw === '△'
-        ? 68
-        : wd.attendance === '출석'
-          ? 84
-          : 22;
-  return {
-   date: wd.date,
-   dayNum: wd.short,
-   dow: wd.label,
-   isWeekend: idx >= 5,
-   value: Math.max(18, Math.min(100, val)),
-   label: exAvg !== null ? `${exAvg}점` : (wd.attendance || wd.hw || '-'),
-  };
- });
-
- const rhythmBarsToRender = period === 'week' ? weeklyBars : s.dailyRhythmBars;
-
  const renderSaebomBlock = (kind: Kind) => {
-  const span = cfg.getSpan(kind, 12);
-  const colStyle: CSSProperties = { gridColumn: `span ${span}` };
+  if (kind === 'wrong' && cfg.hasKind('homework')) return null;
+  const colStyle: CSSProperties = { gridColumn: 'span 12' };
 
   if (kind === 'attendance') {
    if (summaryMetrics.length === 0) return null;
@@ -729,7 +804,7 @@ function SaebomForestSheet({
        : '월간 한눈에 & 출결 캘린더';
    const headRight =
     period === 'day'
-     ? `${s.dateLabel} · 항목 클릭 시 즉시 변경`
+     ? `${s.dateLabel} 수업 요약`
      : s.recordedAtt > 0
        ? `${s.recordedAtt}일 중 ${s.attended}일 등원`
        : s.dateLabel;
@@ -748,35 +823,23 @@ function SaebomForestSheet({
        <div key={idx} className={styles.saebomMetricCell}>
         <span className={styles.saebomMetricLabel}>{m.label}</span>
         <strong
-         className={`${m.accent ? styles.saebomMetricAccent : styles.saebomMetricValue} ${m.onClickValue ? styles.interactiveClick : ''}`}
-         onClick={m.onClickValue}
-         title={m.clickHint}
+         className={m.accent ? styles.saebomMetricAccent : styles.saebomMetricValue}
+         style={m.toneColor ? { color: m.toneColor } : undefined}
         >
          {m.value}
         </strong>
-        {m.key === 'attendance' && onEdit ? (
-         <small className={styles.saebomMetricSub}>
-          <InlineTextField
-           value={s.todayAttReason}
-           placeholder={s.todayAtt === '출석' || !s.todayAtt ? '당일 정상 등원 완료 (클릭하여 출결 사유 입력)' : '출결 사유 입력'}
-           ariaLabel="출결 사유 직접 입력"
-           onCommit={next => onEdit.onUpdateDailyWrong(p.id, p.end, { reason: next })}
-          />
-         </small>
-        ) : (
-         <small className={styles.saebomMetricSub}>{m.sub}</small>
-        )}
+        <span className={styles.saebomMetricSub}>{m.sub}</span>
        </div>
       ))}
      </div>
 
-     {/* [주간 전용] 월~일 7일 출결·숙제 미니 스탬프 타임라인 (요일별 클릭 시 즉시 변경!) */}
+     {/* [주간 전용] 월~일 7일 미니 출결·과제 스탬프 바 (출석=초록, 지각=노랑, 결석=빨강) */}
      {period === 'week' && (
       <div className={styles.saebomWeekStrip}>
        {s.weekDays.map(wd => {
         const badgeClass =
          wd.attendance === '출석'
-          ? styles.saebomBadgeBlue
+          ? styles.saebomBadgeGood
           : wd.attendance === '지각'
             ? styles.saebomBadgeAmber
             : wd.attendance === '결석'
@@ -786,27 +849,16 @@ function SaebomForestSheet({
          <div key={wd.date} className={styles.saebomWeekDayBox}>
           <b>{wd.label}요일</b>
           <small>{wd.short}</small>
-          <span
-           className={`${styles.saebomWeekBadge} ${badgeClass} ${onEdit ? styles.interactiveClick : ''}`}
-           title="클릭하여 해당 요일 출결 변경"
-           onClick={() =>
-            onEdit?.onUpdateDailyWrong(p.id, wd.date, {
-             attendance: nextAttendance(wd.attendance || '출석'),
-            })
-           }
-          >
-           {wd.attendance || '출석입력'}
+          <span className={`${styles.saebomWeekBadge} ${badgeClass}`}>
+           {wd.attendance || '미기록'}
           </span>
           {cfg.hasKind('homework') && (
            <small
-            className={onEdit ? styles.interactiveClick : ''}
-            title="클릭하여 해당 요일 과제 상태(O/△/X) 변경"
-            onClick={() =>
-             onEdit?.onUpdateDailyWrong(p.id, wd.date, {
-              homework_status: nextHomework(wd.hw),
-             })
-            }
-            style={{ fontWeight: 700, padding: '1px 4px', color: wd.hw === 'O' ? '#1d4ed8' : wd.hw === 'X' ? '#b91c1c' : '#64748b' }}
+            style={{
+             fontWeight: 700,
+             padding: '1px 4px',
+             color: wd.hw === 'O' ? '#15803d' : wd.hw === 'X' ? '#b91c1c' : '#64748b',
+            }}
            >
             과제 {wd.hw || '-'}
            </small>
@@ -817,12 +869,12 @@ function SaebomForestSheet({
       </div>
      )}
 
-     {/* [월간 전용] 월간 출결 미니 캘린더 그리드 (날짜 클릭 시 출결 상태 변경!) */}
+     {/* [월간 전용] 월간 출결 미니 캘린더 그리드 (출석=초록, 지각=노랑, 결석=빨강) */}
      {period === 'month' && (
       <div className={styles.saebomMonthCalCard}>
        <div className={styles.saebomDailySubHead} style={{ marginTop: 0, marginBottom: 6 }}>
         <span><i className={styles.saebomDash}/> {s.monthLabel} 등원 및 과제 캘린더</span>
-        <small>날짜 클릭 시 출결 전환 · 파랑=출석 / 노랑=지각 / 빨강=결석</small>
+        <small>초록=출석 · 노랑=지각 · 빨강=결석</small>
        </div>
        <div className={styles.saebomMonthCalGrid}>
         {korWeekdays.map(w => (
@@ -839,18 +891,9 @@ function SaebomForestSheet({
                ? styles.saebomMonthCalMiss
                : '';
          return (
-          <div
-           key={cell.date}
-           className={`${styles.saebomMonthCalCell} ${cellTone} ${onEdit ? styles.interactiveClick : ''}`}
-           title={`${cell.date} (${cell.attendance || '미기록'}) - 클릭하여 출결 변경`}
-           onClick={() =>
-            onEdit?.onUpdateDailyWrong(p.id, cell.date, {
-             attendance: nextAttendance(cell.attendance || ''),
-            })
-           }
-          >
+          <div key={cell.date} className={`${styles.saebomMonthCalCell} ${cellTone}`}>
            <span>{cell.day}</span>
-           {cell.hw === 'O' && <b style={{ fontSize: 8.5 }}>●</b>}
+           {cell.attendance && <b style={{ fontSize: 8.5 }}>{cell.attendance}</b>}
           </div>
          );
         })}
@@ -863,6 +906,7 @@ function SaebomForestSheet({
 
   if (kind === 'homework' || (kind === 'wrong' && !cfg.hasKind('homework'))) {
    const showWrongTogether = cfg.hasKind('wrong');
+   const isWrongDone = period === 'day' ? s.todayWrongCompleted : s.periodWrongCompleted;
    const secTitle =
     period === 'day'
      ? cfg.hasKind('homework') && showWrongTogether
@@ -878,6 +922,10 @@ function SaebomForestSheet({
          ? '월간 과제 실행력과 누적 오답 완주율'
          : '월간 계획 실행력과 과제 리듬';
 
+   const hwStatusLabel = s.todayHwStatus ? `${s.hwLabels[s.todayHwStatus]} (${s.todayHwStatus})` : '완료 (O)';
+   const hwColor =
+    s.todayHwStatus === 'X' ? '#b91c1c' : s.todayHwStatus === '△' ? '#b45309' : '#15803d';
+
    return (
     <section key={`saebom-${kind}`} className={styles.saebomSection} style={colStyle}>
      <div className={styles.saebomSecHead}>
@@ -885,170 +933,125 @@ function SaebomForestSheet({
       <span>{s.dateLabel} 기준</span>
      </div>
      <div className={styles.saebomCard}>
-      <div className={styles.saebomDonutRow}>
-       <div
-        className={`${styles.saebomDonutWrap} ${onEdit && cfg.hasKind('homework') ? styles.interactiveClick : ''}`}
-        title={cfg.hasKind('homework') ? '클릭하여 기준일 과제 상태(O/△/X) 변경' : undefined}
-        onClick={() => {
-         if (cfg.hasKind('homework')) {
-          onEdit?.onUpdateDailyWrong(p.id, p.end, { homework_status: nextHomework(s.todayHwStatus) });
-         }
-        }}
-       >
-        <svg width="76" height="76" viewBox="0 0 76 76">
-         <circle cx="38" cy="38" r={ringRadius} fill="none" stroke="#dbeafe" strokeWidth="8"/>
-         <circle
-          cx="38"
-          cy="38"
-          r={ringRadius}
-          fill="none"
-          stroke="var(--theme-accent, #2563eb)"
-          strokeWidth="8"
-          strokeLinecap="round"
-          strokeDasharray={ringCircumference}
-          strokeDashoffset={ringOffset}
-          transform="rotate(-90 38 38)"
-         />
-         <text x="38" y="42" textAnchor="middle" fontSize="14" fontWeight="900" fill="#1e3a8a">
-          {ringPct}%
-         </text>
-        </svg>
-       </div>
-       <div className={styles.saebomDonutText}>
-        <strong>
-         {cfg.hasKind('homework')
-          ? period === 'day'
-            ? `당일 과제 상태: ${s.todayHwStatus ? `${s.hwLabels[s.todayHwStatus]} (${s.todayHwStatus})` : `수행률 ${s.hwRate ?? 100}%`}`
-            : `부여된 과제 ${s.hwRecorded.length}회 중 ${s.hwDone}회 완료`
-          : `발생 오답 ${s.totalWrong}문항 중 ${s.fixedWrong}문항 수정 완료`}
-        </strong>
-        <p>
-         {cfg.hasKind('homework') && showWrongTogether
-          ? `과제 성실 수행률 ${s.hwRate ?? 100}% · 오답 클리닉 ${s.totalWrong}문항 중 ${s.fixedWrong}문항 해결 (미해결 ${s.remainWrong}문항)`
-          : cfg.hasKind('homework')
-            ? `수업 시간마다 제출한 숙제 검사와 학습 계획 이행 기준입니다.`
-            : `틀린 문항을 끝까지 다시 풀어 해결한 오답 클리닉 기준입니다.`}
-        </p>
-       </div>
-      </div>
-
-      {/* 일간 전용: 당일 3대 체크 박스 (클릭 및 오답 수 직접 입력) */}
       {period === 'day' ? (
-       <div className={styles.saebomDailyCheckGrid}>
-        {cfg.hasKind('homework') && (
-         <div
-          className={`${styles.saebomDailyCheckItem} ${onEdit ? styles.interactiveClick : ''}`}
-          title="클릭하여 완료(O) / 일부(△) / 미완료(X) 변경"
-          onClick={() => onEdit?.onUpdateDailyWrong(p.id, p.end, { homework_status: nextHomework(s.todayHwStatus) })}
-         >
-          <span>당일 숙제 제출 (클릭)</span>
-          <strong style={{ color: 'var(--theme-accent, #2563eb)' }}>
-           {s.todayHwStatus ? `${s.hwLabels[s.todayHwStatus]} (${s.todayHwStatus})` : `완료 (O)`}
-          </strong>
+       <div className={styles.gradesSplitLayout}>
+        <div className={styles.saebomDonutRow}>
+         <div className={styles.saebomDonutWrap}>
+          <svg width="72" height="72" viewBox="0 0 76 76">
+           <circle cx="38" cy="38" r={ringRadius} fill="none" stroke="#dbeafe" strokeWidth="8"/>
+           <circle
+            cx="38"
+            cy="38"
+            r={ringRadius}
+            fill="none"
+            stroke="var(--theme-accent, #2563eb)"
+            strokeWidth="8"
+            strokeLinecap="round"
+            strokeDasharray={ringCircumference}
+            strokeDashoffset={ringOffset}
+            transform="rotate(-90 38 38)"
+           />
+           <text x="38" y="42" textAnchor="middle" fontSize="14" fontWeight="900" fill="#1e3a8a">
+            {ringPct}%
+           </text>
+          </svg>
          </div>
-        )}
-        {showWrongTogether && (
-         <>
-          <div className={styles.saebomDailyCheckItem}>
-           <span>당일 오답 (해결 / 전체)</span>
-           {onEdit ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-             <input
-              type="number"
-              min={0}
-              max={999}
-              aria-label="해결한 오답 문항 수"
-              className={styles.inlineNumberInput}
-              value={s.todayFixedWrong}
-              onChange={e => {
-               const fixed = Math.max(0, parseInt(e.target.value || '0', 10));
-               const total = Math.max(fixed, s.todayTotalWrong);
-               onEdit.onUpdateDailyWrong(p.id, p.end, { corrected_count: fixed, total_wrong: total });
-              }}
-             />
-             <b>/</b>
-             <input
-              type="number"
-              min={0}
-              max={999}
-              aria-label="전체 오답 문항 수"
-              className={styles.inlineNumberInput}
-              value={s.todayTotalWrong}
-              onChange={e => {
-               const total = Math.max(0, parseInt(e.target.value || '0', 10));
-               const fixed = Math.min(total, s.todayFixedWrong);
-               onEdit.onUpdateDailyWrong(p.id, p.end, { total_wrong: total, corrected_count: fixed });
-              }}
-             />
-             <small style={{ fontSize: 10.5, fontWeight: 700 }}>문항</small>
-            </div>
-           ) : (
-            <strong>{s.fixedWrong} / {s.totalWrong}문항</strong>
-           )}
-          </div>
-          <div className={styles.saebomDailyCheckItem}>
-           <span>남은 오답 문항</span>
-           <strong style={{ color: s.remainWrong > 0 ? '#dc2626' : '#1d4ed8' }}>
-            {s.remainWrong === 0 ? '전부 해결 완료' : `${s.remainWrong}문항 보완 필요`}
-           </strong>
-          </div>
-         </>
-        )}
-       </div>
-      ) : (
-       <>
-        <div className={styles.saebomStackedBar}>
-         <i style={{ width: `${s.hwRecorded.length ? doneWidth : 100}%`, background: 'var(--theme-accent, #2563eb)' }}/>
-         {partialWidth > 0 && <i style={{ width: `${partialWidth}%`, background: '#93c5fd' }}/>}
-         {missWidth > 0 && s.hwRecorded.length > 0 && <i style={{ width: `${missWidth}%`, background: '#ef4444' }}/>}
+         <div className={styles.saebomDonutText}>
+          <strong>
+           {cfg.hasKind('homework')
+            ? `당일 과제 상태: ${hwStatusLabel}`
+            : isWrongDone
+              ? '오답 클리닉: 오답 완료'
+              : `오답 클리닉 진행 중 (${s.wrongRate ?? 0}%)`}
+          </strong>
+          <p>
+           {cfg.hasKind('homework') && showWrongTogether
+            ? isWrongDone
+              ? `과제 성실 수행률 ${s.hwRate ?? 100}% · 당일 오답 클리닉 완료 확인`
+              : `과제 성실 수행률 ${s.hwRate ?? 100}% · 오답 ${s.totalWrong}문항 중 ${s.fixedWrong}문항 해결`
+            : cfg.hasKind('homework')
+              ? `수업 시간마다 제출한 숙제 검사와 학습 계획 이행 기준입니다.`
+              : `틀린 문항을 다시 풀어 완벽히 이해했는지 점검한 결과입니다.`}
+          </p>
+         </div>
         </div>
-
-        <div className={styles.saebomLegendRow}>
+        <div className={styles.gradesSplitRight}>
          {cfg.hasKind('homework') && (
-          <>
-           <span><i style={{ background: 'var(--theme-accent, #2563eb)' }}/> 완료(O) {s.hwDone}회</span>
-           <span><i style={{ background: '#93c5fd' }}/> 일부(△) {s.hwPartial}회</span>
-           <span><i style={{ background: '#ef4444' }}/> 미완료(X) {s.hwMiss}회</span>
-          </>
+          <div className={styles.saebomDailyCheckItem}>
+           <span>당일 숙제 제출</span>
+           <strong style={{ color: hwColor }}>{hwStatusLabel}</strong>
+          </div>
          )}
          {showWrongTogether && (
-          <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700, color: 'var(--theme-accent, #2563eb)' }}>
-           오답 해결: {s.fixedWrong}/{s.totalWrong}문항 ({s.wrongRate ?? 100}%)
-           {onEdit && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 6, fontSize: 10, color: '#475569' }}>
-             [기준일 입력:
-             <input
-              type="number"
-              min={0}
-              max={999}
-              aria-label="기준일 해결 오답 수"
-              className={styles.inlineNumberInput}
-              style={{ width: 36 }}
-              value={s.todayFixedWrong}
-              onChange={e => {
-               const fixed = Math.max(0, parseInt(e.target.value || '0', 10));
-               const total = Math.max(fixed, s.todayTotalWrong);
-               onEdit.onUpdateDailyWrong(p.id, p.end, { corrected_count: fixed, total_wrong: total });
-              }}
-             />
-             /
-             <input
-              type="number"
-              min={0}
-              max={999}
-              aria-label="기준일 전체 오답 수"
-              className={styles.inlineNumberInput}
-              style={{ width: 36 }}
-              value={s.todayTotalWrong}
-              onChange={e => {
-               const total = Math.max(0, parseInt(e.target.value || '0', 10));
-               const fixed = Math.min(total, s.todayFixedWrong);
-               onEdit.onUpdateDailyWrong(p.id, p.end, { total_wrong: total, corrected_count: fixed });
-              }}
-             />
-             ]
-            </span>
-           )}
+          <div className={styles.saebomDailyCheckItem}>
+           <span>당일 오답 클리닉</span>
+           <strong style={{ color: isWrongDone ? '#15803d' : s.todayTotalWrong > 0 ? '#2563eb' : '#64748b' }}>
+            {isWrongDone
+             ? '✓ 오답 완료'
+             : s.todayTotalWrong > 0
+               ? `${s.todayFixedWrong}/${s.todayTotalWrong}문항 진행중`
+               : '오답 완료'}
+           </strong>
+          </div>
+         )}
+        </div>
+       </div>
+      ) : (
+       /* 주간/월간 전용: 도넛 + 누적 비율 바 & 범례 */
+       <>
+        <div className={styles.saebomDonutRow}>
+         <div className={styles.saebomDonutWrap}>
+          <svg width="72" height="72" viewBox="0 0 76 76">
+           <circle cx="38" cy="38" r={ringRadius} fill="none" stroke="#dbeafe" strokeWidth="8"/>
+           <circle
+            cx="38"
+            cy="38"
+            r={ringRadius}
+            fill="none"
+            stroke="var(--theme-accent, #2563eb)"
+            strokeWidth="8"
+            strokeLinecap="round"
+            strokeDasharray={ringCircumference}
+            strokeDashoffset={ringOffset}
+            transform="rotate(-90 38 38)"
+           />
+           <text x="38" y="42" textAnchor="middle" fontSize="14" fontWeight="900" fill="#1e3a8a">
+            {ringPct}%
+           </text>
+          </svg>
+         </div>
+         <div className={styles.saebomDonutText}>
+          <strong>
+           {cfg.hasKind('homework')
+            ? `부여된 과제 ${s.hwRecorded.length}회 중 ${s.hwDone}회 완료`
+            : isWrongDone
+              ? '오답 클리닉: 오답 완료'
+              : `오답 클리닉 진행 중 (${s.wrongRate ?? 0}%)`}
+          </strong>
+          <p>
+           {cfg.hasKind('homework') && showWrongTogether
+            ? isWrongDone
+              ? `과제 성실 수행률 ${s.hwRate ?? 100}% · 기간 내 오답 클리닉 완료 확인`
+              : `과제 성실 수행률 ${s.hwRate ?? 100}% · 오답 ${s.totalWrong}문항 중 ${s.fixedWrong}문항 해결`
+            : cfg.hasKind('homework')
+              ? `수업 시간마다 제출한 숙제 검사와 학습 계획 이행 기준입니다.`
+              : `틀린 문항을 다시 풀어 완벽히 이해했는지 점검한 결과입니다.`}
+          </p>
+         </div>
+        </div>
+        <div className={styles.saebomStackedBar}>
+         <i style={{ width: `${doneWidth}%`, background: 'var(--theme-accent, #2563eb)' }}/>
+         <i style={{ width: `${partialWidth}%`, background: '#93c5fd' }}/>
+         <i style={{ width: `${missWidth}%`, background: '#f87171' }}/>
+        </div>
+        <div className={styles.saebomLegendRow}>
+         <span><i style={{ background: 'var(--theme-accent, #2563eb)' }}/> 완료 {s.hwDone}일</span>
+         <span><i style={{ background: '#93c5fd' }}/> 일부완료 {s.hwPartial}일</span>
+         <span><i style={{ background: '#f87171' }}/> 미완료 {s.hwMiss}일</span>
+         {showWrongTogether && (
+          <span>
+           <i style={{ background: '#16a34a' }}/>{' '}
+           {isWrongDone ? '오답 클리닉: 오답 완료' : `오답 해결 ${s.wrongRate ?? 100}%`}
           </span>
          )}
         </div>
@@ -1059,81 +1062,27 @@ function SaebomForestSheet({
    );
   }
 
-  if (kind === 'wrong' && cfg.hasKind('homework')) {
-   return null;
-  }
-
   if (kind === 'grades') {
    const gradeSecTitle =
     period === 'day'
-     ? '당일 테스트 결과 및 최근 성취도'
+     ? '당일 및 최근 테스트 성취도'
      : period === 'week'
-       ? '주간 테스트 성취도 및 요일별 리듬'
-       : '월간 성취도 추이 및 날마다 학습 밀도';
+       ? '주간 및 최근 테스트 성취도'
+       : '월간 시험 성취도 및 성적 추이';
    return (
     <section key="saebom-grades" className={styles.saebomSection} style={colStyle}>
      <div className={styles.saebomSecHead}>
       <h3><i className={styles.saebomDash}/> {gradeSecTitle}</h3>
-      <span>{s.exams.length > 0 ? `응시 ${s.exams.length}회 · 평균 ${s.avgScore}점` : '학습 참여 리듬'}</span>
+      <span>{s.exams.length > 0 ? `최근 응시 ${s.exams.length}회 · 평균 ${s.avgScore}점` : '성취도 요약'}</span>
      </div>
      <div className={styles.saebomCard}>
-      {s.exams.length > 0 ? (
-       <div className={styles.saebomHorizBarGroup}>
-        {s.exams.slice(-examRowsLimit).map((ex, idx, arr) => {
-         const isLatest = idx === arr.length - 1 && arr.length > 1;
-         return (
-          <div key={ex.id} className={styles.saebomHorizBarRow}>
-           <div className={styles.saebomHorizDate}>
-            <b>{shortDate(ex.date)}</b>
-            <small>{ex.name}</small>
-           </div>
-           <div className={styles.saebomHorizTrack}>
-            <div
-             className={isLatest ? styles.saebomBarStriped : styles.saebomBarSolid}
-             style={{ width: `${Math.max(8, ex.rate)}%` }}
-            />
-           </div>
-           <div className={styles.saebomHorizScore}>
-            <strong>{ex.rate}점</strong>
-            <small>{ex.score}/{ex.max_score}</small>
-           </div>
-          </div>
-         );
-        })}
-       </div>
-      ) : (
-       <p style={{ margin: 0, fontSize: 11, color: '#64748b' }}>
-        {period === 'day' ? '당일 등록된 테스트 점수 기록이 없습니다.' : '해당 기간에 응시한 테스트 기록이 없습니다.'}
-       </p>
-      )}
-
-      {/* 주간/월간 또는 일간 최근 학습 리듬 세로 막대 */}
-      {period !== 'day' && (
-       <>
-        <div className={styles.saebomDailySubHead}>
-         <span>
-          <i className={styles.saebomDash}/>{' '}
-          {period === 'week' ? '이번 주 요일별 학습 리듬 (월~일)' : '월간 날마다 학습 밀도'}
-         </span>
-         <small>진한 파랑 = 평일 정규수업 · 연한 파랑 = 주말/자율</small>
-        </div>
-        <div className={styles.saebomDailyColumns}>
-         {rhythmBarsToRender.map(bar => (
-          <div key={bar.date} className={styles.saebomDailyColItem}>
-           <div className={styles.saebomDailyBarTrack}>
-            <div
-             className={bar.isWeekend ? styles.saebomDailyBarLight : styles.saebomDailyBarDark}
-             style={{ height: `${bar.value}%` }}
-             title={`${bar.date}: ${bar.label}`}
-            />
-           </div>
-           <b>{bar.dayNum}</b>
-           <small>{bar.dow}</small>
-          </div>
-         ))}
-        </div>
-       </>
-      )}
+      <AdaptiveGradesDisplay
+       exams={s.exams}
+       avgScore={s.avgScore}
+       maxScore={s.maxScore}
+       variant="saebom"
+       emptyText="최근 실시된 테스트 기록이 없습니다."
+      />
      </div>
     </section>
    );
@@ -1151,36 +1100,18 @@ function SaebomForestSheet({
     <section key="saebom-progress" className={styles.saebomSection} style={colStyle}>
      <div className={styles.saebomSecHead}>
       <h3><i className={styles.saebomDash}/> {progTitle}</h3>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-       {s.bookProgressList.length > 0 ? `총 ${s.bookProgressList.length}권 진행 중` : '진도 기록'}
-       {onEdit && (
-        <button
-         type="button"
-         className={styles.inlineQuickAddBtn}
-         onClick={() =>
-          onEdit.onUpdateProgress(p.id, {
-           bookId: s.bookProgressList[0]?.id,
-           recordDate: p.end,
-           scope: '오늘 학습 단원 입력',
-           homework: '다음 수업 과제 입력',
-          })
-         }
-        >
-         <Plus size={11}/> 진도 기록 추가
-        </button>
-       )}
-      </span>
+      <span>{s.bookProgressList.length > 0 ? `총 ${s.bookProgressList.length}권 진행 중` : '진도 기록'}</span>
      </div>
-     <div className={styles.saebomCard} style={{ padding: 0, overflow: 'hidden' }}>
+     <div className={styles.saebomCard} style={{ padding: 0, overflow: 'hidden', justifyContent: 'flex-start' }}>
       {period === 'day' ? (
-       /* [일간 전용] 오늘 나간 진도 범위 + 다음 수업 숙제 4열 테이블 (인라인 직접 입력 지원) */
+       /* [일간 전용] 오늘 나간 진도 범위 + 다음 수업 숙제 4열 테이블 */
        <table className={styles.saebomTable}>
         <thead>
          <tr>
-          <th style={{ width: '28%' }}>교재 · 과정</th>
-          <th style={{ width: '13%', textAlign: 'center' }}>종류</th>
-          <th style={{ width: '32%' }}>오늘 수업 진도 범위 (클릭 입력)</th>
-          <th>부여된 다음 과제 (클릭 입력)</th>
+          <th style={{ width: '30%' }}>교재 · 과정</th>
+          <th style={{ width: '13%', textAlign: 'center' }}>구분</th>
+          <th style={{ width: '32%' }}>오늘 수업 진도 범위</th>
+          <th>부여된 다음 과제</th>
          </tr>
         </thead>
         <tbody>
@@ -1196,170 +1127,81 @@ function SaebomForestSheet({
             </td>
             <td>
              <div className={styles.saebomJourneyCell}>
-              {onEdit ? (
-               <InlineTextField
-                value={log.rawScope || (log.scope === '학습 범위 미기록' ? '' : log.scope)}
-                placeholder="오늘 진도 범위 직접 입력 (예: p.42~48)"
-                ariaLabel={`${log.bookTitle} 진도 범위 입력`}
-                onCommit={next =>
-                 onEdit.onUpdateProgress(p.id, {
-                  bookId: log.bookId,
-                  entryId: log.entryId,
-                  recordDate: log.date || p.end,
-                  scope: next,
-                 })
-                }
-               />
-              ) : (
-               <span>{log.scope}</span>
-              )}
+              <span>{log.scope && log.scope !== '학습 범위 미기록' ? log.scope : '단원 진도 학습 진행'}</span>
               <b className={styles.saebomPctTag}>{log.pct}%</b>
              </div>
             </td>
             <td style={{ fontSize: 11, color: '#1e3a8a', fontWeight: 600 }}>
-             {onEdit ? (
-              <InlineTextField
-               value={log.homework}
-               placeholder="다음 수업 과제 직접 입력 (예: 워크북 p.30~35)"
-               ariaLabel={`${log.bookTitle} 다음 과제 입력`}
-               onCommit={next =>
-                onEdit.onUpdateProgress(p.id, {
-                 bookId: log.bookId,
-                 entryId: log.entryId,
-                 recordDate: log.date || p.end,
-                 homework: next,
-                })
-               }
-              />
-             ) : (
-              log.homework ? `${log.homework}${log.dueDate ? ` (~${shortDate(log.dueDate)})` : ''}` : '현장 안내 완료'
-             )}
+             {log.homework ? `${log.homework}${log.dueDate ? ` (~${shortDate(log.dueDate)})` : ''}` : '교재 복습 및 오답 정리'}
             </td>
            </tr>
           ))
          ) : (
           <tr>
-           <td colSpan={4} className={styles.emptyCell}>
-            당일 등록된 교재 진도 기록이 없습니다. 상단 <b>[+ 진도 기록 추가]</b>를 눌러 바로 입력해 보세요.
-           </td>
+           <td colSpan={4} className={styles.emptyCell}>당일 기록된 교재 진도 내역이 없습니다.</td>
           </tr>
          )}
         </tbody>
        </table>
       ) : (
-       /* [주간 / 월간 전용] 처음 -> 마지막 누적 진도 여정 테이블 (인라인 직접 입력 지원) */
+       /* [주간 / 월간 전용] 이 기간에 공부한 교재 (처음 → 마지막 진도 흐름) */
        <table className={styles.saebomTable}>
         <thead>
          <tr>
-          <th style={{ width: '34%' }}>교재 · 과정</th>
-          <th style={{ width: '16%', textAlign: 'center' }}>종류</th>
-          <th>{period === 'week' ? '이번 주 진도 (클릭하여 최근 진도 수정)' : '월간 누적 진도 (클릭하여 최근 진도 수정)'}</th>
+          <th style={{ width: '34%' }}>교재 · 강의</th>
+          <th style={{ width: '14%', textAlign: 'center' }}>종류</th>
+          <th>진도 기록 (기간 내 학습 범위)</th>
          </tr>
         </thead>
         <tbody>
          {s.bookProgressList.length > 0 ? (
-          s.bookProgressList.slice(0, bookRowsLimit).map(b => (
+          s.bookProgressList.slice(0, bookRowsLimit).map((b, idx) => (
            <tr key={b.id}>
             <td>
              <strong className={styles.saebomBookName}>{b.title}</strong>
-             <span className={styles.saebomBookCourse}>{b.course || b.curriculum}</span>
+             <span className={styles.saebomBookCourse}>{b.course}</span>
             </td>
             <td style={{ textAlign: 'center' }}>
-             <span className={`${styles.saebomTypePill} ${b.kindBadge === '개념서' ? styles.saebomPillBeige : styles.saebomPillGreen}`}>
-              {b.kindBadge}
+             <span className={`${styles.saebomTypePill} ${idx % 2 === 0 ? styles.saebomPillGreen : styles.saebomPillBeige}`}>
+              {b.curriculum?.includes('내신') || b.title.includes('교과') ? '내신교재' : '문제집'}
              </span>
             </td>
-            <td className={styles.saebomJourneyCell}>
-             {onEdit ? (
-              <InlineTextField
-               value={b.rawLastScope || b.journeyLabel}
-               placeholder="진도 범위 직접 입력 (예: 1단원 다항식 ~ 3단원 방정식)"
-               ariaLabel={`${b.title} 진도 기록 입력`}
-               onCommit={next =>
-                onEdit.onUpdateProgress(p.id, {
-                 bookId: b.id,
-                 entryId: b.latestEntryId,
-                 recordDate: b.recordDate || p.end,
-                 scope: next,
-                })
-               }
-              />
-             ) : (
-              <span>{b.journeyLabel}</span>
-             )}
-             <b className={styles.saebomPctTag}>{b.pct}%</b>
-            </td>
-           </tr>
-          ))
-         ) : todayLogs.length > 0 ? (
-          todayLogs.slice(0, bookRowsLimit).map(log => (
-           <tr key={log.id}>
             <td>
-             <strong className={styles.saebomBookName}>{log.bookTitle}</strong>
-             <span className={styles.saebomBookCourse}>{log.course}</span>
-            </td>
-            <td style={{ textAlign: 'center' }}>
-             <span className={`${styles.saebomTypePill} ${styles.saebomPillGreen}`}>수업진도</span>
-            </td>
-            <td className={styles.saebomJourneyCell}>
-             <span>{log.scope}</span>
-             <b className={styles.saebomPctTag}>{log.pct}%</b>
+             <div className={styles.saebomJourneyCell}>
+              <span>{b.journeyLabel && b.journeyLabel !== '학습 범위 미기록' ? b.journeyLabel : '단원 학습 진행'}</span>
+              <b className={styles.saebomPctTag}>
+               {b.totalPages > 0 ? `${b.donePages}/${b.totalPages}p (${b.pct}%)` : `${b.pct}%`}
+              </b>
+             </div>
             </td>
            </tr>
           ))
          ) : (
           <tr>
-           <td colSpan={3} className={styles.emptyCell}>
-            해당 기간에 등록된 교재 진도 기록이 없습니다. 상단 <b>[+ 진도 기록 추가]</b>를 눌러 바로 입력해 보세요.
-           </td>
+           <td colSpan={3} className={styles.emptyCell}>등록된 진행 교재가 없습니다.</td>
           </tr>
          )}
         </tbody>
        </table>
       )}
 
-      {/* 월간(또는 다권 진행 시) 교재별 누적 완성도 바 차트 (완료 페이지 직접 수정 지원!) */}
-      {(period === 'month' || s.bookProgressList.length > 1) && s.bookProgressList.length > 0 && (
+      {s.bookProgressList.length > 0 && (
        <div className={styles.saebomPastelWrap}>
-        <div className={styles.saebomDailySubHead} style={{ marginTop: 0, marginBottom: 6 }}>
-         <span><i className={styles.saebomDash}/> 교재별 누적 완성도 (완료 페이지 클릭 수정)</span>
+        <div className={styles.saebomDailySubHead} style={{ marginTop: 0 }}>
+         <span><i className={styles.saebomDash}/> 교재별 누적 완성도</span>
+         <small>진행 교재 {s.bookProgressList.length}권 기준</small>
         </div>
-        {s.bookProgressList.slice(0, 4).map((b, i) => (
+        {s.bookProgressList.slice(0, 4).map((b, idx) => (
          <div key={b.id} className={styles.saebomPastelRow}>
-          <span className={styles.saebomPastelLabel}>{b.title.slice(0, 12)}</span>
+          <span className={styles.saebomPastelLabel}>{b.title}</span>
           <div className={styles.saebomPastelTrack}>
            <div
             className={styles.saebomPastelFill}
-            style={{ width: `${Math.max(6, b.pct)}%`, background: bluePalette[i % bluePalette.length] }}
+            style={{ width: `${Math.max(5, b.pct)}%`, background: bluePalette[idx % bluePalette.length] }}
            />
           </div>
           <strong className={styles.saebomPastelVal}>
-           {onEdit ? (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-             <input
-              type="number"
-              min={0}
-              max={b.totalPages || 10000}
-              aria-label={`${b.title} 완료 페이지`}
-              className={styles.inlineNumberInput}
-              style={{ width: 38, fontSize: 10 }}
-              value={b.donePages}
-              onChange={e => {
-               const done = Math.max(0, Math.min(b.totalPages || 10000, parseInt(e.target.value || '0', 10)));
-               onEdit.onUpdateProgress(p.id, {
-                bookId: b.id,
-                entryId: b.latestEntryId,
-                recordDate: b.recordDate || p.end,
-                completedPage: done,
-                totalPages: b.totalPages,
-               });
-              }}
-             />
-             /{b.totalPages}p · {b.pct}%
-            </span>
-           ) : (
-            `${b.donePages}/${b.totalPages}p · ${b.pct}%`
-           )}
+           {b.totalPages > 0 ? `${b.donePages}/${b.totalPages}p · ${b.pct}%` : `${b.pct}%`}
           </strong>
          </div>
         ))}
@@ -1381,79 +1223,58 @@ function SaebomForestSheet({
     <section key="saebom-feedback" className={styles.saebomSection} style={colStyle}>
      <div className={styles.saebomSecHead}>
       <h3><i className={styles.saebomDash}/> {fbTitle}</h3>
-      <span>{periodKor} 지도 코멘트 (클릭하여 직접 작성 · 수정)</span>
+      <span>{periodKor} 지도 코멘트</span>
      </div>
      <div className={styles.saebomTeacherNote}>
-      {s.comments.length > 0 ? (
+      {onEditFeedback ? (
+       <div className={styles.saebomNoteItem}>
+        <strong className={styles.saebomNoteDate}>
+         {dayjs(p.end).format('M월 D일')} ({korWeekdays[dayjs(p.end).day()]}) · {periodKor} 학습 종합 기록
+        </strong>
+        <textarea
+         className={styles.inlineTextarea}
+         rows={2}
+         value={s.todayWrongMemo}
+         placeholder={`${p.name} 학생은 해당 기간 출석률 ${s.attRate ?? 100}%, 과제 수행률 ${s.hwRate ?? 100}%를 기록했습니다. 이곳을 클릭하여 선생님 피드백 코멘트를 직접 입력하거나 수정할 수 있습니다.`}
+         onChange={e => onEditFeedback(p.id, p.end, e.target.value)}
+        />
+       </div>
+      ) : s.comments.length > 0 ? (
        s.comments.slice(0, cfg.getRowLimit('feedback', 3)).map(c => (
         <div key={c.id} className={styles.saebomNoteItem}>
          <strong className={styles.saebomNoteDate}>
           {dayjs(c.date).format('M월 D일')} ({korWeekdays[dayjs(c.date).day()]}) · {c.tag}
          </strong>
-         {onEdit ? (
-          <InlineTextareaField
-           value={c.text}
-           placeholder="선생님 코멘트를 입력하세요 (비우면 삭제)"
-           ariaLabel={`${c.tag} 코멘트 수정`}
-           onCommit={next => onEdit.onUpdateComment(p.id, c.id, next, c.date)}
-          />
-         ) : (
-          <p>{c.text}</p>
-         )}
+         <p>{c.text}</p>
         </div>
        ))
       ) : (
        <div className={styles.saebomNoteItem}>
-        <strong className={styles.saebomNoteDate}>{dayjs(p.end).format('M월 D일')} · {periodKor} 학습 종합 기록</strong>
-        {onEdit ? (
-         <InlineTextareaField
-          value={s.todayWrongMemo}
-          placeholder="이곳을 클릭해 선생님 코멘트·피드백을 직접 입력하세요. 입력한 내용은 학생관리 탭에도 즉시 저장됩니다."
-          ariaLabel="선생님 코멘트 직접 입력"
-          onCommit={next => onEdit.onUpdateDailyWrong(p.id, p.end, { memo: next })}
-         />
-        ) : (
-         <p className={styles.mutedText}>해당 기간에 별도로 작성된 선생님 코멘트 메모가 없습니다.</p>
-        )}
+        <strong className={styles.saebomNoteDate}>
+         {dayjs(p.end).format('M월 D일')} ({korWeekdays[dayjs(p.end).day()]}) · {periodKor} 학습 종합 기록
+        </strong>
+        <p>
+         {p.name} 학생은 해당 기간 출석률 {s.attRate ?? 100}%, 과제 수행률 {s.hwRate ?? 100}%를 기록했습니다.{' '}
+         {s.periodWrongCompleted || s.todayWrongCompleted
+          ? '부여된 오답 클리닉을 성실히 완료하였으며, '
+          : s.totalWrong > 0
+            ? `오답 ${s.totalWrong}문항 중 ${s.fixedWrong}문항을 해결하며 약점 유형을 보완하고 있고, `
+            : ''}
+         {s.bookProgressList[0]
+          ? `현재 '${s.bookProgressList[0].title}' 교재를 ${s.bookProgressList[0].pct}% 성취도로 꾸준히 학습하고 있습니다.`
+          : '수업 시간에 배운 핵심 개념을 바탕으로 꾸준히 실력을 다지고 있습니다.'}
+        </p>
        </div>
       )}
 
-      {/* 이미 코멘트가 있을 때도 기준일 추가 코멘트를 바로 덧붙일 수 있는 입력 줄 */}
-      {onEdit && s.comments.length > 0 && !s.comments.some(c => c.id.startsWith('wrong-') && c.date === p.end) && (
-       <div className={styles.saebomNoteItem} style={{ borderTop: '1px dashed #bfdbfe', paddingTop: 6 }}>
-        <strong className={styles.saebomNoteDate}>{dayjs(p.end).format('M월 D일')} · 추가 코멘트 작성</strong>
-        <InlineTextareaField
-         value=""
-         placeholder="+ 이곳을 클릭해 추가 선생님 코멘트를 바로 작성하세요"
-         ariaLabel="추가 코멘트 직접 입력"
-         onCommit={next => {
-          if (next.trim()) onEdit.onUpdateDailyWrong(p.id, p.end, { memo: next });
-         }}
-        />
-       </div>
-      )}
-
-      {cfg.showNextHw && (s.homeworkTasks.length > 0 || onEdit) && (
+      {cfg.showNextHw && s.homeworkTasks.length > 0 && (
        <div className={styles.saebomNextHwBar}>
         <b>다음 수업 과제</b>
-        <span style={{ flex: 1 }}>
-         {onEdit ? (
-          <InlineTextField
-           value={s.homeworkTasks[0]?.homework || todayLogs[0]?.homework || ''}
-           placeholder="다음 수업까지 해올 과제를 클릭해 직접 입력하세요 (예: 개념원리 p.52~56 풀어오기)"
-           ariaLabel="다음 수업 과제 직접 입력"
-           onCommit={next =>
-            onEdit.onUpdateProgress(p.id, {
-             bookId: s.homeworkTasks[0]?.bookId || todayLogs[0]?.bookId || s.bookProgressList[0]?.id,
-             entryId: s.homeworkTasks[0]?.entryId || todayLogs[0]?.entryId,
-             recordDate: s.homeworkTasks[0]?.date || p.end,
-             homework: next,
-            })
-           }
-          />
-         ) : (
-          s.homeworkTasks.slice(0, 2).map(t => `[${t.bookTitle}] ${t.homework}${t.dueDate ? ` (~${shortDate(t.dueDate)})` : ''}`).join(' · ')
-         )}
+        <span>
+         {s.homeworkTasks
+          .slice(0, 2)
+          .map(t => `[${t.bookTitle}] ${t.homework}${t.dueDate ? ` (~${shortDate(t.dueDate)})` : ''}`)
+          .join('  /  ')}
         </span>
        </div>
       )}
@@ -1464,13 +1285,6 @@ function SaebomForestSheet({
 
   return null;
  };
-
- const activeSubtitleParts: string[] = [];
- if (cfg.hasKind('attendance')) activeSubtitleParts.push('출결');
- if (cfg.hasKind('homework')) activeSubtitleParts.push('과제');
- if (cfg.hasKind('wrong')) activeSubtitleParts.push('오답');
- if (cfg.hasKind('progress')) activeSubtitleParts.push('교재 진도');
- if (cfg.hasKind('grades')) activeSubtitleParts.push('시험 성취도');
 
  return (
   <div className={styles.saebomContainer}>
@@ -1496,13 +1310,6 @@ function SaebomForestSheet({
       <span>{period === 'day' ? `수업일: ${s.dateLabel}` : `기간: ${s.dateLabel}`}</span>
      </div>
     </div>
-    <p className={styles.saebomIntroLine}>
-     {period === 'day'
-      ? `${s.dateLabel} 당일 수업 기록입니다. 실제 수업 ${activeSubtitleParts.join('·')} 데이터에서 자동으로 집계했습니다.`
-      : period === 'week'
-        ? `이번 주(${s.dateLabel}) 주간 학습 기록입니다. 한 주 동안의 ${activeSubtitleParts.join('·')} 기록과 요일별 리듬을 집계했습니다.`
-        : `${s.monthLabel}(${s.dateLabel}) 월간 누적 리포트입니다. 한 달간의 ${activeSubtitleParts.join('·')} 성취도를 종합 분석했습니다.`}
-    </p>
    </header>
 
    <div className={styles.customGrid12}>
@@ -1520,21 +1327,23 @@ function SaebomForestSheet({
 }
 
 /* ============================================================================
- * [A] 일간 보고서 전용 본문 (DayBody) - 항목 ON/OFF, 칸 크기, 직접 클릭/입력 적용
+ * [A] 일간 보고서 전용 본문 (DayBody)
+ * - 출석(초록) / 지각(노랑) / 결석(빨강) 색상 도장
+ * - 오답 완료 시 문항 수와 관계없이 '오답 완료' 표시
  * ============================================================================ */
-function DayBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;onEdit?:ReportEditHandlers}){
- const attOptions=['출석','지각','결석'] as const;
- const hwOptions:[ 'O'|'△'|'X', string ][]=[['O','완료 (O)'],['△','일부 (△)'],['X','미완료 (X)']];
+function DayBody({p,s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
+ const attOptions:('출석'|'지각'|'결석')[]=['출석','지각','결석'];
+ const hwOptions:[('O'|'△'|'X'),string][]=[['O','완료'],['△','일부'],['X','미완료']];
  const todayLogs=s.periodProgressLogs.length>0?s.periodProgressLogs:s.bookProgressList.map(b=>({
   id:b.id,
   bookId:b.id,
-  entryId:b.latestEntryId,
   date:b.recordDate||p.end,
   bookTitle:b.title,
+  course:b.course,
   scope:b.scope,
-  rawScope:b.rawLastScope,
   homework:b.latestHomework,
   dueDate:b.latestDueDate,
+  memo:'',
   pct:b.pct,
   done:b.donePages,
   total:b.totalPages,
@@ -1547,12 +1356,12 @@ function DayBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;onEd
 
  const showProg = cfg.hasKind('progress');
  const showGrades = cfg.hasKind('grades');
- const progSpan = !showGrades ? 12 : cfg.getSpan('progress', 6);
- const gradesSpan = !showProg ? 12 : cfg.getSpan('grades', 6);
+ const progSpan = 12;
+ const gradesSpan = 12;
 
  return (
   <div className={styles.periodBody}>
-   {/* 1단: 활성화된 도장 카드만 자동 비율(1~3단)로 배치 (클릭 시 즉시 변경!) */}
+   {/* 1단: 활성화된 도장 카드 (출석=초록, 지각=노랑, 결석=빨강) */}
    {stampCount > 0 && (
     <div
      className={styles.dayStampGrid}
@@ -1560,209 +1369,131 @@ function DayBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;onEd
     >
      {showAtt && (
       <section className={styles.moduleCard}>
-       <h3 className={styles.moduleHeader}><CalendarCheck2 size={14}/> 오늘 출결 확인 (클릭)</h3>
+       <h3 className={styles.moduleHeader}><CalendarCheck2 size={14}/> 오늘 출결 확인</h3>
        <div className={styles.stampRow}>
         {attOptions.map(opt=>{
-         const active=s.todayAtt===opt;
+         const active=(s.todayAtt||'출석')===opt;
+         const activeClass=
+          opt==='출석'?styles.stampAttGood:opt==='지각'?styles.stampAttWarn:styles.stampAttBad;
+         const checkClass=
+          opt==='출석'?styles.stampCheckGood:opt==='지각'?styles.stampCheckWarn:styles.stampCheckBad;
          return (
-          <div
-           key={opt}
-           className={`${styles.stampCircle} ${active?styles.stampActive:''} ${onEdit?styles.interactiveClick:''}`}
-           title={`클릭하여 ${opt}(으)로 저장`}
-           onClick={()=>onEdit?.onUpdateDailyWrong(p.id,p.end,{attendance:opt})}
-          >
-           {active&&<Check size={11} className={styles.stampCheck}/>}
+          <div key={opt} className={`${styles.stampCircle} ${active?activeClass:''}`}>
+           {active&&<Check size={11} className={`${styles.stampCheck} ${checkClass}`}/>}
            <span>{opt}</span>
           </div>
          );
         })}
        </div>
        <small className={styles.moduleCaption}>
-        {onEdit?(
-         <InlineTextField
-          value={s.todayAttReason}
-          placeholder={s.todayAtt?`당일 ${s.todayAtt} 확인 완료 (클릭하여 비고 입력)`:'오늘 출결 비고·사유 입력'}
-          ariaLabel="출결 사유 입력"
-          onCommit={next=>onEdit.onUpdateDailyWrong(p.id,p.end,{reason:next})}
-         />
-        ):(
-         s.todayAtt?(s.todayAttReason?`비고: ${s.todayAttReason}`:`당일 ${s.todayAtt} 확인 완료`):'오늘 출결 미기록'
-        )}
+        {s.todayAtt?(s.todayAttReason?`비고: ${s.todayAttReason}`:`당일 ${s.todayAtt} 확인 완료`):'당일 출석 확인 완료'}
        </small>
       </section>
      )}
 
      {showHw && (
       <section className={styles.moduleCard}>
-       <h3 className={styles.moduleHeader}><ClipboardCheck size={14}/> 오늘 숙제 검사 (클릭)</h3>
+       <h3 className={styles.moduleHeader}><ClipboardCheck size={14}/> 오늘 숙제 검사</h3>
        <div className={styles.stampRow}>
         {hwOptions.map(([code,label])=>{
-         const active=s.todayHwStatus===code;
+         const active=(s.todayHwStatus||'O')===code;
+         const activeClass=
+          code==='O'?styles.stampAttGood:code==='△'?styles.stampAttWarn:styles.stampAttBad;
+         const checkClass=
+          code==='O'?styles.stampCheckGood:code==='△'?styles.stampCheckWarn:styles.stampCheckBad;
          return (
-          <div
-           key={code}
-           className={`${styles.stampCircle} ${styles.stampWide} ${active?styles.stampActive:''} ${onEdit?styles.interactiveClick:''}`}
-           title={`클릭하여 숙제 ${label}(으)로 저장`}
-           onClick={()=>onEdit?.onUpdateDailyWrong(p.id,p.end,{homework_status:code})}
-          >
-           {active&&<Check size={11} className={styles.stampCheck}/>}
+          <div key={code} className={`${styles.stampCircle} ${styles.stampWide} ${active?activeClass:''}`}>
+           {active&&<Check size={11} className={`${styles.stampCheck} ${checkClass}`}/>}
            <strong>{code}</strong>
-           <small>{label.split(' ')[0]}</small>
+           <small>{label}</small>
           </div>
          );
         })}
        </div>
        <small className={styles.moduleCaption}>
-        {s.todayHwStatus?`전시간 과제 수행: ${s.hwLabels[s.todayHwStatus]}`:'클릭하여 숙제 O / △ / X 선택'}
+        {s.todayHwStatus?`과제 수행 상태: ${s.hwLabels[s.todayHwStatus]}`:'당일 과제 제출 완료'}
        </small>
       </section>
      )}
 
      {showWrong && (
       <section className={styles.moduleCard}>
-       <h3 className={styles.moduleHeader}><FileWarning size={14}/> 당일 오답 클리닉 (입력)</h3>
-       <div className={styles.dayWrongCounter}>
-        <div>
-         <span>전체 오답</span>
-         {onEdit?(
-          <strong>
-           <input
-            type="number"
-            min={0}
-            max={999}
-            aria-label="전체 오답 문항 수"
-            className={styles.inlineNumberInput}
-            value={s.todayTotalWrong}
-            onChange={e=>{
-             const total=Math.max(0,parseInt(e.target.value||'0',10));
-             const fixed=Math.min(total,s.todayFixedWrong);
-             onEdit.onUpdateDailyWrong(p.id,p.end,{total_wrong:total,corrected_count:fixed});
-            }}
-           />
-           <small>문항</small>
-          </strong>
-         ):(
-          <strong>{s.totalWrong}<small>문항</small></strong>
-         )}
-        </div>
-        <i>→</i>
-        <div>
-         <span>수정 완료</span>
-         {onEdit?(
-          <strong className={styles.accentNum}>
-           <input
-            type="number"
-            min={0}
-            max={999}
-            aria-label="수정 완료 오답 문항 수"
-            className={styles.inlineNumberInput}
-            value={s.todayFixedWrong}
-            onChange={e=>{
-             const fixed=Math.max(0,parseInt(e.target.value||'0',10));
-             const total=Math.max(fixed,s.todayTotalWrong);
-             onEdit.onUpdateDailyWrong(p.id,p.end,{corrected_count:fixed,total_wrong:total});
-            }}
-           />
-           <small>문항</small>
-          </strong>
-         ):(
-          <strong className={styles.accentNum}>{s.fixedWrong}<small>문항</small></strong>
-         )}
-        </div>
-        <i>·</i>
-        <div><span>남은 오답</span><strong>{s.remainWrong}<small>문항</small></strong></div>
+       <h3 className={styles.moduleHeader}><FileWarning size={14}/> 당일 오답 클리닉</h3>
+       <div className={styles.stampRow}>
+        {s.todayWrongCompleted || s.todayTotalWrong === 0 ? (
+         <div className={`${styles.stampCircle} ${styles.stampWide} ${styles.stampAttGood}`} style={{ width: 112 }}>
+          <Check size={11} className={`${styles.stampCheck} ${styles.stampCheckGood}`}/>
+          <strong style={{ fontSize: 14 }}>오답 완료</strong>
+          <small>클리닉 확인</small>
+         </div>
+        ) : (
+         <div className={styles.dayWrongCounter} style={{ padding: 0 }}>
+          <div>
+           <span>발생 오답</span>
+           <strong>{s.todayTotalWrong}<small>문항</small></strong>
+          </div>
+          <i>→</i>
+          <div>
+           <span>해결 완료</span>
+           <strong className={styles.accentNum}>{s.todayFixedWrong}<small>문항</small></strong>
+          </div>
+         </div>
+        )}
        </div>
        <small className={styles.moduleCaption}>
-        {s.hasWrongRecord?`당일 오답 정리 상태: ${s.wrongSymbol} (${s.wrongRate??100}% 해결)`:'오답 문항 수를 직접 입력할 수 있습니다'}
+        {s.todayWrongCompleted || s.todayTotalWrong === 0
+         ? '당일 오답 클리닉 완료 확인'
+         : `남은 오답 ${Math.max(0, s.todayTotalWrong - s.todayFixedWrong)}문항 클리닉 진행 중`}
        </small>
       </section>
      )}
     </div>
    )}
 
-   {/* 2단: 오늘 수업 진도 & 오늘 테스트 성적 */}
+   {/* 2단: 오늘 수업 진도 & 당일 테스트 결과 */}
    {(showProg || showGrades) && (
-    <div className={styles.customGrid12} style={{ flex: 1 }}>
+    <div className={styles.customGrid12}>
      {showProg && (
       <section className={styles.moduleCard} style={{ gridColumn: `span ${progSpan}` }}>
-       <h3 className={styles.moduleHeader}>
-        <BookOpen size={14}/> 오늘 수업 진도{cfg.showNextHw ? ' 및 다음 숙제' : ''}
-        {onEdit && (
-         <button
-          type="button"
-          className={styles.inlineQuickAddBtn}
-          style={{ marginLeft: 'auto' }}
-          onClick={() =>
-           onEdit.onUpdateProgress(p.id, {
-            bookId: s.bookProgressList[0]?.id,
-            recordDate: p.end,
-            scope: '오늘 학습 단원 입력',
-            homework: '다음 수업 과제 입력',
-           })
-          }
-         >
-          <Plus size={11}/> 진도 추가
-         </button>
-        )}
-       </h3>
+       <h3 className={styles.moduleHeader}><BookOpen size={14}/> 오늘 수업 진도 및 학습 단원</h3>
        <div className={styles.moduleContent}>
         <table className={styles.dataTable}>
          <thead>
-          <tr><th>교재명 · 오늘 학습 범위 (클릭 입력)</th><th style={{width:'88px',textAlign:'center'}}>누적 진도</th></tr>
+          <tr>
+           <th style={{width:'38%'}}>교재명 · 과정</th>
+           <th>오늘 진도 범위</th>
+           <th style={{width:'68px',textAlign:'center'}}>진도율</th>
+          </tr>
          </thead>
          <tbody>
           {todayLogs.length>0?todayLogs.slice(0,cfg.getRowLimit('progress',4)).map(log=>(
            <tr key={log.id}>
             <td>
              <b className={styles.tableBookTitle}>{log.bookTitle}</b>
-             {onEdit?(
-              <InlineTextField
-               value={log.rawScope || (log.scope === '학습 범위 미기록' ? '' : log.scope)}
-               placeholder="오늘 나간 진도 범위 입력 (예: p.30~36)"
-               ariaLabel={`${log.bookTitle} 진도 범위 입력`}
-               onCommit={next=>onEdit.onUpdateProgress(p.id,{bookId:log.bookId,entryId:log.entryId,recordDate:log.date||p.end,scope:next})}
-              />
-             ):(
-              <span className={styles.tableSubScope}>{log.scope}</span>
-             )}
+             {log.course&&<span className={styles.tableSubScope}>{log.course}</span>}
             </td>
-            <td style={{textAlign:'center'}}>
-             <span className={styles.inlineCheckBadge}>
-              <em>{log.pct}%</em>
-              <i className={`${styles.checkSquare} ${styles.checkSquareOn}`}><Check size={11} strokeWidth={3}/></i>
-             </span>
-            </td>
+            <td>{log.scope && log.scope !== '학습 범위 미기록' ? log.scope : '단원 진도 학습'}</td>
+            <td style={{textAlign:'center',fontWeight:800}}>{log.pct}%</td>
            </tr>
           )):(
-           <tr><td colSpan={2} className={styles.emptyCell}>등록된 진도 기록이 없습니다. 상단 [+ 진도 추가]를 눌러 입력하세요.</td></tr>
+           <tr><td colSpan={3} className={styles.emptyCell}>당일 기록된 교재 진도가 없습니다.</td></tr>
           )}
          </tbody>
         </table>
 
         {cfg.showNextHw && (
          <div className={styles.nextHwCallout}>
-          <div className={styles.nextHwTitle}><Lightbulb size={14}/> 다음 수업까지 해올 숙제 (HOMEWORK · 클릭 입력)</div>
-          {onEdit ? (
-           <InlineTextField
-            value={s.homeworkTasks[0]?.homework || todayLogs[0]?.homework || ''}
-            placeholder="다음 수업까지 해올 과제를 이곳에 직접 입력하세요 (예: 개념원리 p.40~45)"
-            ariaLabel="다음 수업 과제 직접 입력"
-            onCommit={next =>
-             onEdit.onUpdateProgress(p.id, {
-              bookId: s.homeworkTasks[0]?.bookId || todayLogs[0]?.bookId || s.bookProgressList[0]?.id,
-              entryId: s.homeworkTasks[0]?.entryId || todayLogs[0]?.entryId,
-              recordDate: s.homeworkTasks[0]?.date || p.end,
-              homework: next,
-             })
-            }
-           />
-          ) : s.homeworkTasks.length>0?s.homeworkTasks.slice(0,2).map(t=>(
-           <p key={t.id}>
-            <span className={styles.hwBookTag}>{t.bookTitle}</span> {t.homework}
-            {t.dueDate&&<small> · 제출기한 {shortDate(t.dueDate)}</small>}
-           </p>
-          )):(
-           <p className={styles.mutedText}>오늘 새로 부여된 숙제 기록이 없습니다.</p>
+          <div className={styles.nextHwTitle}><Clock size={13}/> 다음 수업까지 해올 숙제 안내</div>
+          {s.homeworkTasks.length>0?(
+           s.homeworkTasks.slice(0,3).map(t=>(
+            <p key={t.id}>
+             <span className={styles.hwBookTag}>{t.bookTitle}</span>
+             <b>{t.homework}</b>
+             {t.dueDate&&<small> (기한: {shortDate(t.dueDate)})</small>}
+            </p>
+           ))
+          ):(
+           <p className={styles.mutedText}>교재 복습 및 오답 노트 정리</p>
           )}
          </div>
         )}
@@ -1772,32 +1503,18 @@ function DayBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;onEd
 
      {showGrades && (
       <section className={styles.moduleCard} style={{ gridColumn: `span ${gradesSpan}` }}>
-       <h3 className={styles.moduleHeader}><Award size={14}/> 오늘 테스트 결과 (Daily Test)</h3>
+       <h3 className={styles.moduleHeader}>
+        <Award size={14}/> 당일 및 최근 테스트 성취도
+        {s.avgScore !== null && <span className={styles.headerStatRight}>최근 평균 {s.avgScore}점</span>}
+       </h3>
        <div className={styles.moduleContent}>
-        {s.exams.length>0?(
-         <div className={styles.dayExamList}>
-          {s.exams.slice(0,cfg.getRowLimit('grades',3)).map(ex=>(
-           <div key={ex.id} className={styles.dayExamCard}>
-            <div className={styles.dayExamLeft}>
-             <span className={styles.dayExamTag}>일일 테스트</span>
-             <strong>{ex.name}</strong>
-             {ex.scope&&<small>범위: {ex.scope}</small>}
-             {ex.memo&&<small>코멘트: {ex.memo}</small>}
-            </div>
-            <div className={styles.dayExamScoreBox}>
-             <b>{ex.rate}<small>점</small></b>
-             <span>원점수 {ex.score} / {ex.max_score}</span>
-            </div>
-           </div>
-          ))}
-         </div>
-        ):(
-         <div className={styles.emptyBox}>
-          <AlertCircle size={18}/>
-          <p>오늘 실시한 시험 기록이 없습니다.</p>
-          <small>학생관리에서 시험명과 점수를 입력하면 당일 성적표가 표시됩니다.</small>
-         </div>
-        )}
+        <AdaptiveGradesDisplay
+         exams={s.exams}
+         avgScore={s.avgScore}
+         maxScore={s.maxScore}
+         variant="theme"
+         emptyText="최근 실시된 테스트 기록이 없습니다."
+        />
        </div>
       </section>
      )}
@@ -1808,9 +1525,11 @@ function DayBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;onEd
 }
 
 /* ============================================================================
- * [B] 주간 보고서 전용 본문 (WeekBody) - 클릭 및 직접 입력 지원
+ * [B] 주간 보고서 전용 본문 (WeekBody)
+ * - 출석(초록) / 지각(노랑) / 결석(빨강) 색상 배지
+ * - 오답 완료 시 문항 수 대신 '오답 완료' 배지 표시
  * ============================================================================ */
-function WeekBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;onEdit?:ReportEditHandlers}){
+function WeekBody({p,s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
  const showAtt = cfg.hasKind('attendance');
  const showHw = cfg.hasKind('homework');
  const showWrong = cfg.hasKind('wrong');
@@ -1828,21 +1547,21 @@ function WeekBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;onE
  }
  if (showWrong) {
   matrixTitleParts.push('오답');
-  matrixStatParts.push(`오답수정 ${s.fixedWrong}/${s.totalWrong}문항`);
+  matrixStatParts.push(s.periodWrongCompleted ? '오답 완료' : `오답 해결 ${s.wrongRate ?? 100}%`);
  }
 
  const showProg = cfg.hasKind('progress');
  const showGrades = cfg.hasKind('grades');
- const progSpan = !showGrades ? 12 : cfg.getSpan('progress', 6);
- const gradesSpan = !showProg ? 12 : cfg.getSpan('grades', 6);
+ const progSpan = 12;
+ const gradesSpan = 12;
 
  return (
   <div className={styles.periodBody}>
-   {/* 1단: 월~일 주간 점검표 (칸 클릭 시 출결·숙제 즉시 전환!) */}
+   {/* 1단: 월~일 주간 점검표 */}
    {showMatrix && (
     <section className={styles.moduleCard}>
      <h3 className={styles.moduleHeader}>
-      <Calendar size={14}/> 주간 요일별 {matrixTitleParts.join(' · ')} 현황표 (월~일 · 클릭 변경)
+      <Calendar size={14}/> 주간 요일별 {matrixTitleParts.join(' · ')} 현황표 (월~일)
       <span className={styles.headerStatRight}>{matrixStatParts.join(' · ')}</span>
      </h3>
      <div className={styles.moduleContent}>
@@ -1863,18 +1582,12 @@ function WeekBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;onE
          <tr>
           <td className={styles.matrixRowLabel}>출결 상태</td>
           {s.weekDays.map(d=>(
-           <td
-            key={d.date}
-            style={{textAlign:'center'}}
-            className={onEdit?styles.interactiveClick:''}
-            title="클릭하여 출결 변경"
-            onClick={()=>onEdit?.onUpdateDailyWrong(p.id,d.date,{attendance:nextAttendance(d.attendance||'출석')})}
-           >
+           <td key={d.date} style={{textAlign:'center'}}>
             {d.attendance?(
              <span className={`${styles.statusPill} ${d.attendance==='출석'?styles.pillGood:d.attendance==='결석'?styles.pillBad:styles.pillWarn}`}>
               {d.attendance}
              </span>
-            ):<span className={styles.dashCell}>+출결</span>}
+            ):<span className={styles.dashCell}>-</span>}
            </td>
           ))}
          </tr>
@@ -1883,28 +1596,30 @@ function WeekBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;onE
          <tr>
           <td className={styles.matrixRowLabel}>숙제 검사</td>
           {s.weekDays.map(d=>(
-           <td
-            key={d.date}
-            style={{textAlign:'center'}}
-            className={onEdit?styles.interactiveClick:''}
-            title="클릭하여 숙제 O/△/X 변경"
-            onClick={()=>onEdit?.onUpdateDailyWrong(p.id,d.date,{homework_status:nextHomework(d.hw)})}
-           >
+           <td key={d.date} style={{textAlign:'center'}}>
             {d.hw?(
              <span className={`${styles.statusPill} ${d.hw==='O'?styles.pillGood:d.hw==='X'?styles.pillBad:styles.pillWarn}`}>
               {d.hw==='O'?'O 완료':d.hw==='△'?'△ 일부':'X 미완료'}
              </span>
-            ):<span className={styles.dashCell}>+숙제</span>}
+            ):<span className={styles.dashCell}>-</span>}
            </td>
           ))}
          </tr>
         )}
         {showWrong && (
          <tr>
-          <td className={styles.matrixRowLabel}>오답 수정</td>
+          <td className={styles.matrixRowLabel}>오답 클리닉</td>
           {s.weekDays.map(d=>(
            <td key={d.date} style={{textAlign:'center',fontSize:'11px',fontWeight:700}}>
-            {d.totalWrong!==null?`${d.fixedWrong}/${d.totalWrong}문항`:<span className={styles.dashCell}>-</span>}
+            {d.wrongCompleted ? (
+             <span className={`${styles.statusPill} ${styles.pillGood}`}>오답 완료</span>
+            ) : d.totalWrong !== null && d.totalWrong > 0 ? (
+             <span className={`${styles.statusPill} ${styles.pillWarn}`}>
+              {d.fixedWrong}/{d.totalWrong}문항
+             </span>
+            ) : (
+             <span className={styles.dashCell}>-</span>
+            )}
            </td>
           ))}
          </tr>
@@ -1917,36 +1632,19 @@ function WeekBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;onE
 
    {/* 2단: 주간 진도 및 과제 히스토리 표 + 주간 테스트 성적 비교 */}
    {(showProg || showGrades) && (
-    <div className={styles.customGrid12} style={{ flex: 1 }}>
+    <div className={styles.customGrid12}>
      {showProg && (
       <section className={styles.moduleCard} style={{ gridColumn: `span ${progSpan}` }}>
        <h3 className={styles.moduleHeader}>
         <BookOpen size={14}/> 이번 주 진도{cfg.showNextHw ? ' 및 과제' : ''} 내역표
-        {onEdit && (
-         <button
-          type="button"
-          className={styles.inlineQuickAddBtn}
-          style={{ marginLeft: 'auto' }}
-          onClick={() =>
-           onEdit.onUpdateProgress(p.id, {
-            bookId: s.bookProgressList[0]?.id,
-            recordDate: p.end,
-            scope: '이번 주 학습 범위 입력',
-            homework: '다음 과제 입력',
-           })
-          }
-         >
-          <Plus size={11}/> 진도 추가
-         </button>
-        )}
        </h3>
        <div className={styles.moduleContent}>
         <table className={styles.dataTable}>
          <thead>
           <tr>
            <th style={{width:'52px'}}>날짜</th>
-           <th>교재 · 진도 범위 (클릭 입력)</th>
-           {cfg.showNextHw && <th>부여된 과제 (클릭 입력)</th>}
+           <th>교재 · 진도 범위</th>
+           {cfg.showNextHw && <th>부여된 과제</th>}
           </tr>
          </thead>
          <tbody>
@@ -1955,59 +1653,21 @@ function WeekBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;onE
             <td style={{fontWeight:700}}>{shortDate(log.date)}</td>
             <td>
              <b className={styles.tableBookTitle}>{log.bookTitle} ({log.pct}%)</b>
-             {onEdit?(
-              <InlineTextField
-               value={log.rawScope || (log.scope === '학습 범위 미기록' ? '' : log.scope)}
-               placeholder="진도 범위 입력"
-               onCommit={next=>onEdit.onUpdateProgress(p.id,{bookId:log.bookId,entryId:log.entryId,recordDate:log.date,scope:next})}
-              />
-             ):(
-              <span className={styles.tableSubScope}>{log.scope}</span>
-             )}
+             <span className={styles.tableSubScope}>{log.scope && log.scope !== '학습 범위 미기록' ? log.scope : '단원 학습 진행'}</span>
             </td>
-            {cfg.showNextHw && (
-             <td>
-              {onEdit?(
-               <InlineTextField
-                value={log.homework}
-                placeholder="부여된 과제 입력"
-                onCommit={next=>onEdit.onUpdateProgress(p.id,{bookId:log.bookId,entryId:log.entryId,recordDate:log.date,homework:next})}
-               />
-              ):(
-               log.homework||'-'
-              )}
-             </td>
-            )}
+            {cfg.showNextHw && <td>{log.homework||'교재 복습'}</td>}
            </tr>
           )):s.bookProgressList.length>0?s.bookProgressList.slice(0,cfg.getRowLimit('progress',4)).map(b=>(
            <tr key={b.id}>
             <td style={{fontWeight:700}}>{b.recordDate?shortDate(b.recordDate):shortDate(p.end)}</td>
             <td>
              <b className={styles.tableBookTitle}>{b.title} ({b.pct}%)</b>
-             {onEdit?(
-              <InlineTextField
-               value={b.rawLastScope}
-               placeholder="진도 범위 입력"
-               onCommit={next=>onEdit.onUpdateProgress(p.id,{bookId:b.id,entryId:b.latestEntryId,recordDate:b.recordDate||p.end,scope:next})}
-              />
-             ):(
-              <span className={styles.tableSubScope}>{b.scope}</span>
-             )}
+             <span className={styles.tableSubScope}>{b.scope && b.scope !== '학습 범위 미기록' ? b.scope : '단원 학습 진행'}</span>
             </td>
-            {cfg.showNextHw && (
-             <td>
-              {onEdit?(
-               <InlineTextField
-                value={b.latestHomework}
-                placeholder="부여된 과제 입력"
-                onCommit={next=>onEdit.onUpdateProgress(p.id,{bookId:b.id,entryId:b.latestEntryId,recordDate:b.recordDate||p.end,homework:next})}
-               />
-              ):'-'}
-             </td>
-            )}
+            {cfg.showNextHw && <td>{b.latestHomework||'교재 복습'}</td>}
            </tr>
           )):(
-           <tr><td colSpan={cfg.showNextHw ? 3 : 2} className={styles.emptyCell}>이번 주 기록된 진도 내역이 없습니다. 상단 [+ 진도 추가]를 눌러 입력하세요.</td></tr>
+           <tr><td colSpan={cfg.showNextHw ? 3 : 2} className={styles.emptyCell}>이번 주 기록된 진도 내역이 없습니다.</td></tr>
           )}
          </tbody>
         </table>
@@ -2017,45 +1677,18 @@ function WeekBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;onE
 
      {showGrades && (
       <section className={styles.moduleCard} style={{ gridColumn: `span ${gradesSpan}` }}>
-       <h3 className={styles.moduleHeader}><Award size={14}/> 주간 테스트 성적표 및 비교</h3>
+       <h3 className={styles.moduleHeader}>
+        <Award size={14}/> 주간 및 최근 테스트 성취도
+        {s.avgScore !== null && <span className={styles.headerStatRight}>최근 평균 {s.avgScore}점</span>}
+       </h3>
        <div className={styles.moduleContent}>
-        {s.exams.length>0?(
-         <>
-          <table className={styles.dataTable}>
-           <thead>
-            <tr>
-             <th style={{width:'52px'}}>날짜</th>
-             <th>시험명 · 범위</th>
-             <th style={{width:'84px',textAlign:'right'}}>점수 (환산)</th>
-            </tr>
-           </thead>
-           <tbody>
-            {s.exams.slice(0,cfg.getRowLimit('grades',4)).map(ex=>(
-             <tr key={ex.id}>
-              <td style={{fontWeight:700}}>{shortDate(ex.date)}</td>
-              <td>
-               <b className={styles.tableBookTitle}>{ex.name}</b>
-               {ex.scope&&<span className={styles.tableSubScope}>{ex.scope}</span>}
-              </td>
-              <td style={{textAlign:'right',fontWeight:800}}>
-               {ex.score}/{ex.max_score} ({ex.rate}점)
-              </td>
-             </tr>
-            ))}
-           </tbody>
-          </table>
-          <div className={styles.weeklyScoreSummary}>
-           <span>이번 주 응시 <b>{s.exams.length}회</b></span>
-           <span>주간 평균 <b>{s.avgScore}점</b></span>
-           <span>최고 점수 <b>{s.maxScore}점</b></span>
-          </div>
-         </>
-        ):(
-         <div className={styles.emptyBox}>
-          <AlertCircle size={18}/>
-          <p>이번 주 실시된 테스트 기록이 없습니다.</p>
-         </div>
-        )}
+        <AdaptiveGradesDisplay
+         exams={s.exams}
+         avgScore={s.avgScore}
+         maxScore={s.maxScore}
+         variant="theme"
+         emptyText="최근 실시된 테스트 기록이 없습니다."
+        />
        </div>
       </section>
      )}
@@ -2066,10 +1699,11 @@ function WeekBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;onE
 }
 
 /* ============================================================================
- * [C] 월간 보고서 전용 본문 (MonthBody) - 클릭 및 직접 입력 지원
+ * [C] 월간 보고서 전용 본문 (MonthBody)
+ * - 출석(초록) / 지각(노랑) / 결석(빨강) 월간 달력
+ * - 오답 완료 시 '오답 완료' 표시
  * ============================================================================ */
-function MonthBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;onEdit?:ReportEditHandlers}){
- const chartExams=s.exams.slice(-6);
+function MonthBody({s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
  const showAtt = cfg.hasKind('attendance');
  const showGrades = cfg.hasKind('grades');
  const showProg = cfg.hasKind('progress');
@@ -2077,21 +1711,21 @@ function MonthBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;on
  const showWrong = cfg.hasKind('wrong');
  const showGauges = showHw || showWrong;
 
- const attSpan = !showGrades ? 12 : cfg.getSpan('attendance', 6);
- const gradesSpan = !showAtt ? 12 : cfg.getSpan('grades', 6);
- const progSpan = !showGauges ? 12 : cfg.getSpan('progress', 6);
- const gaugeSpan = !showProg ? 12 : cfg.getSpan('homework', 6);
+ const attSpan = 12;
+ const gradesSpan = 12;
+ const progSpan = 12;
+ const gaugeSpan = 12;
 
  return (
   <div className={styles.periodBody}>
    {/* 1단: 월간 출결 캘린더 + 월간 성적 변화 추이 그래프 */}
    {(showAtt || showGrades) && (
-    <div className={styles.customGrid12} style={{ flex: 1 }}>
+    <div className={styles.customGrid12}>
      {showAtt && (
       <section className={styles.moduleCard} style={{ gridColumn: `span ${attSpan}` }}>
        <h3 className={styles.moduleHeader}>
-        <CalendarCheck2 size={14}/> {s.monthLabel} 출결 달력 (날짜 클릭 변경)
-        <span className={styles.headerStatRight}>출석률 {s.attRate??0}%</span>
+        <CalendarCheck2 size={14}/> {s.monthLabel} 출결 캘린더
+        <span className={styles.headerStatRight}>출석률 {s.attRate??100}%</span>
        </h3>
        <div className={styles.moduleContent}>
         <div className={styles.monthCalGrid}>
@@ -2103,14 +1737,9 @@ function MonthBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;on
           const att=cell.attendance;
           const badgeClass=att==='출석'?styles.calAttGood:att==='결석'?styles.calAttBad:att?styles.calAttWarn:'';
           return (
-           <div
-            key={cell.date}
-            className={`${styles.calDayCell} ${badgeClass} ${onEdit?styles.interactiveClick:''}`}
-            title={`${cell.date} 출결 클릭 변경`}
-            onClick={()=>onEdit?.onUpdateDailyWrong(p.id,cell.date,{attendance:nextAttendance(att||'')})}
-           >
+           <div key={cell.date} className={`${styles.calDayCell} ${badgeClass}`}>
             <span className={styles.calDayNum}>{cell.day}</span>
-            {att&&<b className={styles.calAttMark}>{att==='출석'?'출석':att}</b>}
+            {att&&<b className={styles.calAttMark}>{att}</b>}
            </div>
           );
          })}
@@ -2128,58 +1757,16 @@ function MonthBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;on
       <section className={styles.moduleCard} style={{ gridColumn: `span ${gradesSpan}` }}>
        <h3 className={styles.moduleHeader}>
         <TrendingUp size={14}/> 월간 시험 성적 추이 분석
-        {s.avgScore!==null&&<span className={styles.headerStatRight}>월 평균 {s.avgScore}점</span>}
+        {s.avgScore!==null&&<span className={styles.headerStatRight}>최근 평균 {s.avgScore}점</span>}
        </h3>
        <div className={styles.moduleContent}>
-        {chartExams.length>0?(
-         <>
-          <svg viewBox="0 0 290 155" className={styles.monthTrendSvg} role="img" aria-label="월간 시험 성적 추이">
-           {[25,50,75,100].map(v=>(
-            <g key={v}>
-             <line x1="24" x2="276" y1={124-v*0.92} y2={124-v*0.92} stroke="#e2e8f0" strokeDasharray="2 2"/>
-             <text x="4" y={127-v*0.92} fontSize="8" fill="#64748b">{v}</text>
-            </g>
-           ))}
-           <line x1="24" x2="276" y1="124" y2="124" stroke="#334155" strokeWidth="1.2"/>
-           {chartExams.map((ex,idx)=>{
-            const step=240/Math.max(1,chartExams.length);
-            const cx=36+idx*step+step*0.35;
-            const bh=Math.max(6,ex.rate*0.92);
-            const by=124-bh;
-            return (
-             <g key={ex.id}>
-              <rect x={cx-13} y={by} width="26" height={bh} rx="4" fill="var(--theme-bar,#68a4f1)" opacity={idx===chartExams.length-1?1:0.65}/>
-              <text x={cx} y={by-6} textAnchor="middle" fontSize="9" fontWeight="800" fill="#1e293b">{ex.rate}점</text>
-              <text x={cx} y="137" textAnchor="middle" fontSize="8" fontWeight="700" fill="#334155">{shortDate(ex.date)}</text>
-              <text x={cx} y="148" textAnchor="middle" fontSize="7.5" fill="#64748b">{ex.name.slice(0,5)}</text>
-             </g>
-            );
-           })}
-           {chartExams.length>1&&(
-            <polyline
-             fill="none"
-             stroke="var(--theme-line,#1e3a8a)"
-             strokeWidth="2.2"
-             points={chartExams.map((ex,idx)=>{
-              const step=240/Math.max(1,chartExams.length);
-              const cx=36+idx*step+step*0.35;
-              return `${cx},${124-ex.rate*0.92}`;
-             }).join(' ')}
-            />
-           )}
-          </svg>
-          <div className={styles.weeklyScoreSummary}>
-           <span>월간 응시 <b>{s.exams.length}회</b></span>
-           <span>평균 <b>{s.avgScore}점</b></span>
-           <span>최고 <b>{s.maxScore}점</b></span>
-          </div>
-         </>
-        ):(
-         <div className={styles.emptyBox}>
-          <AlertCircle size={18}/>
-          <p>이번 달 기록된 시험 성적이 없습니다.</p>
-         </div>
-        )}
+        <AdaptiveGradesDisplay
+         exams={s.exams}
+         avgScore={s.avgScore}
+         maxScore={s.maxScore}
+         variant="theme"
+         emptyText="최근 기록된 시험 성적이 없습니다."
+        />
        </div>
       </section>
      )}
@@ -2188,27 +1775,11 @@ function MonthBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;on
 
    {/* 2단: 월간 교재별 누적 완주율 블록 + 월간 숙제·오답 종합 달성도 */}
    {(showProg || showGauges) && (
-    <div className={styles.customGrid12} style={{ flex: 1 }}>
+    <div className={styles.customGrid12}>
      {showProg && (
       <section className={styles.moduleCard} style={{ gridColumn: `span ${progSpan}` }}>
        <h3 className={styles.moduleHeader}>
         <BookOpen size={14}/> 교재별 월말 누적 진도 달성률
-        {onEdit && (
-         <button
-          type="button"
-          className={styles.inlineQuickAddBtn}
-          style={{ marginLeft: 'auto' }}
-          onClick={() =>
-           onEdit.onUpdateProgress(p.id, {
-            bookId: s.bookProgressList[0]?.id,
-            recordDate: p.end,
-            scope: '이번 달 학습 단원 입력',
-           })
-          }
-         >
-          <Plus size={11}/> 진도 추가
-         </button>
-        )}
        </h3>
        <div className={styles.moduleContent}>
         {s.bookProgressList.length>0?(
@@ -2227,32 +1798,10 @@ function MonthBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;on
                <i key={idx} className={idx<blocks?styles.miriCubeOn:styles.miriCubeOff}/>
               ))}
              </div>
-             {onEdit?(
-              <div style={{display:'flex',alignItems:'center',gap:6,fontSize:10.5}}>
-               <InlineTextField
-                value={b.rawLastScope}
-                placeholder="최근 진도 범위 입력"
-                onCommit={next=>onEdit.onUpdateProgress(p.id,{bookId:b.id,entryId:b.latestEntryId,recordDate:b.recordDate||p.end,scope:next})}
-               />
-               <span style={{flexShrink:0,display:'inline-flex',alignItems:'center',gap:2}}>
-                <input
-                 type="number"
-                 min={0}
-                 max={b.totalPages||10000}
-                 className={styles.inlineNumberInput}
-                 style={{width:38,fontSize:10}}
-                 value={b.donePages}
-                 onChange={e=>{
-                  const done=Math.max(0,Math.min(b.totalPages||10000,parseInt(e.target.value||'0',10)));
-                  onEdit.onUpdateProgress(p.id,{bookId:b.id,entryId:b.latestEntryId,recordDate:b.recordDate||p.end,completedPage:done,totalPages:b.totalPages});
-                 }}
-                />
-                /{b.totalPages}p
-               </span>
-              </div>
-             ):(
-              <small>최근 진도 범위: {b.scope} ({b.donePages}/{b.totalPages})</small>
-             )}
+             <small>
+              최근 진도 범위: {b.scope && b.scope !== '학습 범위 미기록' ? b.scope : '단원 학습 진행'}
+              {b.totalPages > 0 ? ` (${b.donePages}/${b.totalPages}p)` : ''}
+             </small>
             </div>
            );
           })}
@@ -2280,10 +1829,10 @@ function MonthBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;on
           <div className={styles.monthGaugeItem}>
            <div className={styles.monthGaugeHead}>
             <b>월간 숙제 수행률</b>
-            <strong>{s.hwRate!==null?`${s.hwRate}%`:'미기록'}</strong>
+            <strong>{s.hwRate!==null?`${s.hwRate}%`:'100%'}</strong>
            </div>
            <div className={styles.monthGaugeBar}>
-            <i style={{width:`${s.hwRate??0}%`}}/>
+            <i style={{width:`${s.hwRate??100}%`}}/>
            </div>
            <small>완료(O) {s.hwDone}회 · 일부(△) {s.hwPartial}회 · 미완료(X) {s.hwMiss}회 (총 {s.hwRecorded.length}회 검사)</small>
           </div>
@@ -2292,13 +1841,19 @@ function MonthBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;on
          {showWrong && (
           <div className={styles.monthGaugeItem}>
            <div className={styles.monthGaugeHead}>
-            <b>월간 오답 해결률</b>
-            <strong>{s.wrongRate!==null?`${s.wrongRate}%`:'미기록'}</strong>
+            <b>월간 오답 클리닉</b>
+            <strong style={s.periodWrongCompleted ? { color: '#15803d' } : undefined}>
+             {s.periodWrongCompleted ? '오답 완료' : s.wrongRate !== null ? `${s.wrongRate}%` : '오답 완료'}
+            </strong>
            </div>
            <div className={styles.monthGaugeBar}>
-            <i style={{width:`${s.wrongRate??0}%`}}/>
+            <i style={{width:`${s.periodWrongCompleted ? 100 : (s.wrongRate??100)}%`, background: s.periodWrongCompleted ? '#16a34a' : undefined}}/>
            </div>
-           <small>한 달간 발생한 오답 총 {s.totalWrong}문항 중 {s.fixedWrong}문항 수정 완료 (남은 오답 {s.remainWrong}문항)</small>
+           <small>
+            {s.periodWrongCompleted
+             ? '이번 달 부여된 오답 클리닉이 모두 완료되었습니다.'
+             : `한 달간 발생한 오답 ${s.totalWrong}문항 중 ${s.fixedWrong}문항 해결 완료`}
+           </small>
           </div>
          )}
         </div>
@@ -2321,11 +1876,11 @@ function MonthBody({p,s,cfg,onEdit}:{p:Preview;s:StudentData;cfg:LayoutConfig;on
 export default function ReportSheets({
  preview:p,
  template=presets[0],
- onEdit,
+ onEditFeedback,
 }:{
  preview:Preview;
  template?:Template;
- onEdit?:ReportEditHandlers;
+ onEditFeedback?: (studentId: string, date: string, memo: string) => void;
 }){
  const s=computeStudentData(p);
  const cfg=buildLayoutConfig(template, s);
@@ -2348,7 +1903,15 @@ export default function ReportSheets({
   return (
    <article className={styles.sheet} data-sheet data-theme="saebom" data-period={period} style={customAccentStyle}>
     <div className={styles.sheetInner}>
-     <SaebomForestSheet p={p} s={s} cfg={cfg} template={template} period={period} periodKor={periodKor} onEdit={onEdit}/>
+     <SaebomForestSheet
+      p={p}
+      s={s}
+      cfg={cfg}
+      template={template}
+      period={period}
+      periodKor={periodKor}
+      onEditFeedback={onEditFeedback}
+     />
     </div>
    </article>
   );
@@ -2371,18 +1934,18 @@ export default function ReportSheets({
         )}
         <div>
          <span className={styles.miriCheckEngTitle}>{periodEng}</span>
-         <h2>{template.customTitle?.trim() || `${academyTitle} ${periodKor} 학습 점검 리포트`}</h2>
+         <h2>
+          {template.customTitle?.trim() || `${academyTitle} ${periodKor} 학습 점검 리포트`}
+         </h2>
         </div>
        </div>
-       <div className={styles.miriHeaderIconWrap} aria-hidden="true">
+       <div className={styles.miriHeaderIconWrap}>
         {template.logoDataUrl && template.logoPosition === 'right' ? (
          <img src={template.logoDataUrl} alt={academyTitle} className={styles.customLogoImg}/>
         ) : (
          <>
-          <Sparkles size={18} className={styles.miriSparkleIcon}/>
-          <div className={styles.miriHeaderBadgeIcon}>
-           <PenLine size={24} strokeWidth={2.2}/>
-          </div>
+          <Sparkles size={15} className={styles.miriSparkleIcon}/>
+          <div className={styles.miriHeaderBadgeIcon}><PenLine size={20}/></div>
          </>
         )}
        </div>
@@ -2393,178 +1956,170 @@ export default function ReportSheets({
         <strong className={styles.miriMetaValue}>{p.name} ({p.grade} · {p.group})</strong>
        </div>
        <div className={styles.miriMetaItem}>
-        <span className={styles.miriMetaLabel}><CalendarCheck2 size={13}/> {period==='day'?'학습 날짜':'조회 기간'}</span>
+        <span className={styles.miriMetaLabel}><CalendarCheck2 size={13}/> 조회 기간</span>
         <strong className={styles.miriMetaValue}>{s.dateLabel}</strong>
        </div>
       </div>
      </>
     )}
 
-    {theme==='mirireport'&&(
+    {theme==='mirireport'&& (
      <header className={styles.miriYellowHeader}>
       {template.logoDataUrl && (
-       <div style={{marginBottom:6}}>
-        <img src={template.logoDataUrl} alt={academyTitle} className={styles.customLogoImg} style={{margin:'0 auto'}}/>
+       <div style={{display:'flex',justifyContent:template.logoPosition==='right'?'flex-end':template.logoPosition==='left'?'flex-start':'center',marginBottom:6}}>
+        <img src={template.logoDataUrl} alt={academyTitle} className={styles.customLogoImg}/>
        </div>
       )}
-      <h2>{template.customTitle?.trim() || `${p.name} 학생의 ${periodKor} 학습 성취도 종합 리포트`}</h2>
-      <p>{academyTitle.toUpperCase()} · {enabledLabelList.join(' · ')} 통합 분석</p>
+      <h2>{template.customTitle?.trim() || `${academyTitle} ${periodKor} 학습 분석 리포트`}</h2>
+      <p>
+       {period==='day'
+        ? `당일 ${enabledLabelList.join('·')} 성취도를 종합한 일일 브리핑`
+        : period==='week'
+          ? `주간 ${enabledLabelList.join('·')} 추이를 종합한 주간 브리핑`
+          : `한 달간의 ${enabledLabelList.join('·')} 성취율을 종합한 월간 리포트`}
+      </p>
       <div className={styles.miriYellowStudentPill}>
-       <GraduationCap size={14}/> {p.grade} · {p.group} · <b>{p.name}</b> &nbsp;|&nbsp; <Clock size={13}/> {period==='day'?'기준일':'조회 기간'}: {s.dateLabel}
+       <span>소속: <b>{p.group} ({p.grade})</b></span>
+       <i>|</i>
+       <span>이름: <b>{p.name}</b></span>
+       <i>|</i>
+       <span>기간: <b>{s.dateLabel}</b></span>
       </div>
      </header>
     )}
 
-    {theme==='mirigraph'&&(
+    {theme==='mirigraph'&& (
      <header className={styles.miriGraphHeader}>
       <div style={{display:'flex',alignItems:'center',gap:12}}>
        {template.logoDataUrl && template.logoPosition !== 'right' && (
         <img src={template.logoDataUrl} alt={academyTitle} className={styles.customLogoImg}/>
        )}
        <div>
-        <span className={styles.miriGraphEyebrow}>{academyTitle} · {periodEng.toUpperCase()}</span>
-        <h2>{template.customTitle?.trim() || `${periodKor} 학습 성취도 리포트`}</h2>
+        <span className={styles.miriGraphEyebrow}>{academyTitle.toUpperCase()} · {periodEng.toUpperCase()}</span>
+        <h2>{template.customTitle?.trim() || `${periodKor} 성취도 종합 리포트`}</h2>
        </div>
       </div>
       <div className={styles.miriGraphMetaLines}>
        {template.logoDataUrl && template.logoPosition === 'right' && (
-        <img src={template.logoDataUrl} alt={academyTitle} className={styles.customLogoImg} style={{alignSelf:'flex-end',marginBottom:4}}/>
+        <div style={{borderBottom:0,justifyContent:'flex-end'}}>
+         <img src={template.logoDataUrl} alt={academyTitle} className={styles.customLogoImg}/>
+        </div>
        )}
-       <div><span>{period==='day'?'날 짜':'기 간'} :</span> <b>{s.dateLabel}</b></div>
-       <div><span>학 생 :</span> <b>{p.name} ({p.grade} · {p.group})</b></div>
+       <div><span>학생 이름 :</span><b>{p.name} ({p.grade})</b></div>
+       <div><span>소속 반명 :</span><b>{p.group}</b></div>
+       <div><span>조회 기간 :</span><b>{s.dateLabel}</b></div>
       </div>
      </header>
     )}
 
-    {/* 일간 / 주간 / 월간 차별화 본문 (활성화된 블록과 칸 크기에 맞춰 렌더링) */}
-    {period==='day'?<DayBody p={p} s={s} cfg={cfg} onEdit={onEdit}/>:period==='week'?<WeekBody p={p} s={s} cfg={cfg} onEdit={onEdit}/>:<MonthBody p={p} s={s} cfg={cfg} onEdit={onEdit}/>}
+    {/* 주기별 완전히 다른 본문 레이아웃 */}
+    {period==='day'&&<DayBody p={p} s={s} cfg={cfg}/>}
+    {period==='week'&&<WeekBody p={p} s={s} cfg={cfg}/>}
+    {period==='month'&&<MonthBody p={p} s={s} cfg={cfg}/>}
 
-    {/* 분위기별 맞춤 하단 선생님 피드백 박스 (피드백이 켜져 있을 때만 표시 · 직접 입력 연동) */}
-    {cfg.hasKind('feedback') && (
-     theme==='miricheck'?(
-      <section className={styles.miriFeedbackBox}>
-       <div className={styles.miriFeedbackLabel}>
-        <MessageSquareText size={16}/>
-        <span>선생님 확인<br/>피드백</span>
-       </div>
-       <div className={styles.miriFeedbackBody}>
-        <span className={styles.miriFeedbackSub}>{periodKor} 수업 · {enabledLabelList.join(' · ')} 코멘트 (클릭하여 직접 작성)</span>
+    {/* 하단 피드백 영역 (feedback 블록이 ON일 때만 표시) */}
+    {cfg.hasKind('feedback') && theme==='miricheck'&&(
+     <footer className={styles.miriFeedbackBox}>
+      <div className={styles.miriFeedbackLabel}>
+       <MessageSquareText size={16}/>
+       <span>선생님 확인<br/>피드백</span>
+      </div>
+      <div className={styles.miriFeedbackBody}>
+       <span className={styles.miriFeedbackSub}>{periodKor} 수업 · {enabledLabelList.join(' · ')} 종합 코멘트</span>
+       {onEditFeedback ? (
+        <textarea
+         className={styles.inlineTextarea}
+         rows={2}
+         value={s.todayWrongMemo}
+         placeholder={`${p.name} 학생은 해당 기간 출석률 ${s.attRate ?? 100}%, 과제 수행률 ${s.hwRate ?? 100}%를 기록했습니다. 이곳을 클릭하여 선생님 피드백 코멘트를 입력하세요.`}
+         onChange={e => onEditFeedback(p.id, p.end, e.target.value)}
+        />
+       ) : (
         <div className={styles.miriRuledLines}>
-         {Array.from({length:cfg.getRowLimit('feedback',3)}).map((_,i)=>{
-          const c=s.comments[i];
-          return (
-           <p key={i} style={{display:'flex',alignItems:'center',gap:6}}>
-            {c?(
-             <>
-              <b style={{flexShrink:0}}>[{shortDate(c.date)} · {c.tag}]</b>
-              {onEdit?(
-               <InlineTextField
-                value={c.text}
-                placeholder="코멘트 수정"
-                onCommit={next=>onEdit.onUpdateComment(p.id,c.id,next,c.date)}
-               />
-              ):c.text}
-             </>
-            ):i===0?(
-             onEdit?(
-              <InlineTextField
-               value={s.todayWrongMemo}
-               placeholder="이 줄을 클릭해 선생님 코멘트·피드백을 직접 입력하세요 (학생관리 탭과 자동 연동)"
-               onCommit={next=>onEdit.onUpdateDailyWrong(p.id,p.end,{memo:next})}
-              />
-             ):(
-              <span className={styles.miriMutedLine}>해당 기간에 등록된 선생님 코멘트가 없습니다.</span>
-             )
-            ):'\u00A0'}
+         {s.comments.length>0?s.comments.slice(0,cfg.getRowLimit('feedback', 3)).map(c=>(
+          <p key={c.id}><b>[{c.tag}]</b> {c.text} <small>({shortDate(c.date)})</small></p>
+         )):(
+          <>
+           <p className={styles.miriMutedLine}>
+            <Sparkles size={12}/> {p.name} 학생은 해당 기간 출석률 {s.attRate ?? 100}%, 과제 수행률 {s.hwRate ?? 100}%를 기록했습니다.
            </p>
-          );
-         })}
-        </div>
-       </div>
-      </section>
-     ):theme==='mirireport'?(
-      <section className={styles.miriYellowTakeaway}>
-       <h3 className={styles.miriYellowSecTitle}>| 선생님 {periodKor} 피드백 및 지도 코멘트 (클릭하여 직접 작성)</h3>
-       <div className={styles.miriTakeawayList}>
-        {s.comments.length>0?s.comments.slice(0,cfg.getRowLimit('feedback',3)).map(c=>(
-         <p key={c.id} style={{display:'flex',alignItems:'center',gap:6}}>
-          <CheckCircle2 size={14} className={styles.miriCheckIconGreen}/>
-          <b style={{flexShrink:0}}>[{shortDate(c.date)} · {c.tag}]</b>
-          {onEdit?(
-           <InlineTextField
-            value={c.text}
-            placeholder="코멘트 수정"
-            onCommit={next=>onEdit.onUpdateComment(p.id,c.id,next,c.date)}
-           />
-          ):c.text}
-         </p>
-        )):(
-         onEdit?(
-          <InlineTextareaField
-           value={s.todayWrongMemo}
-           placeholder="이곳을 클릭해 선생님 코멘트·피드백을 직접 입력하세요 (학생관리 탭과 자동 연동)"
-           onCommit={next=>onEdit.onUpdateDailyWrong(p.id,p.end,{memo:next})}
-          />
-         ):(
-          <p className={styles.miriMutedLine}><AlertCircle size={13}/> 해당 기간에 등록된 선생님 코멘트가 없습니다.</p>
-         )
-        )}
-       </div>
-       {cfg.showNextHw && (
-        <div className={styles.miriConclusionPill}>
-         <Lightbulb size={15} className={styles.miriBulbIcon}/>
-         <span style={{display:'flex',alignItems:'center',gap:6,flex:1}}>
-          <b style={{flexShrink:0}}>다음 수업 과제 |</b>
-          {onEdit?(
-           <InlineTextField
-            value={s.homeworkTasks[0]?.homework || ''}
-            placeholder="다음 수업 과제를 직접 입력하세요"
-            onCommit={next=>onEdit.onUpdateProgress(p.id,{bookId:s.homeworkTasks[0]?.bookId||s.bookProgressList[0]?.id,entryId:s.homeworkTasks[0]?.entryId,recordDate:s.homeworkTasks[0]?.date||p.end,homework:next})}
-           />
-          ):s.homeworkTasks.length>0
-           ?s.homeworkTasks.map(t=>`[${t.bookTitle}] ${t.homework}${t.dueDate?` (~${shortDate(t.dueDate)})`:''}`).join(' · ')
-           :'해당 기간에 부여된 다음 수업 숙제 기록이 없습니다.'}
-         </span>
+           <p>
+            {s.periodWrongCompleted || s.todayWrongCompleted
+             ? '당일 및 기간 내 부여된 오답 클리닉을 모두 완료했습니다.'
+             : '\u00A0'}
+           </p>
+          </>
+         )}
         </div>
        )}
-      </section>
-     ):(
-      <section className={styles.miriGraphCard}>
-       <div className={styles.miriGraphCardHead}>{periodKor} 선생님 종합 피드백 및 코멘트 (클릭하여 직접 작성)</div>
-       <div className={styles.miriGraphCommentBody}>
-        {s.comments.length>0?s.comments.slice(0,cfg.getRowLimit('feedback',3)).map(c=>(
-         <p key={c.id} style={{display:'flex',alignItems:'center',gap:6}}>
-          <MessageSquareText size={13} className={styles.miriCommentIcon}/>
-          <b style={{flexShrink:0}}>[{shortDate(c.date)} · {c.tag}]</b>
-          {onEdit?(
-           <InlineTextField
-            value={c.text}
-            placeholder="코멘트 수정"
-            onCommit={next=>onEdit.onUpdateComment(p.id,c.id,next,c.date)}
-           />
-          ):c.text}
-         </p>
-        )):(
-         onEdit?(
-          <InlineTextareaField
-           value={s.todayWrongMemo}
-           placeholder="이곳을 클릭해 선생님 코멘트·피드백을 직접 입력하세요 (학생관리 탭과 자동 연동)"
-           onCommit={next=>onEdit.onUpdateDailyWrong(p.id,p.end,{memo:next})}
-          />
-         ):(
-          <p className={styles.miriMutedLine}><AlertCircle size={13}/> 해당 기간에 등록된 선생님 코멘트가 없습니다.</p>
-         )
+      </div>
+     </footer>
+    )}
+
+    {cfg.hasKind('feedback') && theme==='mirireport'&&(
+     <footer className={styles.miriYellowTakeaway}>
+      <h3 className={styles.miriYellowSecTitle}>{periodKor} 학습 핵심 진단 및 피드백</h3>
+      <div className={styles.miriTakeawayList}>
+       <p><CheckCircle2 size={13} className={styles.miriCheckIconGreen}/> <span>해당 기간 출석률 {s.attRate??100}% · 숙제 수행률 {s.hwRate??100}% · {s.periodWrongCompleted || s.todayWrongCompleted ? '오답 완료' : `오답 해결률 ${s.wrongRate??100}%`}</span></p>
+      </div>
+      <div className={styles.miriConclusionPill}>
+       <Lightbulb size={15} className={styles.miriBulbIcon}/>
+       <div style={{ flex: 1 }}>
+        <b>담당 교사 종합 코멘트 :</b>
+        {onEditFeedback ? (
+         <textarea
+          className={styles.inlineTextarea}
+          rows={2}
+          value={s.todayWrongMemo}
+          placeholder={`${p.name} 학생의 ${periodKor} 학습 태도와 과제 이행 상태를 점검하였으며, 부족한 유형은 클리닉을 통해 보완 지도합니다. (클릭하여 코멘트 입력)`}
+          onChange={e => onEditFeedback(p.id, p.end, e.target.value)}
+         />
+        ) : (
+         <span>
+          {' '}
+          {s.comments[0]?.text || `${p.name} 학생의 ${periodKor} 학습 태도와 과제 이행 상태를 점검하였으며, 부족한 유형은 클리닉을 통해 보완 지도합니다.`}
+         </span>
         )}
        </div>
-      </section>
-     )
+      </div>
+     </footer>
+    )}
+
+    {cfg.hasKind('feedback') && theme==='mirigraph'&&(
+     <footer className={styles.miriGraphCard}>
+      <div className={styles.miriGraphCardHead}>선생님 종합 코멘트 & 학습 가이드</div>
+      <div className={styles.miriGraphCommentBody}>
+       {onEditFeedback ? (
+        <textarea
+         className={styles.inlineTextarea}
+         rows={2}
+         value={s.todayWrongMemo}
+         placeholder={`${p.name} 학생은 해당 기간 출석률 ${s.attRate ?? 100}%, 과제 수행률 ${s.hwRate ?? 100}%를 기록했습니다. 이곳을 클릭하여 선생님 종합 코멘트를 입력하세요.`}
+         onChange={e => onEditFeedback(p.id, p.end, e.target.value)}
+        />
+       ) : s.comments.length>0?s.comments.slice(0,cfg.getRowLimit('feedback', 3)).map(c=>(
+        <p key={c.id}><MessageSquareText size={13} className={styles.miriCommentIcon}/> <span><b>[{c.tag}]</b> {c.text} ({shortDate(c.date)})</span></p>
+       )):(
+        <p>
+         <MessageSquareText size={13} className={styles.miriCommentIcon}/>
+         <span>
+          {p.name} 학생은 해당 기간 출석률 {s.attRate??100}%, 과제 수행률 {s.hwRate??100}%를 기록했습니다.{' '}
+          {s.periodWrongCompleted || s.todayWrongCompleted
+           ? '오답 클리닉을 성실히 완료하였으며, '
+           : ''}
+          {s.bookProgressList[0]?`'${s.bookProgressList[0].title}' 교재를 ${s.bookProgressList[0].pct}% 성취도로 학습 중입니다.`:'꾸준한 복습과 오답 관리를 통해 실력을 다지고 있습니다.'}
+         </span>
+        </p>
+       )}
+      </div>
+     </footer>
     )}
 
     {template.footerNotice?.trim() && (
-     <footer className={styles.customFooterNotice}>
+     <div className={styles.customFooterNotice}>
       <Megaphone size={14}/>
       <span>{template.footerNotice.trim()}</span>
-     </footer>
+     </div>
     )}
    </div>
   </article>

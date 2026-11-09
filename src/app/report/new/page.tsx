@@ -344,15 +344,12 @@ export default function NewReportPage(){
    const css=getComputedStyle(canvas);
    const width=canvas.clientWidth-parseFloat(css.paddingLeft)-parseFloat(css.paddingRight);
    const height=canvas.clientHeight-parseFloat(css.paddingTop)-parseFloat(css.paddingBottom);
-   const pages=Array.from(canvas.querySelectorAll<HTMLElement>('[data-active="true"] [data-sheet]'));
-   const fitHeight=Math.max(pageHeight,...pages.map(page=>page.offsetHeight));
-   const nextScale=Math.max(0.05,Math.floor(Math.min(1,width/pageWidth,height/fitHeight)*1000)/1000);
+   const nextScale=Math.max(0.05,Math.floor(Math.min(1,width/pageWidth,height/pageHeight)*1000)/1000);
    setFitScale(current=>Math.abs(Math.round(current*1000)-Math.round(nextScale*1000))>1?nextScale:current);
   };
   const observer=new ResizeObserver(fit);observer.observe(canvas);
-  canvas.querySelectorAll<HTMLElement>('[data-sheet]').forEach(page=>observer.observe(page));
   fit();return()=>observer.disconnect();
- },[reports,active,sidebar,pageWidth,pageHeight,template]);
+ },[active,sidebar,pageWidth,pageHeight]);
 
  const effectiveScale = zoomMode === 'fit' ? fitScale : zoomMode;
 

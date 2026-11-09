@@ -1,4 +1,4 @@
-import {useState,type CSSProperties} from 'react';
+import {useEffect,useRef,useState,type CSSProperties} from 'react';
 import dayjs from 'dayjs';
 import {
  Check,
@@ -124,7 +124,8 @@ function computeStudentData(p:Preview){
  const todayTotalWrong=todayWrong?.total_wrong??0;
  const todayFixedWrong=todayWrong?.corrected_count??0;
  const todayWrongCompleted=isWrongRecordDone(todayWrong);
- const todayWrongMemo=todayWrong?.memo?.trim()||'';
+ const endWrong=wrong.find(r=>r.record_date===p.end);
+ const todayWrongMemo=endWrong ? endWrong.memo : (todayWrong?.memo ?? '');
 
  const totalWrong=wrong.reduce((a,b)=>a+b.total_wrong,0);
  const fixedWrong=wrong.reduce((a,b)=>a+b.corrected_count,0);
@@ -302,6 +303,43 @@ function computeStudentData(p:Preview){
 }
 
 type StudentData = ReturnType<typeof computeStudentData>;
+
+function AutoGrowFeedbackTextarea({
+ value,
+ placeholder,
+ onChange,
+}: {
+ value: string;
+ placeholder: string;
+ onChange: (next: string) => void;
+}) {
+ const ref = useRef<HTMLTextAreaElement>(null);
+ const lineCount = Math.max(2, value.split('\n').length);
+
+ useEffect(() => {
+  const el = ref.current;
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${Math.max(46, el.scrollHeight)}px`;
+ }, [value]);
+
+ return (
+  <textarea
+   ref={ref}
+   className={styles.inlineTextarea}
+   rows={lineCount}
+   value={value}
+   placeholder={placeholder}
+   onKeyDown={e => e.stopPropagation()}
+   onChange={e => {
+    const el = e.currentTarget;
+    el.style.height = 'auto';
+    el.style.height = `${Math.max(46, el.scrollHeight)}px`;
+    onChange(e.target.value);
+   }}
+  />
+ );
+}
 
 /* ============================================================================
  * 시험 시리즈 그룹핑 & 공통 성적 시각화 컴포넌트 (모든 템플릿 · 모든 기간 공통 적용)
@@ -1231,12 +1269,10 @@ function SaebomForestSheet({
         <strong className={styles.saebomNoteDate}>
          {dayjs(p.end).format('M월 D일')} ({korWeekdays[dayjs(p.end).day()]}) · {periodKor} 학습 종합 기록
         </strong>
-        <textarea
-         className={styles.inlineTextarea}
-         rows={2}
+        <AutoGrowFeedbackTextarea
          value={s.todayWrongMemo}
          placeholder={`${p.name} 학생은 해당 기간 출석률 ${s.attRate ?? 100}%, 과제 수행률 ${s.hwRate ?? 100}%를 기록했습니다. 이곳을 클릭하여 선생님 피드백 코멘트를 직접 입력하거나 수정할 수 있습니다.`}
-         onChange={e => onEditFeedback(p.id, p.end, e.target.value)}
+         onChange={val => onEditFeedback(p.id, p.end, val)}
         />
        </div>
       ) : s.comments.length > 0 ? (
@@ -2027,12 +2063,10 @@ export default function ReportSheets({
       <div className={styles.miriFeedbackBody}>
        <span className={styles.miriFeedbackSub}>{periodKor} 수업 · {enabledLabelList.join(' · ')} 종합 코멘트</span>
        {onEditFeedback ? (
-        <textarea
-         className={styles.inlineTextarea}
-         rows={2}
+        <AutoGrowFeedbackTextarea
          value={s.todayWrongMemo}
          placeholder={`${p.name} 학생은 해당 기간 출석률 ${s.attRate ?? 100}%, 과제 수행률 ${s.hwRate ?? 100}%를 기록했습니다. 이곳을 클릭하여 선생님 피드백 코멘트를 입력하세요.`}
-         onChange={e => onEditFeedback(p.id, p.end, e.target.value)}
+         onChange={val => onEditFeedback(p.id, p.end, val)}
         />
        ) : (
         <div className={styles.miriRuledLines}>
@@ -2067,12 +2101,10 @@ export default function ReportSheets({
        <div style={{ flex: 1 }}>
         <b>담당 교사 종합 코멘트 :</b>
         {onEditFeedback ? (
-         <textarea
-          className={styles.inlineTextarea}
-          rows={2}
+         <AutoGrowFeedbackTextarea
           value={s.todayWrongMemo}
           placeholder={`${p.name} 학생의 ${periodKor} 학습 태도와 과제 이행 상태를 점검하였으며, 부족한 유형은 클리닉을 통해 보완 지도합니다. (클릭하여 코멘트 입력)`}
-          onChange={e => onEditFeedback(p.id, p.end, e.target.value)}
+          onChange={val => onEditFeedback(p.id, p.end, val)}
          />
         ) : (
          <span>
@@ -2090,12 +2122,10 @@ export default function ReportSheets({
       <div className={styles.miriGraphCardHead}>선생님 종합 코멘트 & 학습 가이드</div>
       <div className={styles.miriGraphCommentBody}>
        {onEditFeedback ? (
-        <textarea
-         className={styles.inlineTextarea}
-         rows={2}
+        <AutoGrowFeedbackTextarea
          value={s.todayWrongMemo}
          placeholder={`${p.name} 학생은 해당 기간 출석률 ${s.attRate ?? 100}%, 과제 수행률 ${s.hwRate ?? 100}%를 기록했습니다. 이곳을 클릭하여 선생님 종합 코멘트를 입력하세요.`}
-         onChange={e => onEditFeedback(p.id, p.end, e.target.value)}
+         onChange={val => onEditFeedback(p.id, p.end, val)}
         />
        ) : s.comments.length>0?s.comments.slice(0,cfg.getRowLimit('feedback', 3)).map(c=>(
         <p key={c.id}><MessageSquareText size={13} className={styles.miriCommentIcon}/> <span><b>[{c.tag}]</b> {c.text} ({shortDate(c.date)})</span></p>

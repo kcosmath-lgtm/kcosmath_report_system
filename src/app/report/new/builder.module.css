@@ -1351,6 +1351,7 @@
  box-shadow:0 0 0 2px rgba(37, 99, 235, 0.18);
 }
 .inlineTextarea{
+ display:block;
  width:100%;
  min-height:46px;
  border:1px dashed transparent;
@@ -1362,6 +1363,9 @@
  line-height:1.6;
  padding:4px 6px;
  resize:none;
+ overflow:hidden;
+ white-space:pre-wrap;
+ word-break:break-word;
  box-sizing:border-box;
  transition:border-color 0.14s ease, background-color 0.14s ease;
 }

@@ -547,3 +547,788 @@
 .miriGraphCommentBody p{margin:0;font-size:11.5px;line-height:1.55;color:#334155;padding-bottom:5px;border-bottom:1px dashed #e2e8f0;display:flex;align-items:flex-start;gap:6px}
 .miriGraphCommentBody p:last-child{border-bottom:0;padding-bottom:0}
 .miriCommentIcon{color:#5c7cfa;flex-shrink:0;margin-top:3px}
+
+/* ============================================================================
+ * 공통 12칸 커스텀 그리드, 학원 로고, 하단 공지란
+ * ============================================================================ */
+.customGrid12{
+ display:grid;
+ grid-template-columns:repeat(12,minmax(0,1fr));
+ gap:12px;
+ align-content:start;
+}
+.customLogoImg{
+ max-height:42px;
+ max-width:140px;
+ width:auto;
+ height:auto;
+ object-fit:contain;
+ display:block;
+}
+.customFooterNotice{
+ display:flex;
+ align-items:center;
+ gap:8px;
+ margin-top:8px;
+ padding:8px 12px;
+ border-radius:8px;
+ background:#f8fafc;
+ border:1px dashed var(--theme-border,#cbd5e1);
+ font-size:11.5px;
+ font-weight:700;
+ color:#334155;
+}
+
+/* ============================================================================
+ * 4) 📘 기본형 (클린 블루 & 화이트 에디토리얼 테마, data-theme="saebom" | "clean")
+ * - 깔끔한 순백색(#ffffff) 배경 + 신뢰감 있는 로열 블루(#2563eb) 포인트
+ * - 일간 / 주간 / 월간 맞춤 구성 지원
+ * ============================================================================ */
+.sheet[data-theme=saebom],
+.sheet[data-theme=clean]{
+ --theme-border:#dbe5f2;
+ --theme-soft-border:#e2e8f0;
+ --theme-head-bg:#2563eb;
+ --theme-head-text:#ffffff;
+ --theme-th-bg:#f8fafc;
+ --theme-th-text:#475569;
+ --theme-accent:#2563eb;
+ --theme-bar:#2563eb;
+ --theme-line:#1d4ed8;
+ --theme-Radius:10px;
+ background:#ffffff;
+ padding:28px 32px;
+ color:#0f172a;
+}
+.sheet[data-theme=saebom] .sheetInner,
+.sheet[data-theme=clean] .sheetInner{
+ display:flex;
+ flex-direction:column;
+ gap:14px;
+ flex:1;
+ box-sizing:border-box;
+}
+.saebomContainer{
+ display:flex;
+ flex-direction:column;
+ gap:14px;
+ flex:1;
+}
+.saebomHeader{
+ border-bottom:2px solid #0f172a;
+ padding-bottom:11px;
+}
+.saebomHeaderTop{
+ display:flex;
+ justify-content:space-between;
+ align-items:flex-end;
+ gap:16px;
+ margin-bottom:7px;
+}
+.saebomBrandRow{
+ display:flex;
+ align-items:center;
+ gap:12px;
+}
+.saebomEyebrow{
+ display:inline-flex;
+ align-items:center;
+ gap:6px;
+ font-size:10.5px;
+ font-weight:800;
+ color:var(--theme-accent,#2563eb);
+ letter-spacing:0.6px;
+ margin-bottom:3px;
+}
+.saebomCycleBadge{
+ display:inline-block;
+ padding:1px 7px;
+ border-radius:999px;
+ background:#eff6ff;
+ border:1px solid #bfdbfe;
+ color:var(--theme-accent,#2563eb);
+ font-size:9.5px;
+ font-weight:800;
+}
+.saebomMainTitle{
+ font-size:21px;
+ font-weight:900;
+ color:#0f172a;
+ margin:0;
+ letter-spacing:-0.6px;
+}
+.saebomStudentMeta{
+ display:flex;
+ flex-direction:column;
+ align-items:flex-end;
+ gap:2px;
+ font-size:12px;
+}
+.saebomStudentMeta strong{
+ font-size:14px;
+ font-weight:800;
+ color:#0f172a;
+}
+.saebomStudentMeta small{
+ font-size:11.5px;
+ font-weight:600;
+ color:#475569;
+}
+.saebomStudentMeta span{
+ font-size:11px;
+ color:#64748b;
+ font-weight:600;
+}
+.saebomIntroLine{
+ margin:0;
+ font-size:11.5px;
+ color:#475569;
+ line-height:1.45;
+}
+.saebomSection{
+ display:flex;
+ flex-direction:column;
+ gap:6px;
+}
+.saebomSecHead{
+ display:flex;
+ justify-content:space-between;
+ align-items:center;
+ padding:2px 0;
+}
+.saebomSecHead h3{
+ margin:0;
+ font-size:13.5px;
+ font-weight:800;
+ color:#0f172a;
+ display:inline-flex;
+ align-items:center;
+ gap:7px;
+ letter-spacing:-0.3px;
+}
+.saebomDash{
+ display:inline-block;
+ width:14px;
+ height:2.5px;
+ background:var(--theme-accent,#2563eb);
+ border-radius:2px;
+}
+.saebomSecHead span{
+ font-size:11px;
+ color:#64748b;
+ font-weight:600;
+}
+.saebomCard{
+ background:#ffffff;
+ border:1px solid #dbe5f2;
+ border-radius:10px;
+ padding:13px 15px;
+ display:flex;
+ flex-direction:column;
+ gap:10px;
+}
+.saebomMetricsGrid{
+ display:grid;
+ grid-template-columns:1fr 1fr;
+ background:#ffffff;
+ border:1px solid #dbe5f2;
+ border-radius:10px;
+ overflow:hidden;
+}
+.saebomMetricCell{
+ padding:12px 16px;
+ border-bottom:1px solid #e2e8f0;
+ border-right:1px solid #e2e8f0;
+ display:flex;
+ flex-direction:column;
+ gap:2px;
+}
+.saebomMetricCell:nth-child(2n){
+ border-right:0;
+}
+.saebomMetricCell:nth-last-child(-n+2){
+ border-bottom:0;
+}
+.saebomMetricLabel{
+ font-size:11px;
+ font-weight:700;
+ color:#64748b;
+}
+.saebomMetricValue{
+ font-size:22px;
+ font-weight:900;
+ color:#0f172a;
+ letter-spacing:-0.6px;
+ line-height:1.2;
+}
+.saebomMetricAccent{
+ font-size:22px;
+ font-weight:900;
+ color:var(--theme-accent,#2563eb);
+ letter-spacing:-0.6px;
+ line-height:1.2;
+}
+.saebomMetricSub{
+ font-size:10.5px;
+ color:#64748b;
+}
+.saebomDonutRow{
+ display:flex;
+ align-items:center;
+ gap:14px;
+}
+.saebomDonutWrap{
+ flex-shrink:0;
+ display:flex;
+ align-items:center;
+ justify-content:center;
+}
+.saebomDonutText{
+ display:flex;
+ flex-direction:column;
+ gap:3px;
+}
+.saebomDonutText strong{
+ font-size:13.5px;
+ font-weight:800;
+ color:#0f172a;
+}
+.saebomDonutText p{
+ margin:0;
+ font-size:11px;
+ color:#64748b;
+ line-height:1.45;
+}
+.saebomStackedBar{
+ height:7px;
+ background:#e2e8f0;
+ border-radius:999px;
+ overflow:hidden;
+ display:flex;
+}
+.saebomStackedBar i{
+ display:block;
+ height:100%;
+}
+.saebomLegendRow{
+ display:flex;
+ align-items:center;
+ gap:12px;
+ flex-wrap:wrap;
+ font-size:10.5px;
+ color:#475569;
+ font-weight:600;
+}
+.saebomLegendRow span{
+ display:inline-flex;
+ align-items:center;
+ gap:5px;
+}
+.saebomLegendRow span i{
+ display:inline-block;
+ width:7px;
+ height:7px;
+ border-radius:2px;
+}
+.saebomHorizBarGroup{
+ display:flex;
+ flex-direction:column;
+ gap:7px;
+}
+.saebomHorizBarRow{
+ display:grid;
+ grid-template-columns:88px 1fr 66px;
+ align-items:center;
+ gap:10px;
+}
+.saebomHorizDate{
+ display:flex;
+ flex-direction:column;
+ line-height:1.25;
+}
+.saebomHorizDate b{
+ font-size:11px;
+ color:#0f172a;
+}
+.saebomHorizDate small{
+ font-size:9.5px;
+ color:#64748b;
+ white-space:nowrap;
+ overflow:hidden;
+ text-overflow:ellipsis;
+}
+.saebomHorizTrack{
+ height:18px;
+ background:#eff6ff;
+ border-radius:4px;
+ overflow:hidden;
+}
+.saebomBarSolid{
+ height:100%;
+ background:var(--theme-accent,#2563eb);
+ border-radius:4px;
+}
+.saebomBarStriped{
+ height:100%;
+ background:repeating-linear-gradient(
+  -45deg,
+  var(--theme-accent,#2563eb),
+  var(--theme-accent,#2563eb) 6px,
+  #93c5fd 6px,
+  #93c5fd 12px
+ );
+ border-radius:4px;
+}
+.saebomHorizScore{
+ text-align:right;
+ line-height:1.2;
+}
+.saebomHorizScore strong{
+ display:block;
+ font-size:11.5px;
+ font-weight:800;
+ color:#0f172a;
+}
+.saebomHorizScore small{
+ font-size:9.5px;
+ color:#64748b;
+}
+.saebomDailySubHead{
+ display:flex;
+ justify-content:space-between;
+ align-items:center;
+ margin-top:4px;
+ font-size:11.5px;
+ font-weight:800;
+ color:#0f172a;
+}
+.saebomDailySubHead span{
+ display:inline-flex;
+ align-items:center;
+ gap:6px;
+}
+.saebomDailySubHead small{
+ font-size:10px;
+ font-weight:500;
+ color:#64748b;
+}
+.saebomDailyColumns{
+ display:grid;
+ grid-template-columns:repeat(auto-fit,minmax(26px,1fr));
+ gap:5px;
+ align-items:end;
+ padding-top:4px;
+}
+.saebomDailyColItem{
+ display:flex;
+ flex-direction:column;
+ align-items:center;
+ gap:2px;
+}
+.saebomDailyBarTrack{
+ width:100%;
+ height:56px;
+ display:flex;
+ align-items:flex-end;
+ border-bottom:1px solid #cbd5e1;
+}
+.saebomDailyBarDark{
+ width:100%;
+ background:var(--theme-accent,#2563eb);
+ border-radius:3px 3px 0 0;
+}
+.saebomDailyBarLight{
+ width:100%;
+ background:#93c5fd;
+ border-radius:3px 3px 0 0;
+}
+.saebomDailyColItem b{
+ font-size:9.5px;
+ color:#334155;
+ margin-top:2px;
+}
+.saebomDailyColItem small{
+ font-size:9px;
+ color:#94a3b8;
+}
+/* 주간 7일 미니 스탬프 바 (기본형 주간 전용) */
+.saebomWeekStrip{
+ display:grid;
+ grid-template-columns:repeat(7,1fr);
+ gap:5px;
+ background:#f8fafc;
+ border:1px solid #dbe5f2;
+ border-radius:10px;
+ padding:8px 10px;
+}
+.saebomWeekDayBox{
+ background:#ffffff;
+ border:1px solid #e2e8f0;
+ border-radius:7px;
+ padding:5px 4px;
+ display:flex;
+ flex-direction:column;
+ align-items:center;
+ gap:2px;
+ text-align:center;
+}
+.saebomWeekDayBox b{
+ font-size:10.5px;
+ color:#0f172a;
+}
+.saebomWeekDayBox small{
+ font-size:9px;
+ color:#64748b;
+}
+.saebomWeekBadge{
+ display:inline-block;
+ padding:1px 6px;
+ border-radius:999px;
+ font-size:9.5px;
+ font-weight:800;
+ margin-top:2px;
+}
+.saebomBadgeBlue{
+ background:#eff6ff;
+ color:#1d4ed8;
+ border:1px solid #bfdbfe;
+}
+.saebomBadgeAmber{
+ background:#fef3c7;
+ color:#b45309;
+ border:1px solid #fde68a;
+}
+.saebomBadgeRed{
+ background:#fee2e2;
+ color:#b91c1c;
+ border:1px solid #fecaca;
+}
+.saebomBadgeSlate{
+ background:#f1f5f9;
+ color:#64748b;
+ border:1px solid #e2e8f0;
+}
+/* 월간 미니 출결 달력 (기본형 월간 전용) */
+.saebomMonthCalCard{
+ background:#ffffff;
+ border:1px solid #dbe5f2;
+ border-radius:10px;
+ padding:9px 11px;
+}
+.saebomMonthCalGrid{
+ display:grid;
+ grid-template-columns:repeat(7,1fr);
+ gap:3px;
+ text-align:center;
+}
+.saebomMonthCalDow{
+ font-size:9.5px;
+ font-weight:800;
+ color:#64748b;
+ padding-bottom:3px;
+}
+.saebomMonthCalCell{
+ min-height:22px;
+ border-radius:5px;
+ border:1px solid #f1f5f9;
+ background:#f8fafc;
+ display:flex;
+ align-items:center;
+ justify-content:center;
+ gap:3px;
+ font-size:9.5px;
+ font-weight:700;
+ color:#334155;
+}
+.saebomMonthCalAtt{
+ background:#eff6ff;
+ border-color:#bfdbfe;
+ color:#1d4ed8;
+}
+.saebomMonthCalWarn{
+ background:#fef3c7;
+ border-color:#fde68a;
+ color:#b45309;
+}
+.saebomMonthCalMiss{
+ background:#fee2e2;
+ border-color:#fecaca;
+ color:#b91c1c;
+}
+/* 일일 체크 배지 그리드 (기본형 일간 전용) */
+.saebomDailyCheckGrid{
+ display:grid;
+ grid-template-columns:repeat(3,1fr);
+ gap:6px;
+ padding-top:2px;
+}
+.saebomDailyCheckItem{
+ background:#f8fafc;
+ border:1px solid #e2e8f0;
+ border-radius:8px;
+ padding:7px 10px;
+ display:flex;
+ flex-direction:column;
+ gap:2px;
+}
+.saebomDailyCheckItem span{
+ font-size:10px;
+ color:#64748b;
+ font-weight:700;
+}
+.saebomDailyCheckItem strong{
+ font-size:12.5px;
+ color:#0f172a;
+ font-weight:800;
+}
+.saebomTable{
+ width:100%;
+ border-collapse:collapse;
+ font-size:11.5px;
+}
+.saebomTable th{
+ background:#f8fafc;
+ color:#475569;
+ font-size:10.5px;
+ font-weight:700;
+ padding:7px 12px;
+ border-bottom:1px solid #dbe5f2;
+ text-align:left;
+}
+.saebomTable td{
+ padding:8px 12px;
+ border-bottom:1px solid #f1f5f9;
+ vertical-align:middle;
+}
+.saebomTable tr:last-child td{
+ border-bottom:0;
+}
+.saebomBookName{
+ font-weight:800;
+ color:#0f172a;
+ margin-right:6px;
+}
+.saebomBookCourse{
+ font-size:10.5px;
+ color:#64748b;
+}
+.saebomTypePill{
+ display:inline-block;
+ padding:2px 9px;
+ border-radius:999px;
+ font-size:10px;
+ font-weight:700;
+}
+.saebomPillGreen{
+ background:#eff6ff;
+ color:#1d4ed8;
+ border:1px solid #bfdbfe;
+}
+.saebomPillBeige{
+ background:#f0f9ff;
+ color:#0369a1;
+ border:1px solid #bae6fd;
+}
+.saebomJourneyCell{
+ display:flex;
+ justify-content:space-between;
+ align-items:center;
+ gap:8px;
+ color:#1e293b;
+ font-weight:600;
+}
+.saebomPctTag{
+ font-size:10.5px;
+ color:var(--theme-accent,#2563eb);
+ background:#eff6ff;
+ padding:2px 7px;
+ border-radius:999px;
+ flex-shrink:0;
+}
+.saebomPastelWrap{
+ padding:10px 14px 12px;
+ border-top:1px solid #e2e8f0;
+ background:#f8fafc;
+ display:flex;
+ flex-direction:column;
+ gap:6px;
+}
+.saebomPastelRow{
+ display:grid;
+ grid-template-columns:86px 1fr 94px;
+ align-items:center;
+ gap:8px;
+ font-size:10.5px;
+}
+.saebomPastelLabel{
+ font-weight:700;
+ color:#334155;
+ white-space:nowrap;
+ overflow:hidden;
+ text-overflow:ellipsis;
+}
+.saebomPastelTrack{
+ height:12px;
+ background:#e2e8f0;
+ border-radius:3px;
+ overflow:hidden;
+}
+.saebomPastelFill{
+ height:100%;
+ border-radius:3px;
+}
+.saebomPastelVal{
+ text-align:right;
+ font-size:10px;
+ color:#475569;
+}
+.saebomTeacherNote{
+ background:#eff6ff;
+ border-left:3.5px solid var(--theme-accent,#2563eb);
+ border-radius:0 10px 10px 0;
+ padding:12px 15px;
+ display:flex;
+ flex-direction:column;
+ gap:8px;
+}
+.saebomNoteItem{
+ display:flex;
+ flex-direction:column;
+ gap:3px;
+}
+.saebomNoteDate{
+ font-size:11.5px;
+ font-weight:800;
+ color:var(--theme-accent,#2563eb);
+}
+.saebomNoteItem p{
+ margin:0;
+ font-size:11.5px;
+ line-height:1.6;
+ color:#0f172a;
+ white-space:pre-wrap;
+}
+.saebomNextHwBar{
+ margin-top:4px;
+ padding-top:7px;
+ border-top:1px dashed #93c5fd;
+ display:flex;
+ align-items:center;
+ gap:8px;
+ font-size:11px;
+ color:#1e3a8a;
+}
+.saebomNextHwBar b{
+ background:var(--theme-accent,#2563eb);
+ color:#ffffff;
+ padding:2px 8px;
+ border-radius:999px;
+ font-size:10px;
+ flex-shrink:0;
+}
+
+/* ============================================================================
+ * 5) 보고서 위 직접 클릭 · 인라인 텍스트 입력 (학생관리 상호 연동용)
+ * ============================================================================ */
+.interactiveClick{
+ cursor:pointer;
+ border-radius:6px;
+ transition:background-color 0.14s ease, transform 0.1s ease, box-shadow 0.14s ease;
+ user-select:none;
+}
+.interactiveClick:hover{
+ background-color:rgba(37, 99, 235, 0.08);
+ box-shadow:0 0 0 1.5px rgba(37, 99, 235, 0.28);
+}
+.interactiveClick:active{
+ transform:scale(0.98);
+}
+.inlineTextInput{
+ width:100%;
+ border:1px solid transparent;
+ border-radius:5px;
+ background:transparent;
+ color:inherit;
+ font:inherit;
+ padding:2px 5px;
+ margin:-2px -5px;
+ transition:border-color 0.14s ease, background-color 0.14s ease;
+}
+.inlineTextInput:hover{
+ border-color:#bfdbfe;
+ background:rgba(239, 246, 255, 0.65);
+}
+.inlineTextInput:focus{
+ outline:none;
+ border-color:var(--theme-accent,#2563eb);
+ background:#ffffff;
+ box-shadow:0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+.inlineNumberInput{
+ width:44px;
+ border:1px solid #cbd5e1;
+ border-radius:5px;
+ background:#ffffff;
+ color:#0f172a;
+ font:inherit;
+ font-weight:800;
+ text-align:center;
+ padding:1px 3px;
+}
+.inlineNumberInput:focus{
+ outline:none;
+ border-color:var(--theme-accent,#2563eb);
+ box-shadow:0 0 0 2px rgba(37, 99, 235, 0.18);
+}
+.inlineTextarea{
+ width:100%;
+ min-height:42px;
+ border:1px dashed transparent;
+ border-radius:6px;
+ background:transparent;
+ color:inherit;
+ font:inherit;
+ line-height:1.55;
+ padding:4px 6px;
+ margin:-4px -6px;
+ resize:vertical;
+ transition:border-color 0.14s ease, background-color 0.14s ease;
+}
+.inlineTextarea:hover{
+ border-color:#93c5fd;
+ background:rgba(255, 255, 255, 0.65);
+}
+.inlineTextarea:focus{
+ outline:none;
+ border:1px solid var(--theme-accent,#2563eb);
+ background:#ffffff;
+ box-shadow:0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+.inlineQuickAddBtn{
+ display:inline-flex;
+ align-items:center;
+ gap:4px;
+ padding:3px 9px;
+ border-radius:999px;
+ border:1px dashed #93c5fd;
+ background:#eff6ff;
+ color:#1d4ed8;
+ font-size:10.5px;
+ font-weight:700;
+ cursor:pointer;
+}
+.inlineQuickAddBtn:hover{
+ background:#dbeafe;
+}
+@media print{
+ .inlineQuickAddBtn{
+  display:none !important;
+ }
+ .inlineTextInput,
+ .inlineNumberInput,
+ .inlineTextarea{
+  border-color:transparent !important;
+  background:transparent !important;
+  box-shadow:none !important;
+ }
+}

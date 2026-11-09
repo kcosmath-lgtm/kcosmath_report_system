@@ -425,12 +425,50 @@ export default function StickyOrbitShowcase() {
         ctx.restore();
       });
 
-      rafId = window.requestAnimationFrame(render);
+      if (isVisible) {
+        rafId = window.requestAnimationFrame(render);
+      } else {
+        rafId = 0;
+      }
     };
 
-    rafId = window.requestAnimationFrame(render);
+    let isVisible = true;
+    const startLoop = () => {
+      if (!rafId && isVisible && !document.hidden) {
+        rafId = window.requestAnimationFrame(render);
+      }
+    };
+    const stopLoop = () => {
+      if (rafId) {
+        window.cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+    };
+
+    const observer =
+      typeof IntersectionObserver !== "undefined"
+        ? new IntersectionObserver(
+            ([entry]) => {
+              isVisible = entry.isIntersecting;
+              if (isVisible) startLoop();
+              else stopLoop();
+            },
+            { threshold: 0.01 }
+          )
+        : null;
+    observer?.observe(canvas);
+
+    const onVisibilityChange = () => {
+      if (document.hidden) stopLoop();
+      else startLoop();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    startLoop();
     return () => {
-      window.cancelAnimationFrame(rafId);
+      stopLoop();
+      observer?.disconnect();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("resize", resize);
     };
   }, []);

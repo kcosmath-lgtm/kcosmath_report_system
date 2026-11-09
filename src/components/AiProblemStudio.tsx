@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -683,14 +683,15 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
 
     const enrichedPrompt =
       activeMode === "report"
-        ? `[학생 성장 보고서 템플릿 설계 요청] ${text}. 반드시 update_report_template 액션을 사용해 orientation(portrait|landscape), theme(miricheck|mirireport|mirigraph|unidesk|notebook|summary|timeline|briefing|planner|letter|clean), period(day|week|month|1month|3months), blocks 배열을 완성도 높게 구성해줘.`
+        ? `[학생 성장 보고서 템플릿 설계 요청] ${text}. 반드시 update_report_template 액션을 사용해 orientation(portrait|landscape), theme(saebom|miricheck|mirireport|mirigraph|unidesk|notebook|summary|timeline|briefing|planner|letter|clean), period(day|week|month|1month|3months), blocks 배열을 완성도 높게 구성해줘. 사용자가 특정 항목(예: 오답, 성적 등)을 빼달라고 하면 blocks에서 해당 kind를 반드시 제외해줘.`
         : activeMode === "geometry"
-          ? `[알지오매스/지오지브라 도형 작도 및 문항 출제 요청 | 고${grade} ${subject} / 난이도 ${difficulty}] ${text}. 반드시 geoSpec(함수 그래프, 접선, 적분 색칠 영역, 주요 좌표점과 수선의 발 점선, 원/다각형 등)을 정교하게 포함하여 문항을 생성해줘.`
+          ? `[알지오매스/지오지브라 도형 작도 및 문항 출제 요청] ${text}. 반드시 geoSpec(함수 그래프, 접선, 적분 색칠 영역, 주요 좌표점과 수선의 발 점선, 원/다각형 등)을 정교하게 포함하여 문항을 생성해줘.`
           : activeMode === "typing"
-            ? `[시험지 타이핑 및 문항 정밀 편집 요청 | 고${grade} ${subject}] ${text}. 시험지에 바로 넣을 수 있도록 깔끔한 LaTeX 수식과 5지선다, 필요한 경우 geoSpec 도형을 포함해 문항을 만들어줘.`
-            : activeMode === "generate"
-              ? `[고${grade} ${subject} / 난이도 ${difficulty} 문제 제작 요청] ${text}. 함수 그래프나 기하 도형이 어울리는 문항이라면 반드시 geoSpec(알지오매스/지오지브라 작도 스펙)을 함께 출력해줘.`
-              : text;
+            ? `[시험지 타이핑 및 문항 정밀 편집 요청] ${text}. 시험지에 바로 넣을 수 있도록 깔끔한 LaTeX 수식과 5지선다를 포함해 문항을 만들어줘.`
+            : text;
+
+    const firstSource = sources[0];
+    if (sources.length > 0) setSources([]);
 
     try {
       const response = await sendAiCopilotMessage({
@@ -710,6 +711,14 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
           difficulty,
           ...(sourceTokenId ? { sourceTokenId } : {}),
         },
+        ...(firstSource
+          ? {
+              imageBase64: firstSource.image.includes(",")
+                ? firstSource.image.split(",")[1]
+                : firstSource.image,
+              imageMimeType: "image/jpeg",
+            }
+          : {}),
         history: messages.slice(-8).map(m => ({ role: m.role, content: m.content })),
       });
 
@@ -911,32 +920,51 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
     setExamProblems(prev => prev.filter(p => p.id !== id));
   }
 
-  const filteredThreads = threads.filter(t =>
-    !searchQuery.trim() ? true : t.title.toLowerCase().includes(searchQuery.trim().toLowerCase())
+  const filteredThreads = useMemo(
+    () =>
+      threads.filter(t =>
+        !searchQuery.trim() ? true : t.title.toLowerCase().includes(searchQuery.trim().toLowerCase())
+      ),
+    [threads, searchQuery]
   );
 
-  const filteredMocks = catalog.exams
-    .filter(exam => exam.grade === mockGrade)
-    .filter(exam =>
-      !mockSearch.trim()
-        ? true
-        : `${exam.title} ${exam.subject} ${exam.year}`.toLowerCase().includes(mockSearch.trim().toLowerCase())
-    )
-    .slice(0, 25);
+  const filteredMocks = useMemo(
+    () =>
+      catalog.exams
+        .filter(exam => exam.grade === mockGrade)
+        .filter(exam =>
+          !mockSearch.trim()
+            ? true
+            : `${exam.title} ${exam.subject} ${exam.year}`.toLowerCase().includes(mockSearch.trim().toLowerCase())
+        )
+        .slice(0, 25),
+    [catalog.exams, mockGrade, mockSearch]
+  );
 
-  const filteredTokens = allProblemTokens
-    .filter(t => t.grade === mockGrade)
-    .filter(t => {
-      if (!mockSearch.trim()) return true;
-      const q = mockSearch.trim().toLowerCase();
-      return (
-        `${t.number}번`.includes(q) ||
-        `${t.examTitle} ${t.subject} ${t.intent || ""} ${t.question} ${t.solution}`
-          .toLowerCase()
-          .includes(q)
-      );
-    })
-    .slice(0, 40);
+  const filteredTokens = useMemo(
+    () =>
+      allProblemTokens
+        .filter(t => t.grade === mockGrade)
+        .filter(t => {
+          if (!mockSearch.trim()) return true;
+          const q = mockSearch.trim().toLowerCase();
+          return (
+            `${t.number}번`.includes(q) ||
+            `${t.examTitle} ${t.subject} ${t.intent || ""} ${t.question} ${t.solution}`
+              .toLowerCase()
+              .includes(q)
+          );
+        })
+        .slice(0, 40),
+    [allProblemTokens, mockGrade, mockSearch]
+  );
+
+  const problemTokenById = useMemo(
+    () => new Map(allProblemTokens.map(t => [t.id, t])),
+    [allProblemTokens]
+  );
+
+  const renderedGeoSvg = useMemo(() => renderMathGeoSvg(geoSpec), [geoSpec]);
 
   const currentModeMeta = STUDIO_MODES.find(m => m.id === mode) || STUDIO_MODES[0];
   const CurrentModeIcon = currentModeMeta.icon;
@@ -1341,9 +1369,7 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                               const inExam = examProblems.some(item => item.id === prob.id);
                               const origin =
                                 prob.sourceOrigin ||
-                                (prob.sourceTokenId
-                                  ? allProblemTokens.find(t => t.id === prob.sourceTokenId)
-                                  : undefined);
+                                (prob.sourceTokenId ? problemTokenById.get(prob.sourceTokenId) : undefined);
                               return (
                                 <article key={prob.id} className={styles.problemCard}>
                                   <div className={styles.problemCardTop}>
@@ -1863,7 +1889,7 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
 
               <div
                 className={styles.geoSvgStage}
-                dangerouslySetInnerHTML={{ __html: renderMathGeoSvg(geoSpec) }}
+                dangerouslySetInnerHTML={{ __html: renderedGeoSvg }}
               />
 
               <div className={styles.geoActionRow}>
@@ -2116,7 +2142,7 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                                   setSubject(token.subject);
                                   setDifficulty(token.difficulty);
                                   void handleSend(
-                                    `${token.examTitle} ${token.number}번 (${token.difficulty}·${token.points}, 출제의도: ${token.intent || token.subject}) 원본 기출 토큰을 1:1로 참조하여 동일한 추론 구조와 난이도의 쌍둥이 변형 문제를 작도 그래프(geoSpec)와 함께 출제해줘`,
+                                    `${token.examTitle} ${token.number}번 (${token.difficulty}·${token.points}, 출제의도: ${token.intent || token.subject}) 원본 기출 토큰을 1:1로 참조하여 동일한 추론 구조와 난이도의 쌍둥이 변형 문제를 출제해줘`,
                                     "generate",
                                     token.id
                                   );
@@ -2192,15 +2218,16 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                   </div>
                   <div className={styles.vaultList}>
                     {filteredMocks.map(exam => {
-                      const problemPdf = exam.resources.find(r => r.kind === "problem" && r.localPath);
+                      const problemPdf = exam.resources.find(r => r.kind === "problem" && (r.url || r.localPath));
+                      const problemHref = problemPdf?.url || problemPdf?.localPath;
                       return (
                         <div key={exam.id} className={styles.vaultCard}>
                           <div className={styles.vaultCardHeader}>
                             <span>
                               {exam.year}년 {exam.month}월 · 고{exam.grade} {exam.subject}
                             </span>
-                            {problemPdf?.localPath && (
-                              <a href={problemPdf.localPath} target="_blank" rel="noreferrer">
+                            {problemHref && (
+                              <a href={problemHref} target="_blank" rel="noreferrer">
                                 원본 PDF ↗
                               </a>
                             )}
@@ -2213,7 +2240,7 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                               setGrade(exam.grade as 1 | 2 | 3);
                               setSubject(exam.subject);
                               void handleSend(
-                                `${exam.year}년 ${exam.month}월 고${exam.grade} ${exam.subject} (${exam.title}) 기출 스타일의 핵심 4점 변형 문제를 함수/기하 도형(geoSpec)과 함께 출제해줘`,
+                                `${exam.year}년 ${exam.month}월 고${exam.grade} ${exam.subject} (${exam.title}) 기출 스타일의 핵심 4점 변형 문제를 출제해줘`,
                                 "generate"
                               );
                             }}

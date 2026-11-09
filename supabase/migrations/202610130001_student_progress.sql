@@ -63,7 +63,7 @@ BEGIN
    WHERE id=(p_book->>'id')::uuid AND academy_id=tenant AND student_id=p_book->>'student_id'
    AND version=(p_book->>'version')::integer AND units=p_book->'units' AND title=p_book->>'title'
    AND curriculum=p_book->>'curriculum' AND course=p_book->>'course' RETURNING * INTO saved;
-  IF NOT FOUND THEN RAISE EXCEPTION 'Progress changed' USING ERRCODE='40001'; END IF;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Progress changed' USING ERRCODE='PT409'; END IF;
  END IF;
  IF p_entry IS NOT NULL THEN
   IF p_entry->>'book_id' IS DISTINCT FROM saved.id::text OR jsonb_typeof(p_entry->'unit_ids') IS DISTINCT FROM 'array' THEN RAISE EXCEPTION 'Invalid entry'; END IF;

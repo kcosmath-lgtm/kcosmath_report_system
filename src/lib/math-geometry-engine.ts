@@ -828,24 +828,24 @@ export function buildMathGeoSpecFromPrompt(prompt: string): MathGeoSpec | null {
     };
   }
 
-  // Fallback to semantic KICE/AlgeoMath presets when prompt describes a topic without raw equations
-  if (/(절댓값|미분가능|불연속|접어\s*올린|22번|30번|킬러)/.test(text)) {
-    return MATH_GEO_PRESETS[0].spec;
-  }
-  if (/(원|접선|현|수선의?\s*발|외접원|내접|피타고라스)/.test(text) && !/(삼차|사차|다항|적분)/.test(text)) {
-    return MATH_GEO_PRESETS[2].spec;
-  }
-  if (/(삼각함수|사인법칙|코사인법칙|삼각형|외접)/.test(text)) {
-    return MATH_GEO_PRESETS[3].spec;
-  }
-  if (/(지수|로그|역함수|점근선)/.test(text)) {
-    return MATH_GEO_PRESETS[4].spec;
-  }
-  if (/(유리함수|분수함수|쌍곡선)/.test(text)) {
-    return MATH_GEO_PRESETS[5].spec;
-  }
-  if (/(삼차|사차|극대|극소|접선|넓이|정적분|다항함수|그래프)/.test(text)) {
-    return MATH_GEO_PRESETS[1].spec;
+  // Only fall back to semantic presets when the user explicitly asks to draw/plot a graph or diagram without raw equations
+  const explicitlyWantsPlot = /(작도|그려|그래프.*그|도형.*그|그림.*그)/.test(text);
+  if (explicitlyWantsPlot) {
+    if (/(절댓값|미분가능|불연속|접어\s*올린)/.test(text)) {
+      return MATH_GEO_PRESETS[0].spec;
+    }
+    if (/(원|접선|현|수선의?\s*발|외접원|내접|피타고라스)/.test(text) && !/(삼차|사차|다항|적분)/.test(text)) {
+      return MATH_GEO_PRESETS[2].spec;
+    }
+    if (/(삼각함수|사인법칙|코사인법칙|삼각형|외접)/.test(text)) {
+      return MATH_GEO_PRESETS[4].spec;
+    }
+    if (/(지수|로그|역함수|점근선)/.test(text)) {
+      return MATH_GEO_PRESETS[5].spec;
+    }
+    if (/(삼차|사차|극대|극소|접선|넓이|정적분|다항함수|그래프)/.test(text)) {
+      return MATH_GEO_PRESETS[1].spec;
+    }
   }
 
   return null;

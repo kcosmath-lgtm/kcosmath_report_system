@@ -76,6 +76,18 @@ function ProgressRow({
   }, [onDirty, student.id, dirty, busy]);
 
   useEffect(() => {
+    if (dirty || busy) return;
+    const onExternalRecordChange = () => setReload(r => r + 1);
+    window.addEventListener('cosmath-records-changed', onExternalRecordChange);
+    const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('cosmath-records') : null;
+    if (channel) channel.onmessage = onExternalRecordChange;
+    return () => {
+      window.removeEventListener('cosmath-records-changed', onExternalRecordChange);
+      channel?.close();
+    };
+  }, [dirty, busy]);
+
+  useEffect(() => {
     let cancelled = false;
     queueMicrotask(() => {
       if (!cancelled) {

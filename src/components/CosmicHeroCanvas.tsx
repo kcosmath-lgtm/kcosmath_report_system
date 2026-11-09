@@ -357,13 +357,51 @@ export default function CosmicHeroCanvas() {
 
       mouse.vx *= 0.5;
       mouse.vy *= 0.5;
-      animationFrameId = window.requestAnimationFrame(tick);
+      if (isVisible) {
+        animationFrameId = window.requestAnimationFrame(tick);
+      } else {
+        animationFrameId = 0;
+      }
     };
 
-    animationFrameId = window.requestAnimationFrame(tick);
+    let isVisible = true;
+    const startLoop = () => {
+      if (!animationFrameId && isVisible && !document.hidden) {
+        animationFrameId = window.requestAnimationFrame(tick);
+      }
+    };
+    const stopLoop = () => {
+      if (animationFrameId) {
+        window.cancelAnimationFrame(animationFrameId);
+        animationFrameId = 0;
+      }
+    };
+
+    const observer =
+      typeof IntersectionObserver !== "undefined"
+        ? new IntersectionObserver(
+            ([entry]) => {
+              isVisible = entry.isIntersecting;
+              if (isVisible) startLoop();
+              else stopLoop();
+            },
+            { threshold: 0.01 }
+          )
+        : null;
+    observer?.observe(canvas);
+
+    const onVisibilityChange = () => {
+      if (document.hidden) stopLoop();
+      else startLoop();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    startLoop();
 
     return () => {
-      window.cancelAnimationFrame(animationFrameId);
+      stopLoop();
+      observer?.disconnect();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("resize", updateSize);
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseout", onMouseLeave);

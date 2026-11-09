@@ -41,7 +41,7 @@ BEGIN
   ELSE
    UPDATE public.cosmath_student_daily_records SET attendance=d->>'attendance',reason=d->>'reason',exams=d->'exams',version=version+1,updated_at=now()
     WHERE id=(d->>'id')::uuid AND academy_id=tenant AND student_id=d->>'student_id' AND record_date=(d->>'record_date')::date AND version=(d->>'version')::integer RETURNING * INTO saved;
-   IF NOT FOUND THEN RAISE EXCEPTION 'Record changed' USING ERRCODE='40001'; END IF;
+   IF NOT FOUND THEN RAISE EXCEPTION 'Record changed' USING ERRCODE='PT409'; END IF;
   END IF;
   saved_wrong:=public.cosmath_save_wrong_answer_homework((w->>'id')::uuid,w->>'student_id',(w->>'record_date')::date,
    (w->>'total_wrong')::integer,(w->>'corrected_count')::integer,w->>'memo',(w->>'version')::integer,

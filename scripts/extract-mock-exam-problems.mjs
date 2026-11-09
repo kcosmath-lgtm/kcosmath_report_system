@@ -290,9 +290,11 @@ function sanitizeMathSpan(rawMath) {
  * handling HWP fractions (__BAR__ denom num -> \frac{num}{denom}), overlines (\overline{AB}),
  * vector arrows (\overrightarrow{BP}), radicals (\sqrt), superscripts, and subscripts.
  */
-function convertPdfItemsToLatexText(rawItems, kind = "problem") {
+function convertPdfItemsToLatexText(rawItems, kind = "problem", pageHeight = 1190) {
   // 1. Filter out whitespace-only items and decode HWP PUA characters
   const initialItems = [];
+  const topCutoff = kind === "explanation" ? pageHeight * 0.915 : pageHeight * 0.895;
+  const botCutoff = kind === "explanation" ? pageHeight * 0.058 : pageHeight * 0.085;
   for (const it of rawItems) {
     if (!it || typeof it.str !== "string" || !it.str.trim()) continue;
     const x = Number(it.transform?.[4] ?? 0);
@@ -307,8 +309,9 @@ function convertPdfItemsToLatexText(rawItems, kind = "problem") {
     if (
       /^(수학\s*영역|5\s*지\s*선\s*다\s*형|단\s*답\s*형|\*\s*확인\s*사항|※\s*확인\s*사항|◦\s*답안지|◦\s*이어서|정\s*답\s*및\s*해\s*설|해\s*설|정\s*답)$/.test(t) ||
       /\d{4}\s*학년도|전국연합학력평가|대학수학능력시험|문제지|제\s*2\s*교시|홀수형|짝수형|무단\s*전재|재배포는\s*금지|[━─_]{3,}/.test(t) ||
-      (kind === "problem" && (y > 995 || y < 108) && /^(?:고\s*[123]|\d{1,2}(?:\s+\d{1,2})?)$/.test(t)) ||
-      (kind === "explanation" && (y > 735 || y < 70))
+      (kind === "problem" && (y > topCutoff || y < botCutoff) && /^(?:고\s*[123]|\d{1,2}(?:\s+\d{1,2})?)$/.test(t)) ||
+      (kind === "explanation" && (y > topCutoff || y < botCutoff) && !/출제의도/.test(t)) ||
+      (kind === "explanation" && y < pageHeight * 0.09 && /^\d{1,2}$/.test(t))
     ) {
       continue;
     }
@@ -799,7 +802,8 @@ function classifyDifficulty(num, pointsStr) {
 function attachAutoGeoSpecIfApplicable(unit, difficulty, num, question) {
   const n = Number(num);
   const q = String(question || "");
-  if (/원.*x\^2\s*\+\s*y\^2|원의\s*방정식/.test(q) || unit.includes("원의 방정식")) {
+  const hasExplicitFigure = /그림과\s*같이|다음\s*그림/.test(q);
+  if (/원.*x\^2\s*\+\s*y\^2|원의\s*방정식/.test(q)) {
     return {
       title: `${num}번 · 원과 직선 기하 도형`,
       xRange: [-4.5, 5.5],
@@ -816,55 +820,21 @@ function attachAutoGeoSpecIfApplicable(unit, difficulty, num, question) {
       ],
     };
   }
-  if ((difficulty === "킬러" || difficulty === "상") && (/미분|정적분|\\int|극대|극소|접선/.test(q) || [14, 15, 20, 21, 22, 28, 30].includes(n))) {
-    if (/sin|cos|\\pi/.test(q)) {
-      return {
-        title: `${num}번 · 삼각함수와 합성함수 추론 그래프`,
-        xRange: [-0.5, 6.8],
-        yRange: [-1.8, 2.8],
-        showAxes: true,
-        functions: [
-          { expr: "-sin(x) + 1", label: "y=f(x)", domain: [0, 6.28], labelPos: [4.7, 2.1] },
-          { expr: "(sin(x) - 1)^2", label: "y=g(f(x))", style: "dashed", domain: [0, 6.28], labelPos: [1.6, 0.4] },
-        ],
-        shadedRegions: [{ f1: "-sin(x) + 1", f2: "0", from: 0, to: 3.14 }],
-        points: [
-          { x: 1.57, y: 0, label: "π/2a", dropToX: true, xTick: "π/2a" },
-          { x: 3.14, y: 1, label: "π/a", dropToX: true, xTick: "π/a" },
-        ],
-      };
-    }
-    if (/log|지수|4\^|2\^/.test(q)) {
-      return {
-        title: `${num}번 · 지수·로그함수와 직선 교점 추론`,
-        xRange: [-1.5, 5.2],
-        yRange: [-1.5, 5.2],
-        showAxes: true,
-        equalAspect: true,
-        functions: [
-          { expr: "2^(x-1)", label: "y=a^{x-k}", labelPos: [2.7, 4.1] },
-          { expr: "log(x)/log(2) + 1", label: "y=log_a(x)+k", domain: [0.15, 5.0], labelPos: [3.4, 2.4] },
-          { expr: "0.5*x + 0.5", label: "y=mx+n", style: "dashed", labelPos: [3.8, 2.7] },
-        ],
-        points: [
-          { x: 1, y: 1, label: "A", dropToX: true, xTick: "x₁" },
-          { x: 3, y: 2.58, label: "C", dropToX: true, xTick: "x₂" },
-        ],
-      };
-    }
+  if (hasExplicitFigure && /log|지수|4\^|2\^/.test(q)) {
     return {
-      title: `${num}번 · 다항함수 개형 및 조건 추론`,
-      xRange: [-2.2, 3.8],
-      yRange: [-1.8, 5.5],
+      title: `${num}번 · 지수·로그함수와 직선 교점 추론`,
+      xRange: [-1.5, 5.2],
+      yRange: [-1.5, 5.2],
       showAxes: true,
+      equalAspect: true,
       functions: [
-        { expr: "abs(x^3 - 3*x + 1)", label: "y=g(x)", labelPos: [2.05, 4.1] },
-        { expr: "0.8*x + 1.2", label: "y=mx", style: "dashed", labelPos: [2.5, 3.3] },
+        { expr: "2^(x-1)", label: "y=a^{x-k}", labelPos: [2.7, 4.1] },
+        { expr: "log(x)/log(2) + 1", label: "y=log_a(x)+k", domain: [0.15, 5.0], labelPos: [3.4, 2.4] },
+        { expr: "0.5*x + 0.5", label: "y=mx+n", style: "dashed", labelPos: [3.8, 2.7] },
       ],
       points: [
-        { x: -1, y: 3, label: "α", dropToX: true, xTick: "α" },
-        { x: 1, y: 1, label: "k", dropToX: true, xTick: "k" },
-        { x: 2, y: 3, label: "β", dropToX: true, xTick: "β" },
+        { x: 1, y: 1, label: "A", dropToX: true, xTick: "x₁" },
+        { x: 3, y: 2.58, label: "C", dropToX: true, xTick: "x₂" },
       ],
     };
   }
@@ -1016,8 +986,8 @@ function parseProblemsFromLatexText(fullProbText, exam, expData, problemPdfUrl, 
       difficulty,
       number: String(num),
       points,
-      sourceLabel: `${exam.year}년 ${exam.month}월 고${exam.grade} ${exam.title} ${num}번`,
-      title: `${exam.year}년 ${exam.month}월 고${exam.grade} ${exam.title} ${num}번 (${points})`,
+      sourceLabel: `${exam.year}년 ${exam.month}월 ${exam.title.startsWith(`고${exam.grade}`) ? exam.title : `고${exam.grade} ${exam.title}`} ${num}번`,
+      title: `${exam.year}년 ${exam.month}월 ${exam.title.startsWith(`고${exam.grade}`) ? exam.title : `고${exam.grade} ${exam.title}`} ${num}번 (${points})`,
       question: questionPart,
       boxLayout: boxContent ? "box" : "none",
       boxContent,
@@ -1098,8 +1068,9 @@ async function extractPdfLatexString(pdfDiskPath, kind = "problem") {
   let rawText = "";
   for (let p = 1; p <= doc.numPages; p++) {
     const page = await doc.getPage(p);
+    const vp = page.getViewport({ scale: 1 });
     const tc = await page.getTextContent();
-    fullText += " " + convertPdfItemsToLatexText(tc.items, kind);
+    fullText += " " + convertPdfItemsToLatexText(tc.items, kind, vp.height || 1190);
     rawText += " " + tc.items.map(it => decodeHwpString(it.str || "")).join(" ");
   }
   await doc.cleanup();
@@ -1138,8 +1109,8 @@ for (let idx = 0; idx < targetExams.length; idx++) {
     probExtracted.latex,
     exam,
     expData,
-    problemRes.localPath,
-    explanationRes?.localPath || ""
+    problemRes.url || problemRes.localPath,
+    explanationRes?.url || explanationRes?.localPath || ""
   );
   console.log(`${matchedTokens.length}개 문항·해설 1:1 토큰 생성 완료`);
 

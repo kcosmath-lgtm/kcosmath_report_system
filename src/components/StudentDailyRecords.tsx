@@ -241,6 +241,18 @@ export default function StudentDailyRecords({
   }, [date, reload, rosterRevision, dateReady]);
 
   useEffect(() => {
+    if (dirty.length > 0 || dirtyBooks.length > 0 || busy) return;
+    const onExternalRecordChange = () => setReload(r => r + 1);
+    window.addEventListener('cosmath-records-changed', onExternalRecordChange);
+    const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('cosmath-records') : null;
+    if (channel) channel.onmessage = onExternalRecordChange;
+    return () => {
+      window.removeEventListener('cosmath-records-changed', onExternalRecordChange);
+      channel?.close();
+    };
+  }, [dirty.length, dirtyBooks.length, busy]);
+
+  useEffect(() => {
     if (!dirty.length) return;
     const guard = (e: BeforeUnloadEvent) => {
       e.preventDefault();

@@ -1,0 +1,7 @@
+# Exclude 780MB of raw mock exam PDFs from Vercel static deployment (app uses direct EBSi CDN URLs)
+public/question-bank/files/
+.local-backups/
+.local-check/
+test-results/
+tests/
+docs/

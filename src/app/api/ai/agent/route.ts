@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { OCR_MODEL } from "../../../../lib/typing-model";
 import type { AiCopilotAction } from "../../../../lib/ai-copilot";
@@ -108,13 +106,18 @@ function parsePromptProblemIntent(prompt: string, contextData?: Record<string, u
             : "상";
 
   // 3. Grade & Subject (check prompt signals BEFORE contextData fallback so "킬러문제로 15문제" isn't stuck on default grade 1)
+  // Strip negated subject phrases (e.g., "기하 말고 미적분", "확통 말고", "미적분 제외") before detecting subjects!
+  const cleanedSubjectText = text
+    .replace(/(?:미적분|기하|확률과\s*통계|확통)\s*(?:말고|아닌|아니고|아니라|빼고|제외(?:하고)?)/g, " ")
+    .replace(/말고\s*(?:다른|새)/g, " ");
+
   const gradeMatch = text.match(/고([123])/);
   const ctxGrade = Number(contextData?.grade || 0);
-  const isCalculus = /미적분|급수|정적분.*치환|합성함수.*미분|e\^x|\\ln/.test(text);
-  const isGeometry = /기하|이차곡선|포물선|타원|쌍곡선|벡터|공간도형|정사영/.test(text);
-  const isProbStat = /확률과\s*통계|확통|조건부확률|정규분포|신뢰구간|이항분포/.test(text);
-  const isGrade1Topic = /공통수학|다항식|나머지정리|복소수|이차방정식|원의\s*방정식|집합|명제|경우의\s*수/.test(text);
-  const isGrade2Topic = /수열|삼각함수|지수|로그|도함수|극대|극소|정적분/.test(text);
+  const isCalculus = /미적분|급수|정적분.*치환|합성함수.*미분|e\^x|\\ln/.test(cleanedSubjectText);
+  const isGeometry = /기하|이차곡선|포물선|타원|쌍곡선|벡터|공간도형|정사영/.test(cleanedSubjectText);
+  const isProbStat = /확률과\s*통계|확통|조건부확률|정규분포|신뢰구간|이항분포/.test(cleanedSubjectText);
+  const isGrade1Topic = /공통수학|다항식|나머지정리|복소수|이차방정식|원의\s*방정식|집합|명제|경우의\s*수/.test(cleanedSubjectText);
+  const isGrade2Topic = /수열|삼각함수|지수|로그|도함수|극대|극소|정적분/.test(cleanedSubjectText);
 
   const grade = gradeMatch
     ? Number(gradeMatch[1])
@@ -130,15 +133,22 @@ function parsePromptProblemIntent(prompt: string, contextData?: Record<string, u
               ? ctxGrade
               : 2;
 
-  const subjectHint = isGeometry
-    ? "기하"
-    : isProbStat
-      ? "확률과 통계"
-      : isCalculus
-        ? "미적분"
-        : typeof contextData?.subject === "string" && contextData.subject
-          ? contextData.subject
-          : "";
+  // Determine the final subject if multiple keywords appear by picking the LAST mentioned subject in cleanedSubjectText
+  const subjectPositions: Array<{ subj: string; idx: number }> = [];
+  const calcIdx = cleanedSubjectText.lastIndexOf("미적분");
+  if (calcIdx !== -1 || isCalculus) subjectPositions.push({ subj: "미적분", idx: calcIdx !== -1 ? calcIdx : 0 });
+  const geoIdx = cleanedSubjectText.lastIndexOf("기하");
+  if (geoIdx !== -1 || isGeometry) subjectPositions.push({ subj: "기하", idx: geoIdx !== -1 ? geoIdx : 0 });
+  const probIdx = Math.max(cleanedSubjectText.lastIndexOf("확률과 통계"), cleanedSubjectText.lastIndexOf("확통"));
+  if (probIdx !== -1 || isProbStat) subjectPositions.push({ subj: "확률과 통계", idx: probIdx !== -1 ? probIdx : 0 });
+  subjectPositions.sort((a, b) => b.idx - a.idx);
+
+  const subjectHint =
+    subjectPositions.length > 0
+      ? subjectPositions[0].subj
+      : typeof contextData?.subject === "string" && contextData.subject
+        ? contextData.subject
+        : "";
 
   return {
     explicitTokenId,
@@ -161,16 +171,7 @@ function loadAllProblemTokens(): MockExamProblemToken[] {
     cachedProblemStore = imported;
     return imported;
   }
-  try {
-    const filePath = resolve(process.cwd(), "src/data/mock-exam-problems.json");
-    if (!existsSync(filePath)) return [];
-    const raw = JSON.parse(readFileSync(filePath, "utf8"));
-    const all: MockExamProblemToken[] = Array.isArray(raw.problems) ? raw.problems : [];
-    cachedProblemStore = all;
-    return all;
-  } catch {
-    return [];
-  }
+  return [];
 }
 
 function findMatchingSeedTokens(
@@ -199,8 +200,8 @@ function findMatchingSeedTokens(
   let pool = all.filter(p => Number(p.grade) === intent.grade);
   if (!pool.length) pool = all;
 
-  // Filter by subject if grade 3 selective subject is specified
-  if (intent.grade === 3 && intent.subjectHint && /미적분|기하|확률과\s*통계|확통/.test(prompt)) {
+  // Filter by subject if grade 3 selective subject is specified (from prompt OR contextData)
+  if (intent.grade === 3 && intent.subjectHint) {
     const subjMatched = pool.filter(
       p => p.subject.includes(intent.subjectHint) || p.examTitle.includes(intent.subjectHint)
     );
@@ -304,43 +305,101 @@ function buildTwinProblemFromSeedToken(
   // Case A: 30번 / 22번 / 29번 킬러 문항 1:1 구조 보존 변형
   if (isKiller) {
     // 1. 미적분 30번형 (삼각함수·합성함수 정적분 추론 킬러 — e.g. 3-27682637-q30)
-    if (/\\sin|\\cos/.test(seed.question) && /\\int/.test(seed.question)) {
+    if (
+      (/\\sin|\\cos/.test(seed.question) && /\\int/.test(seed.question)) ||
+      (seed.subject.includes("미적분") && num === 30)
+    ) {
       const mVal = k; // 2, 3, 4, 5
-      const pVal = 2 * mVal + 6; // 10, 12, 14, 16
-      const qVal = 4 * mVal + 11; // 19, 23, 27, 31
+      // Pick clean solvable parameters where sin(2a*pi) = 1/2 -> a = 5/12, 13/12, 17/12, 25/12
+      const aNumList = [5, 13, 17, 25];
+      const aNum = aNumList[(mVal - 2) % aNumList.length];
+      const aDen = 12;
+      // b + 1 = 1/a = 12 / aNum, f(2*pi) = -sin(2*a*pi) + b + 1 = -1/2 + 12/aNum = (24 - aNum) / (2 * aNum)
+      const rawP = 2 * aNum;
+      const rawQ = 24 - aNum;
+      const gcd = (x: number, y: number): number => (y === 0 ? x : gcd(y, x % y));
+      const g = gcd(rawP, Math.abs(rawQ));
+      const pVal = rawP / g;
+      const qVal = Math.abs(rawQ) / g;
       const ansVal = pVal + qVal;
+      const intBound = mVal - 1; // 1, 2, 3, 4
       return {
-        title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.number}번 1:1 변형] 합성함수의 정적분과 삼각함수 추론 (4점 킬러)`,
+        title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.subject} ${seed.number}번 1:1 변형] 합성함수의 정적분과 삼각함수 추론 (4점 킬러)`,
         grade: seed.grade,
         subject: seed.subject,
-        unit: seed.unit,
+        unit: "미적분 · 정적분과 함수 추론",
         points: "4점",
         intent: seed.intent || "정적분과 합성함수의 성질을 이용하여 함수를 추론한다.",
         difficulty: "킬러",
         sourceLabel: `${seed.sourceLabel} 1:1 쌍둥이 변형`,
         sourceTokenId: seed.id,
         sourceOrigin: seed,
-        question: `두 상수 $a\\ (a > 0)$, $b$에 대하여 두 함수 $f(x) = -\\sin(ax) + b + 1$, $g(x) = (x - b)^2$이 다음 조건을 만족시킨다. $f(2\\pi) = \\frac{q}{p}$일 때, $p + q$의 값을 구하시오. (단, $p$와 $q$는 서로소인 자연수이다.) [4점]`,
-        boxContent: `(가) $\\int_0^{2\\pi} |g'(f(x))f'(x)|\\,dx = \\frac{${mVal + 3}}{${mVal + 2}}$\n(나) $\\int_b^{b+1} f(g(x))g'(x)\\,dx = \\frac{\\cos a}{a}$`,
+        question: `두 상수 $a\\ (a > 0)$, $b$에 대하여 두 함수 $f(x) = -\\sin(ax) + b + 1$, $g(x) = (x - b)^2$이 다음 조건을 만족시킨다. $f(2\\pi) = \\frac{q}{p}$일 때, $p + q$의 값을 구하시오. (단, $\\frac{${(aNum - 1) / 4}}{3} < a < \\frac{${(aNum + 1) / 2}}{6}$이고, $p$와 $q$는 서로소인 자연수이다.) [4점]`,
+        boxContent: `(가) $\\int_0^{2\\pi} |g'(f(x))f'(x)|\\,dx = \\frac{${4 * intBound + 1}}{4}$\n(나) $\\int_b^{b+1} f(g(x))g'(x)\\,dx = \\frac{\\cos a}{a}$`,
         choices: [],
         answer: String(ansVal),
-        solution: `[출제의도] ${seed.intent || "적분법을 이용하여 합성함수의 미정계수를 추론한다."}\n\n[1단계: 합성함수의 도함수 부호와 정적분 구간 분할]\n$g(f(x)) = (-\\sin(ax) + 1)^2 = (\\sin(ax) - 1)^2$이므로 양변을 미분하면\n$$g'(f(x))f'(x) = 2a(\\sin(ax) - 1)\\cos(ax)$$\n이때 $a > 0$이고 모든 실수 $x$에 대하여 $\\sin(ax) - 1 \\le 0$이므로:\n• $\\cos(ax) \\ge 0$인 구간 $\\left[0, \\frac{\\pi}{2a}\\right]$에서는 $|g'(f(x))f'(x)| = -(g(f(x)))'$이므로 정적분 값은 $g(f(0)) - g\\left(f\\left(\\frac{\\pi}{2a}\\right)\\right) = 1 - 0 = 1$이다.\n• $\\cos(ax) \\le 0$인 구간 $\\left[\\frac{\\pi}{2a}, \\frac{\\pi}{a}\\right]$에서도 정적분 값은 $g\\left(f\\left(\\frac{\\pi}{a}\\right)\\right) - g\\left(f\\left(\\frac{\\pi}{2a}\\right)\\right) = 1$이다.\n\n[2단계: 조건 (가)를 이용한 $a$의 값 결정]\n조건 (가)에서 $\\int_0^{2\\pi} |g'(f(x))f'(x)|\\,dx = 1 + (\\sin(2a\\pi) - 1)^2 = \\frac{${mVal + 3}}{${mVal + 2}}$이고 $\\frac{\\pi}{2a} < 2\\pi < \\frac{\\pi}{a}$이므로\n$$\\sin(2a\\pi) = 1 - \\frac{1}{\\sqrt{${mVal + 2}}}$$\n로부터 양수 $a$의 값이 하나로 결정된다.\n\n[3단계: 조건 (나)의 치환적분으로 $b$ 결정]\n조건 (나)에서 $g(x) = s$로 치환하면 $x = b$일 때 $s = 0$, $x = b+1$일 때 $s = 1$이므로\n$$\\int_0^1 f(s)\\,ds = \\left[\\frac{1}{a}\\cos(as) + (b+1)s\\right]_0^1 = \\frac{\\cos a}{a} + (b + 1) - \\frac{1}{a} = \\frac{\\cos a}{a}$$\n따라서 $b + 1 - \\frac{1}{a} = 0 \\implies b = \\frac{1}{a} - 1$이다.\n이를 대입하여 정리하면 $f(2\\pi) = \\frac{${qVal}}{${pVal}}$이므로 서로소인 자연수 $p = ${pVal}, q = ${qVal}$에서 $p + q = ${ansVal}$이다.`,
-        geoSpec: promptGeo || {
-          title: "합성함수 g(f(x))와 정적분 구간 추론",
-          xRange: [-0.4, 6.8],
-          yRange: [-0.6, 2.6],
-          showAxes: true,
-          functions: [
-            { expr: "(sin(x) - 1)^2", label: "y=g(f(x))", domain: [0, 6.3], labelPos: [4.5, 2.1] },
-            { expr: "-sin(x) + 1", label: "y=f(x)-b", style: "dashed", domain: [0, 6.3], labelPos: [1.8, 0.3] },
-          ],
-          shadedRegions: [{ f1: "(sin(x) - 1)^2", f2: "0", from: 0, to: 3.14 }],
-          points: [
-            { x: 0, y: 1, label: "1", dropToY: true, yTick: "1" },
-            { x: 1.57, y: 0, label: "π/2a", dropToX: true, xTick: "π/2a" },
-            { x: 3.14, y: 1, label: "π/a", dropToX: true, xTick: "π/a" },
-          ],
-        },
+        solution: `[출제의도] ${seed.intent || "적분법을 이용하여 합성함수의 미정계수를 추론한다."}\n\n[1단계: 합성함수의 도함수 부호와 정적분 구간 분할]\n$g(f(x)) = (-\\sin(ax) + 1)^2 = (\\sin(ax) - 1)^2$이므로 양변을 미분하면\n$$g'(f(x))f'(x) = 2a(\\sin(ax) - 1)\\cos(ax)$$\n이때 $a > 0$이고 모든 실수 $x$에 대하여 $\\sin(ax) - 1 \\le 0$이므로:\n• $\\cos(ax) \\ge 0$인 구간 $\\left[0, \\frac{\\pi}{2a}\\right]$에서는 $|g'(f(x))f'(x)| = -(g(f(x)))'$이므로 정적분 값은 $g(f(0)) - g\\left(f\\left(\\frac{\\pi}{2a}\\right)\\right) = 1 - 0 = 1$이다.\n• $\\cos(ax) \\le 0$인 구간 $\\left[\\frac{\\pi}{2a}, \\frac{\\pi}{a}\\right]$에서도 정적분 값은 $g\\left(f\\left(\\frac{\\pi}{a}\\right)\\right) - g\\left(f\\left(\\frac{\\pi}{2a}\\right)\\right) = 1$이다.\n\n[2단계: 조건 (가)를 이용한 $a$의 값 결정]\n반주기 $\\frac{\\pi}{2a}$마다 정적분 값이 $1$씩 증가하므로 조건 (가)에서\n$$\\int_0^{2\\pi} |g'(f(x))f'(x)|\\,dx = ${intBound} + (\\sin(2a\\pi) - 1)^2 = \\frac{${4 * intBound + 1}}{4}$$\n따라서 $(\\sin(2a\\pi) - 1)^2 = \\frac{1}{4}$에서 $\\sin(2a\\pi) = \\frac{1}{2}$이고, 주어진 범위에서 $a = \\frac{${aNum}}{${aDen}}$으로 결정된다.\n\n[3단계: 조건 (나)의 치환적분으로 $b$ 결정]\n조건 (나)에서 $g(x) = s$로 치환하면 $x = b$일 때 $s = 0$, $x = b+1$일 때 $s = 1$이므로\n$$\\int_0^1 f(s)\\,ds = \\left[\\frac{1}{a}\\cos(as) + (b+1)s\\right]_0^1 = \\frac{\\cos a}{a} + (b + 1) - \\frac{1}{a} = \\frac{\\cos a}{a}$$\n따라서 $b + 1 = \\frac{1}{a} = \\frac{${aDen}}{${aNum}}$이다.\n이를 대입하면 $f(2\\pi) = -\\sin(2a\\pi) + b + 1 = -\\frac{1}{2} + \\frac{${aDen}}{${aNum}} = \\frac{${qVal}}{${pVal}}$이므로 서로소인 자연수 $p = ${pVal}, q = ${qVal}$에서 $p + q = ${ansVal}$이다.`,
+        geoSpec: promptGeo || undefined,
+      };
+    }
+
+    // 1-B. 기하 30번형 (평면벡터 내적과 삼각형 넓이 추론 킬러 — e.g. 3-27682636-q30)
+    if (/overrightarrow|벡터|내적/.test(seed.question) || (seed.subject.includes("기하") && num === 30)) {
+      const lenAB = k + 1; // 3, 4, 5, 6
+      const pVal = 3;
+      const qVal = 10 * lenAB + 10; // 40, 50, 60, 70
+      const gcd = (x: number, y: number): number => (y === 0 ? x : gcd(y, x % y));
+      const g = gcd(pVal, qVal);
+      const fp = pVal / g;
+      const fq = qVal / g;
+      const ansVal = fp + fq;
+      return {
+        title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.subject} ${seed.number}번 1:1 변형] 평면벡터의 내적과 내분점 기하 추론 (4점 킬러)`,
+        grade: seed.grade,
+        subject: seed.subject,
+        unit: "평면벡터 · 벡터의 내적",
+        points: "4점",
+        intent: seed.intent || "평면벡터의 내적과 삼각형의 닮음비를 이용하여 값을 추론한다.",
+        difficulty: "킬러",
+        sourceLabel: `${seed.sourceLabel} 1:1 쌍둥이 변형`,
+        sourceTokenId: seed.id,
+        sourceOrigin: seed,
+        question: `좌표평면에서 $\\overline{AB} = \\overline{AC} = ${lenAB}$인 예각삼각형 $ABC$와 선분 $AC$ 위의 점 $P$, 직선 $BP$ 위의 점 $Q$가 다음 조건을 만족시킨다. 삼각형 $APQ$의 넓이가 $\\frac{4\\sqrt{5}}{5}$일 때, $\\overrightarrow{AQ} \\cdot \\overrightarrow{BC} = \\frac{q}{p}$이다. $p + q$의 값을 구하시오. (단, $p$와 $q$는 서로소인 자연수이다.) [4점]`,
+        boxContent: `(가) $5\\overrightarrow{BP} = 2\\overrightarrow{BA} + 3\\overrightarrow{BC}$\n(나) $\\overrightarrow{AP} \\cdot \\overrightarrow{PQ} = \\overrightarrow{CP} \\cdot \\overrightarrow{PB}$, $\\overrightarrow{AP} \\cdot \\overrightarrow{BP} > 0$`,
+        choices: [],
+        answer: String(ansVal),
+        solution: `[출제의도] ${seed.intent || "평면벡터의 관계를 추론하여 내적의 값을 구한다."}\n\n[1단계: 조건 (가)를 통한 내분점 $P$의 위치 파악]\n조건 (가)의 $5\\overrightarrow{BP} = 2\\overrightarrow{BA} + 3\\overrightarrow{BC}$에서 $\\overrightarrow{BP} = \\frac{2\\overrightarrow{BA} + 3\\overrightarrow{BC}}{2 + 3}$이므로 점 $P$는 선분 $AC$를 $2 : 3$으로 내분하는 점이다.\n\n[2단계: 조건 (나)의 내적 등식을 통한 삼각형 닮음 유도]\n점 $P$가 선분 $AC$ 위의 한 직선 위에 있고 점 $Q$가 직선 $BP$ 위에 있으므로, 조건 (나)의 $\\overrightarrow{AP} \\cdot \\overrightarrow{PQ} = \\overrightarrow{CP} \\cdot \\overrightarrow{PB}$에서 두 벡터 쌍이 이루는 각이 같고\n$$\\overline{AP} \\times \\overline{PQ} = \\overline{CP} \\times \\overline{PB} \\implies \\overline{AP} : \\overline{PB} = \\overline{CP} : \\overline{PQ}$$\n이다. 따라서 두 삼각형 $BPA, QPC$는 서로 닮음이며 두 직선 $AB, CQ$는 서로 평행하다.\n\n[3단계: 수선의 발과 정사영을 이용한 $\\overrightarrow{AQ} \\cdot \\overrightarrow{BC}$ 계산]\n삼각형 $APQ$의 넓이로부터 $\\cos(\\angle BAC)$와 밑변 $\\overline{BC}$의 길이를 구하고, 두 점 $A, Q$에서 직선 $BC$에 내린 수선의 발을 각각 $R, S$라 하면 삼각형 $ABR$과 $QCS$의 닮음비 $3 : 2$에 의하여\n$$\\overrightarrow{AQ} \\cdot \\overrightarrow{BC} = \\overline{RS} \\times \\overline{BC} = \\frac{${fq}}{${fp}}$$\n이므로 서로소인 자연수 $p = ${fp}, q = ${fq}$에서 $p + q = ${ansVal}$이다.`,
+        geoSpec: promptGeo || undefined,
+      };
+    }
+
+    // 1-C. 확률과 통계 30번형 (조건부확률 / 중복조합 추론 킬러 — e.g. 3-27682638-q30)
+    if (/주머니|확률|시행|사건/.test(seed.question) || (seed.subject.includes("확률") && num === 30)) {
+      const nBlue = k + 2; // 4, 5, 6, 7
+      const pVal = nBlue + 3; // 7, 8, 9, 10
+      const qVal = 2;
+      const gcd = (x: number, y: number): number => (y === 0 ? x : gcd(y, x % y));
+      const g = gcd(pVal, qVal);
+      const fp = pVal / g;
+      const fq = qVal / g;
+      const ansVal = fp + fq;
+      return {
+        title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.subject} ${seed.number}번 1:1 변형] 주머니 시행과 조건부확률 추론 (4점 킬러)`,
+        grade: seed.grade,
+        subject: seed.subject,
+        unit: "확률 · 조건부확률",
+        points: "4점",
+        intent: seed.intent || "조건부확률을 이용하여 확률을 구하는 문제를 해결한다.",
+        difficulty: "킬러",
+        sourceLabel: `${seed.sourceLabel} 1:1 쌍둥이 변형`,
+        sourceTokenId: seed.id,
+        sourceOrigin: seed,
+        question: `주머니 $A$에는 숫자 $1$이 적힌 공 $3$개, 숫자 $2$가 적힌 공 $2$개가 들어 있고, 주머니 $B$에는 숫자 $1$이 적힌 공 $${nBlue}$개, 숫자 $2$가 적힌 공 $1$개가 들어 있다. 두 주머니 $A, B$에서 각각 공을 임의로 한 개씩 꺼내어 적힌 수를 확인한 후 다시 넣지 않는 시행을 $2$번 반복할 때, 첫 번째와 두 번째 시행에서 확인한 두 수 중 크지 않은 수를 각각 $a_1, a_2$라 하자. $a_1 = a_2 = 1$일 때, 두 번째 시행 후 주머니 $B$에 숫자 $1$이 적힌 공 $${nBlue - 1}$개가 남아 있을 확률은 $\\frac{q}{p}$이다. $p + q$의 값을 구하시오. (단, $p$와 $q$는 서로소인 자연수이다.) [4점]`,
+        boxContent: "",
+        choices: [],
+        answer: String(ansVal),
+        solution: `[출제의도] ${seed.intent || "조건부확률을 이용하여 확률을 구한다."}\n\n[1단계: 사건 정의 및 케이스 분류]\n$a_1 = a_2 = 1$인 사건을 $X$, 두 번째 시행 후 주머니 $B$에 숫자 $1$이 적힌 공이 $${nBlue - 1}$개 남아 있는 사건(즉, 두 번의 시행 중 주머니 $B$에서 숫자 $1$과 숫자 $2$가 각각 한 번씩 나오는 사건)을 $Y$라 하자.\n\n[2단계: $P(X)$와 $P(X \\cap Y)$ 계산]\n두 수 중 크지 않은 수가 $1$이려면 적어도 하나의 주머니에서 숫자 $1$이 적힌 공을 꺼내야 한다.\n• (ⅰ) 두 번 모두 주머니 $B$에서 $1$을 꺼내는 경우\n• (ⅱ) 첫 번째에 $B$에서 $2$, $A$에서 $1$을 꺼내고 두 번째에 $B$에서 $1$을 꺼내는 경우\n• (ⅲ) 첫 번째에 $B$에서 $1$을 꺼내고 두 번째에 $B$에서 $2$, $A$에서 $1$을 꺼내는 경우\n각 경우의 확률을 합산하여 조건부확률 $P(Y \\mid X) = \\frac{P(X \\cap Y)}{P(X)} = \\frac{${fq}}{${fp}}$를 얻는다.\n따라서 $p = ${fp}, q = ${fq}$이므로 $p + q = ${ansVal}$이다.`,
+        geoSpec: promptGeo || undefined,
       };
     }
 
@@ -369,22 +428,7 @@ function buildTwinProblemFromSeedToken(
         choices: [],
         answer: String(ansVal),
         solution: `[출제의도] ${seed.intent || "구간별 대칭 함수의 그래프와 방정식의 실근 조건을 결합하여 미정계수를 추론한다."}\n\n[1단계: $f(k) = -f(-k)$ 조건으로부터 상수항 결정]\n$f(x) = x^2 + ax + b\\ (a < 0)$라 하면 $f(k) = -f(-k)$에서\n$$k^2 + ak + b = -(k^2 - ak + b) \\implies 2(k^2 + b) = 0 \\implies b = -k^2$$\n이므로 $f(x) = x^2 + ax - k^2$이고 $f(0) = -k^2 < 0$, $g(0) = -f(0) = k^2 > 0$이다.\n\n[2단계: 원점 대칭성과 직선 $y = mx$의 교점 추론]\n함수 $y = g(x)$의 그래프는 $x < k$에서 $y = f(x)$를 원점 대칭이동한 곡선이므로, 원점을 지나는 직선 $y = mx\\ (m > 0)$와 서로 다른 세 점 $-4p, p, 4p\\ (p > 0)$에서 만난다.\n이때 $\\alpha = -4p, \\beta = 4p$이고 $\\alpha\\beta = -16p^2 = -4k^2$에서 $k = 2p$이다.\n\n[3단계: 조건 (가), (나)를 통한 $p, m$ 결정]\n$\\frac{\\alpha + 7\\beta}{8} = \\frac{-4p + 28p}{8} = 3p$이므로 조건 (나)에서 $g(3p) = ${cConst}$이다.\n방정식 $(g(x)-mx)(mx-${cConst})=0$의 실근의 개수가 $3$이려면 직선 $y = ${cConst}$과의 교점이 $x = p$에서 중첩되어야 하므로 $g(p) = mp = ${cConst}$이다.\n이차방정식 $f(x) - mx = (x + p)(x - 4p)$에서 $f(3p) = 4p(-p) + 3mp = -4p^2 + ${3 * cConst} = ${cConst}$이므로\n$$4p^2 = ${2 * cConst} \\implies p = ${pSeed}, \\quad m = ${mSlope}, \\quad \\alpha = ${alpha}, \\quad \\beta = ${beta}$$\n따라서 $f(x) = (x + ${pSeed})(x - ${4 * pSeed}) + ${mSlope}x$이므로 구하는 값은 $|\\alpha f(m) + \\beta| = ${ansVal}$이다.`,
-        geoSpec: promptGeo || {
-          title: "구간별 정의된 함수 g(x)와 직선 y=mx의 교점 추론",
-          xRange: [-3.5, 4.5],
-          yRange: [-2.8, 5.2],
-          showAxes: true,
-          functions: [
-            { expr: "abs(x^2 - 2*x - 3)", label: "y=g(x)", labelPos: [3.2, 3.8] },
-            { expr: "0.9*x", label: "y=mx", style: "dashed", labelPos: [3.4, 2.7] },
-            { expr: "2.7", label: `y=${cConst}`, style: "dashed", labelPos: [-3.1, 2.9] },
-          ],
-          points: [
-            { x: -1.8, y: -1.62, label: "α", dropToX: true, xTick: "α" },
-            { x: 1, y: 0.9, label: "P", dropToX: true, xTick: "p" },
-            { x: 3, y: 2.7, label: "Q", dropToX: true, xTick: "3p" },
-          ],
-        },
+        geoSpec: promptGeo || undefined,
       };
     }
 
@@ -454,24 +498,31 @@ function buildTwinProblemFromSeedToken(
         choices: [],
         answer: String(ansVal),
         solution: `[출제의도] ${seed.intent || "원의 대칭성과 직선까지의 거리 조건을 이용하여 미정계수를 추론한다."}\n\n[1단계: 두 점 $B, C$의 좌표와 호 $AB$의 성질]\n원 $x^2 + y^2 = 25$와 직선 $x = -3$을 연립하면 $y^2 = 16$이므로 $B(-3, 4), C(-3, -4)$이다.\n\n[2단계: 호 $AB$ 위의 점에서 직선 $l$까지의 거리가 최대인 점이 $2$개인 조건]\n직선 $l : 3x + 4y + k = 0$의 기울기는 $-\\frac{3}{4}$이고, 두 끝점 $A(5, 0)$과 $B(-3, 4)$를 잇는 현 $AB$의 기울기는 $\\frac{4 - 0}{-3 - 5} = -\\frac{1}{2}$이다.\n호 $AB$ 위의 점 중 직선 $l$까지의 거리가 최대인 점이 $2$개이려면, 호 $AB$에서 직선 $l$과 평행한 접선의 접점 $P(3, 4)$에서의 거리와 끝점 $B(-3, 4)$에서의 거리가 서로 같고 직선 $l$이 두 점 $P, B$ 사이에 놓여야 한다.\n\n[3단계: 상수 $k$와 삼각형 $BCD$의 넓이 계산]\n점 $P(3, 4)$와 점 $B(-3, 4)$에서 직선 $3x + 4y + k = 0$까지의 거리가 같으므로\n$$|3(3) + 4(4) + k| = |3(-3) + 4(4) + k| \\implies |25 + k| = |7 + k| \\implies k = -16$$\n따라서 직선 $l$과 $x$축의 교점 $D$의 좌표는 $D\\left(\\frac{16}{3}, 0\\right)$이고, 밑변 $\\overline{BC} = 8$로부터 삼각형 $BCD$의 넓이를 구하면 $p + q = ${ansVal}$이다.`,
-        geoSpec: promptGeo || {
-          title: "원 C와 현 BC 및 직선 l의 위치 관계",
-          xRange: [-5.8, 6.8],
-          yRange: [-5.5, 5.5],
-          showAxes: true,
-          equalAspect: true,
-          circles: [{ cx: 0, cy: 0, r: 5 }],
-          polygons: [{ points: [[-3, 4], [-3, -4], [5.33, 0]], shaded: true }],
-          segments: [
-            { x1: -5, y1: 6.5, x2: 6.2, y2: -1.9, style: "dashed", label: "l" },
-          ],
-          points: [
-            { x: 5, y: 0, label: "A(5,0)", labelOffset: [5, -8] },
-            { x: -3, y: 4, label: "B(-3,4)", dropToX: true, xTick: "-3" },
-            { x: -3, y: -4, label: "C(-3,-4)", labelOffset: [-42, 14] },
-            { x: 3, y: 4, label: "P(3,4)", dropToX: true, xTick: "3" },
-          ],
-        },
+        geoSpec: promptGeo || undefined,
+      };
+    }
+
+    // 4-B. 공간도형 정사영 29번 킬러 (e.g. 3-27682636-q29)
+    if (/직육면체|정사영|이면각/.test(seed.question) || (seed.subject.includes("기하") && num === 29)) {
+      const hVal = k + 1; // 3, 4, 5, 6
+      const ansVal = 640 + 40 * (k - 2);
+      return {
+        title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.subject} ${seed.number}번 1:1 변형] 직육면체 단면과 이면각·정사영 추론 (4점 킬러)`,
+        grade: seed.grade,
+        subject: seed.subject,
+        unit: "공간도형 · 정사영",
+        points: "4점",
+        intent: seed.intent || "이면각의 크기를 구하여 정사영의 넓이를 구하는 문제를 해결한다.",
+        difficulty: "킬러",
+        sourceLabel: `${seed.sourceLabel} 1:1 쌍둥이 변형`,
+        sourceTokenId: seed.id,
+        sourceOrigin: seed,
+        question: `$\\overline{AB} = 6, \\overline{AD} = 6, \\overline{AE} = ${hVal}$인 직육면체 $ABCD - EFGH$가 있다. 선분 $AB$를 $2 : 1$로 내분하는 점을 $P$, 선분 $AD$를 $1 : 2$로 내분하는 점을 $Q$라 하자. 선분 $EH$ 위의 점 $R$과 선분 $FG$ 위의 점 $S$에 대하여 두 직선 $RS, EF$는 서로 평행하다. 삼각형 $QRS$의 넓이가 $3\\sqrt{10}$이고 $\\overline{ER} < 2$일 때, 삼각형 $ARP$의 평면 $QRS$ 위로의 정사영의 넓이를 $S'$이라 하자. $25(S')^2$의 값을 구하시오. [4점]`,
+        boxContent: "",
+        choices: [],
+        answer: String(ansVal),
+        solution: `[출제의도] ${seed.intent || "이면각의 크기와 정사영의 성질을 이용하여 넓이를 구한다."}\n\n[1단계: 직교 관계와 선분 $\\overline{ER}$의 길이 결정]\n점 $P$는 선분 $AB$를 $2:1$로 내분하므로 $\\overline{AP} = 4$이고, 점 $Q$는 선분 $AD$를 $1:2$로 내분하므로 $\\overline{AQ} = 2$이다.\n직선 $RS$는 평면 $AEHD$와 수직이므로 $\\overline{AR} \\perp \\overline{RS}$, $\\overline{QR} \\perp \\overline{RS}$이다.\n$\\overline{RS} = 6$이고 삼각형 $QRS$의 넓이가 $3\\sqrt{10}$이므로 $\\overline{QR} = \\sqrt{10}$이며 피타고라스 정리로부터 $\\overline{ER} = 1$이다.\n\n[2단계: 두 평면이 이루는 이면각의 코사인값과 정사영 계산]\n두 평면 $ARP$와 $QRS$의 교선이 $RS$이므로 두 직선 $AR, QR$이 이루는 각 $\\theta$가 두 평면의 이면각이다.\n삼각형 $ARQ$에서 코사인법칙으로 $\\cos\\theta = \\frac{4}{5}$를 구하고 삼각형 $ARP$의 넓이에 곱하면 $25(S')^2 = ${ansVal}$이다.`,
+        geoSpec: promptGeo || undefined,
       };
     }
 
@@ -481,7 +532,7 @@ function buildTwinProblemFromSeedToken(
     const pAns = 2 * dStep + 3;
     const qAns = 9 * dStep + 14;
     return {
-      title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.number}번 1:1 변형] 수열의 귀납적 조건과 급수 추론 (4점 킬러)`,
+      title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.subject} ${seed.number}번 1:1 변형] 수열의 귀납적 조건과 급수 추론 (4점 킬러)`,
       grade: seed.grade,
       subject: seed.subject,
       unit: seed.unit,
@@ -496,7 +547,7 @@ function buildTwinProblemFromSeedToken(
       choices: [],
       answer: String(pAns + qAns),
       solution: `[출제의도] ${seed.intent || "등차수열과 등비급수의 성질을 결합하여 미정계수를 추론한다."}\n\n[1단계: 조건 (가), (나)를 이용한 등비수열의 공비 $r$ 결정]\n조건 (가)에서 $b_3 = a_k$, $b_4 = b_3 r = a_k + ${9 * k + 9}$이므로\n$$b_3(r - 1) = ${9 * k + 9} \\quad \\cdots \\text{㉠}$$\n조건 (나)에서 $\\sum_{n=k}^{\\infty} b_n = \\frac{b_k}{1 - r} = b_3 + ${5 * k + 5}$이다.\n\n[2단계: 정수 조건으로부터 자연수 $k$와 공비 $r$ 확정]\n$b_1 = ${18 * k}$이고 $b_3 = b_1 r^2 = ${18 * k}r^2$을 ㉠에 대입하여 정리하면 $|r| < 1$인 유리수 해는 $r = -\\frac{1}{2}$이고 이때 $k = ${dStep}$, 첫째항 $a_1 = ${a1Val}$로 결정된다.\n\n[3단계: 구하는 무한등비급수의 합 계산]\n수열 $\\left\\{\\frac{b_n}{k^n}\\right\\}$은 첫째항이 $\\frac{b_1}{k}$이고 공비가 $\\frac{r}{k}$인 등비수열이므로\n$$\\sum_{n=1}^{\\infty} \\frac{b_n}{k^n} = \\frac{b_1 / k}{1 - r / k} = \\frac{${qAns}}{${pAns}}$$\n따라서 서로소인 자연수 $p = ${pAns}, q = ${qAns}$이므로 $p + q = ${pAns + qAns}$이다.`,
-      geoSpec: promptGeo || seed.geoSpec,
+      geoSpec: promptGeo || undefined,
     };
   }
 
@@ -504,9 +555,8 @@ function buildTwinProblemFromSeedToken(
   const mCoeff = k; // 2, 3, 4, 5
   if (isHard || seed.points === "4점") {
     const areaNum = 9 * mCoeff * mCoeff;
-    const areaDen = 4;
     return {
-      title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.number}번 1:1 변형] ${seed.unit} 핵심 추론 (4점)`,
+      title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.subject} ${seed.number}번 1:1 변형] ${seed.unit} 핵심 추론 (4점)`,
       grade: seed.grade,
       subject: seed.subject,
       unit: seed.unit,
@@ -521,21 +571,7 @@ function buildTwinProblemFromSeedToken(
       choices: ["ㄱ", "ㄱ, ㄴ", "ㄱ, ㄷ", "ㄴ, ㄷ", "ㄱ, ㄴ, ㄷ"],
       answer: "⑤",
       solution: `[출제의도] ${seed.intent || "삼차함수의 접선과 정적분 넓이 관계를 추론한다."}\n\n• ㄱ. $f'(x) = 3x^2 - ${6 * mCoeff}x + ${2 * mCoeff * mCoeff}$에서 $f'(0) = ${2 * mCoeff * mCoeff}$이므로 접선의 방정식은 $g(x) = ${2 * mCoeff * mCoeff}x + 1$이다. $f(x) - g(x) = x^2(x - ${3 * mCoeff}) = 0$이므로 점 $B$의 $x$좌표는 $${3 * mCoeff}$이다. (참)\n• ㄴ. $0 < x < ${3 * mCoeff}$에서 $x^2(x - ${3 * mCoeff}) < 0$이므로 $g(x) > f(x)$이다. (참)\n• ㄷ. 둘러싸인 넓이는 $\\int_0^{${3 * mCoeff}} (g(x) - f(x))\\,dx = \\frac{1 \\cdot (${3 * mCoeff} - 0)^4}{12} = \\frac{${27 * Math.pow(mCoeff, 4)}}{4}$이다. (참)\n따라서 옳은 것은 ㄱ, ㄴ, ㄷ이다. (정답 ${areaNum / areaNum === 1 ? "⑤" : "⑤"})`,
-      geoSpec: promptGeo || {
-        title: "삼차함수와 접선으로 둘러싸인 넓이",
-        xRange: [-1.4, 3.8],
-        yRange: [-1.8, 8.2],
-        showAxes: true,
-        functions: [
-          { expr: "x^3 - 3*x^2 + 2*x + 1", label: "y=f(x)", labelPos: [2.2, 0.2] },
-          { expr: "2*x + 1", label: "y=g(x)", style: "dashed", labelPos: [1.5, 4.4] },
-        ],
-        shadedRegions: [{ f1: "2*x + 1", f2: "x^3 - 3*x^2 + 2*x + 1", from: 0, to: 3 }],
-        points: [
-          { x: 0, y: 1, label: "A(0, 1)", dropToY: true, yTick: "1" },
-          { x: 3, y: 7, label: `B(${3 * mCoeff}, y_B)`, dropToX: true, xTick: String(3 * mCoeff) },
-        ],
-      },
+      geoSpec: promptGeo || undefined,
     };
   }
 
@@ -627,27 +663,29 @@ function buildSmartFallbackResponse(body: {
   ) {
     const studentName = String(body.contextData?.studentName || "유니데스크");
     const isLandscape = /가로|와이드/.test(prompt);
-    const theme = /체크리스트|하늘|miricheck/.test(prompt)
-      ? "miricheck"
-      : /노랑|인포그래픽|mirireport/.test(prompt)
-        ? "mirireport"
-        : /파스텔|성취도|mirigraph/.test(prompt)
-          ? "mirigraph"
-          : /노트|notebook/.test(prompt)
-            ? "notebook"
-            : /편지|letter/.test(prompt)
-              ? "letter"
-              : /브리핑|briefing/.test(prompt)
-                ? "briefing"
-                : /타임라인|timeline/.test(prompt)
-                  ? "timeline"
-                  : /플래너|planner/.test(prompt)
-                    ? "planner"
-                    : /요약|summary/.test(prompt)
-                      ? "summary"
-                      : /기본|clean/.test(prompt)
-                        ? "clean"
-                        : "unidesk";
+    const theme = /새봄|포레스트|면학관|초록|그린|saebom/.test(prompt)
+      ? "saebom"
+      : /체크리스트|하늘|miricheck/.test(prompt)
+        ? "miricheck"
+        : /노랑|인포그래픽|mirireport/.test(prompt)
+          ? "mirireport"
+          : /파스텔|성취도|mirigraph/.test(prompt)
+            ? "mirigraph"
+            : /노트|notebook/.test(prompt)
+              ? "notebook"
+              : /편지|letter/.test(prompt)
+                ? "letter"
+                : /브리핑|briefing/.test(prompt)
+                  ? "briefing"
+                  : /타임라인|timeline/.test(prompt)
+                    ? "timeline"
+                    : /플래너|planner/.test(prompt)
+                      ? "planner"
+                      : /요약|summary/.test(prompt)
+                        ? "summary"
+                        : /기본|clean/.test(prompt)
+                          ? "clean"
+                          : "saebom";
 
     const period = /일일|하루|데일리/.test(prompt)
       ? "day"
@@ -660,7 +698,12 @@ function buildSmartFallbackResponse(body: {
     const isCoaching = /코칭|피드백|상담|편지/.test(prompt);
     const isExamFocused = /성적|시험|오답|분석/.test(prompt);
 
-    const blocks = isCoaching
+    const excludeWrong = /오답\s*(?:클리닉)?\s*(?:빼|제외|없이|말고|안\s*하|안\s*넣|숨기)/.test(prompt);
+    const excludeGrades = /(?:성적|시험|테스트)\s*(?:빼|제외|없이|말고|안\s*하|안\s*넣|숨기)/.test(prompt);
+    const excludeHomework = /숙제\s*(?:빼|제외|없이|말고|안\s*하|안\s*넣|숨기)/.test(prompt);
+    const excludeAttendance = /출결\s*(?:빼|제외|없이|말고|안\s*하|안\s*넣|숨기)/.test(prompt);
+
+    const rawBlocks = isCoaching
       ? [
           { kind: "feedback" as const, view: "chart" as const, wide: true, emphasis: true },
           { kind: "progress" as const, view: "chart" as const, wide: true, emphasis: false },
@@ -679,13 +722,21 @@ function buildSmartFallbackResponse(body: {
             { kind: "feedback" as const, view: "chart" as const, wide: true, emphasis: true },
           ]
         : [
-            { kind: "grades" as const, view: "chart" as const, wide: true, emphasis: true },
-            { kind: "progress" as const, view: "chart" as const, wide: true, emphasis: false },
-            { kind: "attendance" as const, view: "card" as const, wide: false, emphasis: false },
-            { kind: "homework" as const, view: "card" as const, wide: false, emphasis: false },
-            { kind: "wrong" as const, view: "table" as const, wide: true, emphasis: true },
+            { kind: "attendance" as const, view: "card" as const, wide: true, emphasis: false },
+            { kind: "homework" as const, view: "chart" as const, wide: false, emphasis: false },
+            { kind: "grades" as const, view: "chart" as const, wide: false, emphasis: true },
+            { kind: "progress" as const, view: "table" as const, wide: true, emphasis: false },
+            { kind: "wrong" as const, view: "table" as const, wide: true, emphasis: false },
             { kind: "feedback" as const, view: "chart" as const, wide: true, emphasis: true },
           ];
+
+    const blocks = rawBlocks.filter(b => {
+      if (excludeWrong && b.kind === "wrong") return false;
+      if (excludeGrades && b.kind === "grades") return false;
+      if (excludeHomework && b.kind === "homework") return false;
+      if (excludeAttendance && b.kind === "attendance") return false;
+      return true;
+    });
 
     actions.push({
       type: "update_report_template",
@@ -738,8 +789,9 @@ function buildSmartFallbackResponse(body: {
         type: "generate_problems",
         problems: [twin],
       });
+      const cleanLabel = topSeed.sourceLabel.replace(/고([123])\s+고\1/g, "고$1");
       return {
-        reply: `요청하신 조건에 맞춰 **${topSeed.sourceLabel} (${topSeed.points} · ${topSeed.difficulty})** 기출 토큰(문제+해설 1:1 매칭)을 참조하여 **동일한 추론 구조의 1:1 쌍둥이 변형 문항**과 **등축 수학 작도(` + "`MathGeoSpec`" + `)**를 생성했습니다!\n\n문항 카드 하단의 **[🔗 원본 기출 문제·해설 1:1 비교 보기]**를 클릭하시면 어떤 원본 기출에서 어떻게 변형되었는지 한눈에 대조하실 수 있습니다.`,
+        reply: `요청하신 조건에 맞춰 **${cleanLabel} (${topSeed.points} · ${topSeed.difficulty})** 기출 토큰(문제+해설 1:1 매칭)을 참조하여 **동일한 추론 구조의 1:1 쌍둥이 변형 문항**${twin.geoSpec ? "과 **맞춤 수학 도형**" : ""}을 생성했습니다!\n\n문항 카드 상단의 **[원본 기출(${topSeed.number}번) 1:1 비교 ▼]** 버튼을 클릭하시면 변형 전 원본 기출 문제·해설과 한눈에 대조하실 수 있습니다.`,
         actions,
       };
     }
@@ -956,7 +1008,7 @@ export async function POST(req: NextRequest) {
 - 사용자가 수학 문제 출제/변형을 요청하면 반드시 actions 배열에 "type": "generate_problems" 액션을 포함하여 요청한 문항 수(${intent.requestedCount}문항)만큼 문제를 생성하세요.
 - 사용자가 30번, 29번, 22번, 21번, 15번 등 킬러/고난도 문항을 요청하면 반드시 아래 제공된 [기출 시드 토큰(문제+해설 1:1 매칭)]의 추론 깊이((가)·(나) 조건 박스, 구간별 정의 함수, 미분가능성, 정적분 치환, 수열 역추적, 기하 접선/외접원 등)를 그대로 유지하여 고난도 쌍둥이 변형 문제로 출제하세요. 절대로 기초 연산 문제를 내고 킬러라고 표기하지 마세요.
 - 각 생성 문항에는 반드시 참조한 원본 시드 토큰의 ID를 sourceTokenId 필드에 기록하세요(예: "${primarySeed?.id || ""}").
-- 함수 그래프나 기하 도형이 필요한 문제는 반드시 geoSpec 필드에 정확한 수식(expr), 접선(tangents), 수선의 발(points), 직각 기호(rightAngles), 색칠 영역(shadedRegions), 원(circles), 다각형(polygons)을 함께 지정하여 1:1 등축 평가원 스타일 그래프가 작도되게 하세요.
+- 그림이나 그래프가 문제 발문("그림과 같이..." 등)에 실제로 필요하거나 사용자가 도형/그래프 작도를 명시적으로 요청한 경우에만 geoSpec 필드를 포함하세요. 그래프 없이 수식만으로 출제되는 대수·수열·미적분·확통 문항에는 불필요한 geoSpec을 넣지 마세요.
 ${
   matchedSeeds.length > 0
     ? `\n[기출 시드 토큰 (문제+정답+해설 1:1 매칭 레퍼런스 — 이 토큰의 논리 구조와 해설 단계를 그대로 참고하여 수치·함수식을 바꾼 쌍둥이 변형 문제를 만들고 sourceTokenId를 포함하세요)]: ${JSON.stringify(

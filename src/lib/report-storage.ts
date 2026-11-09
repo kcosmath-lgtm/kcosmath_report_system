@@ -18,12 +18,12 @@ export async function loadStudents() { return (await storage()).loadStudents(); 
 export async function loadProgress(studentId: string) { return (await storage()).loadProgress(studentId); }
 export async function loadClassBooks(classId: string) { return (await storage()).loadClassBooks(classId); }
 export async function manageClassBook(action: 'save' | 'delete' | 'assign', book: import('../types/progress').ClassBook, ids: string[] = []) { return (await storage()).manageClassBook(action, book, ids); }
-export async function saveProgressBooks(books: import('../types/progress').ProgressBook[]) { return (await storage()).saveProgressBooks(books); }
-export async function saveProgressBatch(items: { book: import('../types/progress').ProgressBook; entry: import('../types/progress').ProgressEntry }[]) { return (await storage()).saveProgressBatch(items); }
-export async function saveProgress(book: import('../types/progress').ProgressBook, entry?: import('../types/progress').ProgressEntry) { return (await storage()).saveProgress(book, entry); }
+export async function saveProgressBooks(books: import('../types/progress').ProgressBook[]) { const value = await (await storage()).saveProgressBooks(books); recordsChanged(); return value; }
+export async function saveProgressBatch(items: { book: import('../types/progress').ProgressBook; entry: import('../types/progress').ProgressEntry }[]) { const value = await (await storage()).saveProgressBatch(items); recordsChanged(); return value; }
+export async function saveProgress(book: import('../types/progress').ProgressBook, entry?: import('../types/progress').ProgressEntry) { const value = await (await storage()).saveProgress(book, entry); recordsChanged(); return value; }
 export async function updateStudent(id: string, name: string, grade: string, version: number) { const value = await (await storage()).updateStudent(id, name, grade, version); rosterChanged(); return value; }
 export async function loadStudentDaily(month: string) { return (await storage()).loadStudentDaily(month); }
-export async function saveStudentDaily(items: import('../types/student-daily').StudentDailySave[]) { return (await storage()).saveStudentDaily(items); }
+export async function saveStudentDaily(items: import('../types/student-daily').StudentDailySave[]) { const value = await (await storage()).saveStudentDaily(items); recordsChanged(); return value; }
 export async function addClass(name: string) { return (await storage()).addClass(name); }
 export async function addStudent(classId: string, name: string, grade: string) { return (await storage()).addStudent(classId, name, grade); }
 export async function archiveStudent(id: string, version: number) { const value = await (await storage()).archiveStudent(id, version); rosterChanged(); return value; }
@@ -33,7 +33,7 @@ export async function loadReportDay(date: string) { return (await storage()).loa
 export async function saveReportBatch(batch: ReportSaveBatch) { return (await storage()).saveReportBatch(batch); }
 export async function loadWrongAnswers(month: string) { return (await storage()).loadWrongAnswers(month); }
 export async function loadWrongAnswerRange(start: string, end: string, studentIds: string[]) { return (await storage()).loadWrongAnswerRange(start, end, studentIds); }
-export async function saveWrongAnswer(record: import("../types/wrong-answer").WrongAnswerRecord) { return (await storage()).saveWrongAnswer(record); }
+export async function saveWrongAnswer(record: import("../types/wrong-answer").WrongAnswerRecord) { const value = await (await storage()).saveWrongAnswer(record); recordsChanged(); return value; }
 export async function loadHandoffs(month: string) { return (await storage()).loadHandoffs(month); }
 export async function addHandoff(record: import("../types/handoff").HandoffRecord) { return (await storage()).addHandoff(record); }
 export async function deleteHandoff(id: string) { return (await storage()).deleteHandoff(id); }
@@ -43,5 +43,13 @@ function rosterChanged() {
   window.dispatchEvent(new Event("cosmath-roster-changed"));
   if (typeof BroadcastChannel !== "undefined") {
     const channel = new BroadcastChannel("cosmath-roster"); channel.postMessage("changed"); channel.close();
+  }
+}
+
+function recordsChanged() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event("cosmath-records-changed"));
+  if (typeof BroadcastChannel !== "undefined") {
+    const channel = new BroadcastChannel("cosmath-records"); channel.postMessage("changed"); channel.close();
   }
 }

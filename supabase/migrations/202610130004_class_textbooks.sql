@@ -28,7 +28,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE result jsonb; saved public.cosmath_progress_books; entry public.cosmath_progress_entries; pages integer:=coalesce((p_book->>'total_pages')::integer,0); done integer:=coalesce((p_book->>'completed_page')::integer,0);
 BEGIN
  IF pages<0 OR pages>10000 OR done<0 OR done>pages THEN RAISE EXCEPTION 'Invalid page progress'; END IF;
- IF (p_book->>'version')::integer>0 AND NOT EXISTS(SELECT 1 FROM public.cosmath_progress_books WHERE id=(p_book->>'id')::uuid AND academy_id=public.cosmath_current_academy_id() AND NOT archived AND total_pages=pages) THEN RAISE EXCEPTION 'Book changed' USING ERRCODE='40001'; END IF;
+ IF (p_book->>'version')::integer>0 AND NOT EXISTS(SELECT 1 FROM public.cosmath_progress_books WHERE id=(p_book->>'id')::uuid AND academy_id=public.cosmath_current_academy_id() AND NOT archived AND total_pages=pages) THEN RAISE EXCEPTION 'Book changed' USING ERRCODE='PT409'; END IF;
  result:=public.cosmath_save_progress_base(p_book,p_entry);
  UPDATE public.cosmath_progress_books SET total_pages=pages,completed_page=done WHERE id=(result->'book'->>'id')::uuid RETURNING * INTO saved;
  UPDATE public.cosmath_progress_entries SET units_snapshot=saved.units,total_pages_snapshot=pages,completed_page=done WHERE id=(result->'entry'->>'id')::uuid RETURNING * INTO entry;
@@ -53,13 +53,13 @@ BEGIN
    INSERT INTO public.cosmath_class_books(id,academy_id,class_id,title,curriculum,course,units,total_pages) VALUES((p_book->>'id')::uuid,tenant,(p_book->>'class_id')::uuid,p_book->>'title',p_book->>'curriculum',p_book->>'course',p_book->'units',(p_book->>'total_pages')::integer) RETURNING * INTO saved;
   ELSE
    UPDATE public.cosmath_class_books SET title=p_book->>'title',curriculum=p_book->>'curriculum',course=p_book->>'course',units=p_book->'units',total_pages=(p_book->>'total_pages')::integer,version=version+1 WHERE id=(p_book->>'id')::uuid AND academy_id=tenant AND class_id=(p_book->>'class_id')::uuid AND version=(p_book->>'version')::integer AND NOT archived RETURNING * INTO saved;
-   IF NOT FOUND THEN RAISE EXCEPTION 'Book changed' USING ERRCODE='40001'; END IF;
+   IF NOT FOUND THEN RAISE EXCEPTION 'Book changed' USING ERRCODE='PT409'; END IF;
    UPDATE public.cosmath_progress_books assigned_book SET title=saved.title,curriculum=saved.curriculum,course=saved.course,units=saved.units,total_pages=saved.total_pages,completed_page=least(assigned_book.completed_page,saved.total_pages),states=coalesce((SELECT jsonb_object_agg(key,value) FROM jsonb_each(assigned_book.states) WHERE EXISTS(SELECT 1 FROM jsonb_array_elements(saved.units) catalog_unit WHERE catalog_unit->>'id'=key)),'{}'),version=assigned_book.version+1 WHERE library_id=saved.id AND academy_id=tenant AND NOT archived;
   END IF;
   RETURN to_jsonb(saved);
  END IF;
  SELECT * INTO saved FROM public.cosmath_class_books WHERE id=(p_book->>'id')::uuid AND academy_id=tenant AND NOT archived FOR UPDATE;
- IF NOT FOUND OR saved.version IS DISTINCT FROM (p_book->>'version')::integer THEN RAISE EXCEPTION 'Book changed' USING ERRCODE='40001'; END IF;
+ IF NOT FOUND OR saved.version IS DISTINCT FROM (p_book->>'version')::integer THEN RAISE EXCEPTION 'Book changed' USING ERRCODE='PT409'; END IF;
  IF p_action='delete' THEN
   UPDATE public.cosmath_class_books SET archived=true,version=version+1 WHERE id=saved.id;
   UPDATE public.cosmath_progress_books SET archived=true,version=version+1 WHERE library_id=saved.id AND academy_id=tenant;

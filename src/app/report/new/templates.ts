@@ -3,8 +3,19 @@ import dayjs from 'dayjs';
 export const kinds = {grades:'성적',attendance:'출석',wrong:'오답',homework:'숙제',progress:'진도',feedback:'피드백'};
 export type Kind = keyof typeof kinds;
 export type Period = 'day'|'week'|'month'|'1month'|'3months'|'custom';
-export type Block = {id:string;kind:Kind;view:'card'|'chart'|'table';wide:boolean;emphasis?:boolean};
+export type BlockSpan = 4 | 6 | 8 | 12;
+export type BlockHeight = 'sm' | 'md' | 'lg';
+export type Block = {
+ id:string;
+ kind:Kind;
+ view:'card'|'chart'|'table';
+ wide:boolean;
+ emphasis?:boolean;
+ span?:BlockSpan;
+ height?:BlockHeight;
+};
 export const themes = {
+ saebom:'📘 기본형 (클린 블루 & 화이트)',
  miricheck:'📋 하늘색 학원 체크리스트형 (미리캔버스)',
  mirireport:'📒 노랑 인포그래픽 분석형 (미리캔버스)',
  mirigraph:'📊 파스텔 성취도 평가서형 (미리캔버스)',
@@ -15,11 +26,12 @@ export const themes = {
  briefing:'성적 브리핑형',
  planner:'학습 플래너형',
  letter:'선생님 편지형',
- clean:'정돈된 기본형',
+ clean:'📘 기본형 (클린 블루 & 화이트)',
 };
 export type Theme = keyof typeof themes;
 export const themeArtwork:Partial<Record<Theme,string>> = {notebook:'study-desk',summary:'summary-overview',timeline:'timeline-journey',briefing:'briefing-analysis',planner:'planner-week',letter:'letter-envelope'};
 export const themeColors:Record<Theme,string> = {
+ saebom:'#2563eb',
  miricheck:'#5b9bd5',
  mirireport:'#eab308',
  mirigraph:'#4f75ff',
@@ -30,9 +42,25 @@ export const themeColors:Record<Theme,string> = {
  briefing:'#7144b0',
  planner:'#244bb6',
  letter:'#a44767',
- clean:'#2864a9',
+ clean:'#2563eb',
 };
-export type Template = {id:string;name:string;orientation:'portrait'|'landscape';period:Period;blocks:Block[];theme?:Theme;illustrations?:boolean};
+export type Template = {
+ id:string;
+ name:string;
+ orientation:'portrait'|'landscape';
+ period:Period;
+ blocks:Block[];
+ theme?:Theme;
+ illustrations?:boolean;
+ hideEmpty?:boolean;
+ showNextHomework?:boolean;
+ academyName?:string;
+ customTitle?:string;
+ logoDataUrl?:string;
+ logoPosition?: 'left' | 'right' | 'center';
+ accentColor?:string;
+ footerNotice?:string;
+};
 export const recommendations:Partial<Record<Theme,string>> = {notebook:'따뜻하고 균형 잡힌 일일 보고',summary:'핵심 결과를 짧고 빠르게 확인',timeline:'날짜를 따라 학습 과정과 변화 확인',briefing:'시험 결과와 보완할 내용 분석',planner:'배운 내용과 다음 할 일을 함께 정리',letter:'선생님의 피드백을 중심으로 소통'};
 export const periods:Record<Period,string> = {day:'하루',week:'이번 주',month:'이번 달','1month':'최근 1개월','3months':'최근 3개월',custom:'직접 선택'};
 export function periodStart(period:Period,end:string,custom:string){
@@ -120,6 +148,43 @@ export function defaultKindsFor(cycle:ReportCycle,focus:ReportFocus):Kind[]{
  return Array.from(set);
 }
 
+export const academyQuickPresets: {
+ id: string;
+ label: string;
+ desc: string;
+ kinds: Kind[];
+ showNextHomework: boolean;
+}[] = [
+ {
+  id: 'all',
+  label: '전체 표준형',
+  desc: '출결·숙제·오답·성적·진도·피드백 모두 포함',
+  kinds: ['attendance', 'homework', 'wrong', 'grades', 'progress', 'feedback'],
+  showNextHomework: true,
+ },
+ {
+  id: 'no-wrong',
+  label: '오답 제외형',
+  desc: '오답 클리닉 없이 출결·숙제·진도·성적·피드백 구성',
+  kinds: ['attendance', 'homework', 'grades', 'progress', 'feedback'],
+  showNextHomework: true,
+ },
+ {
+  id: 'no-exam-wrong',
+  label: '진도·숙제 집중형',
+  desc: '시험·오답 없이 출결·숙제·교재 진도·피드백 중심',
+  kinds: ['attendance', 'homework', 'progress', 'feedback'],
+  showNextHomework: true,
+ },
+ {
+  id: 'exam-clinic',
+  label: '성적·오답 클리닉형',
+  desc: '시험 성적과 오답 완성도·피드백 집중 분석',
+  kinds: ['grades', 'wrong', 'progress', 'feedback'],
+  showNextHomework: false,
+ },
+];
+
 export function buildStructuredTemplate(params:{
  cycle:ReportCycle;
  focus:ReportFocus;
@@ -127,8 +192,35 @@ export function buildStructuredTemplate(params:{
  orientation:'portrait'|'landscape';
  enabledKinds:Kind[];
  illustrations?:boolean;
+ hideEmpty?:boolean;
+ showNextHomework?:boolean;
+ academyName?:string;
+ customTitle?:string;
+ logoDataUrl?:string;
+ logoPosition?:'left'|'right'|'center';
+ accentColor?:string;
+ footerNotice?:string;
+ spanOverrides?:Partial<Record<Kind,BlockSpan>>;
+ heightOverrides?:Partial<Record<Kind,BlockHeight>>;
 }):Template{
- const {cycle,focus,theme,orientation,enabledKinds,illustrations=true}=params;
+ const {
+  cycle,
+  focus,
+  theme,
+  orientation,
+  enabledKinds,
+  illustrations=true,
+  hideEmpty=false,
+  showNextHomework=true,
+  academyName,
+  customTitle,
+  logoDataUrl,
+  logoPosition,
+  accentColor,
+  footerNotice,
+  spanOverrides,
+  heightOverrides,
+ }=params;
  const activeSet=new Set<Kind>(enabledKinds.length?enabledKinds:['feedback']);
  const baseSpecs=cycleFocusBlocks[cycle][focus].filter(([k])=>activeSet.has(k));
  const present=new Set<Kind>(baseSpecs.map(([k])=>k));
@@ -137,6 +229,15 @@ export function buildStructuredTemplate(params:{
   if(!present.has(k))extraSpecs.push(fallbackKindSpec[cycle][k]);
  }
  const finalSpecs=[...baseSpecs,...extraSpecs];
+ const builtBlocks = blocks(theme,finalSpecs.length?finalSpecs:[['feedback','card',true]]).map(b => {
+  const customSpan = spanOverrides?.[b.kind];
+  const customHeight = heightOverrides?.[b.kind];
+  return {
+   ...b,
+   ...(customSpan ? { span: customSpan, wide: customSpan === 12 } : {}),
+   ...(customHeight ? { height: customHeight } : {}),
+  };
+ });
  return {
   id:`structured-${cycle}-${focus}`,
   name:`${reportCycles[cycle].label} · ${reportFocuses[focus].label}`,
@@ -144,7 +245,15 @@ export function buildStructuredTemplate(params:{
   orientation,
   period:cycle,
   illustrations,
-  blocks:blocks(theme,finalSpecs.length?finalSpecs:[['feedback','card',true]]),
+  hideEmpty,
+  showNextHomework,
+  ...(academyName ? { academyName } : {}),
+  ...(customTitle ? { customTitle } : {}),
+  ...(logoDataUrl ? { logoDataUrl } : {}),
+  ...(logoPosition ? { logoPosition } : {}),
+  ...(accentColor ? { accentColor } : {}),
+  ...(footerNotice ? { footerNotice } : {}),
+  blocks: builtBlocks,
  };
 }
 export function isTemplate(value:unknown):value is Template{

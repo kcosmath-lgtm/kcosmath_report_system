@@ -120,23 +120,25 @@ function computeStudentData(p:Preview){
  const todayWrong=wrong.find(r=>r.record_date===p.end)??wrong[wrong.length-1];
  const todayHwStatus=todayWrong?.homework_status??null;
 
- // 3. 오답 클리닉 집계 (오답 완료 버튼 또는 전체 수정 시 '오답 완료'로 표시)
+ // 3. 오답 클리닉 집계 (오답 완료 버튼 또는 전체 수정 시 '오답 완료', 기록 없으면 '기록 없음'으로 표시)
  const todayTotalWrong=todayWrong?.total_wrong??0;
  const todayFixedWrong=todayWrong?.corrected_count??0;
  const todayWrongCompleted=isWrongRecordDone(todayWrong);
+ const todayHasWrongRecord=Boolean(todayWrongCompleted||todayTotalWrong>0);
  const endWrong=wrong.find(r=>r.record_date===p.end);
  const todayWrongMemo=endWrong ? endWrong.memo : (todayWrong?.memo ?? '');
 
  const totalWrong=wrong.reduce((a,b)=>a+b.total_wrong,0);
  const fixedWrong=wrong.reduce((a,b)=>a+b.corrected_count,0);
  const remainWrong=Math.max(0,totalWrong-fixedWrong);
+ const wrongWithActivity=wrong.filter(w=>isWrongRecordDone(w)||w.total_wrong>0);
  const wrongCompletedDays=wrong.filter(w=>isWrongRecordDone(w)).length;
  const periodWrongCompleted=Boolean(
   (single && todayWrongCompleted) ||
-  (wrong.length>0 && wrong.every(w=>isWrongRecordDone(w))) ||
+  (wrongWithActivity.length>0 && wrongWithActivity.every(w=>isWrongRecordDone(w))) ||
   (totalWrong>0 && fixedWrong>=totalWrong)
  );
- const hasWrongRecord=wrong.length>0 && (periodWrongCompleted || totalWrong>0 || wrongCompletedDays>0);
+ const hasWrongRecord=wrongWithActivity.length>0;
  const wrongRate=periodWrongCompleted
   ? 100
   : totalWrong>0
@@ -283,6 +285,7 @@ function computeStudentData(p:Preview){
   todayTotalWrong,
   todayFixedWrong,
   todayWrongCompleted,
+  todayHasWrongRecord,
   periodWrongCompleted,
   todayWrongMemo,
   hasWrongRecord,
@@ -308,10 +311,14 @@ function AutoGrowFeedbackTextarea({
  value,
  placeholder,
  onChange,
+ onBulkApply,
+ bulkCount,
 }: {
  value: string;
  placeholder: string;
  onChange: (next: string) => void;
+ onBulkApply?: (text: string) => void;
+ bulkCount?: number;
 }) {
  const ref = useRef<HTMLTextAreaElement>(null);
  const lineCount = Math.max(2, value.split('\n').length);
@@ -324,20 +331,46 @@ function AutoGrowFeedbackTextarea({
  }, [value]);
 
  return (
-  <textarea
-   ref={ref}
-   className={styles.inlineTextarea}
-   rows={lineCount}
-   value={value}
-   placeholder={placeholder}
-   onKeyDown={e => e.stopPropagation()}
-   onChange={e => {
-    const el = e.currentTarget;
-    el.style.height = 'auto';
-    el.style.height = `${Math.max(46, el.scrollHeight)}px`;
-    onChange(e.target.value);
-   }}
-  />
+  <div>
+   <textarea
+    ref={ref}
+    className={styles.inlineTextarea}
+    rows={lineCount}
+    value={value}
+    placeholder={placeholder}
+    onKeyDown={e => e.stopPropagation()}
+    onChange={e => {
+     const el = e.currentTarget;
+     el.style.height = 'auto';
+     el.style.height = `${Math.max(46, el.scrollHeight)}px`;
+     onChange(e.target.value);
+    }}
+   />
+   {onBulkApply && (bulkCount ?? 0) > 1 && (
+    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }} data-export-hide="true">
+     <button
+      type="button"
+      data-export-hide="true"
+      onClick={() => onBulkApply(value)}
+      style={{
+       display: 'inline-flex',
+       alignItems: 'center',
+       gap: 5,
+       padding: '4px 10px',
+       borderRadius: 7,
+       border: '1px solid #2563eb',
+       background: '#eff6ff',
+       color: '#1d4ed8',
+       fontSize: 11,
+       fontWeight: 800,
+       cursor: 'pointer',
+      }}
+     >
+      <Check size={12} /> 이 피드백 코멘트를 선택 학생 {bulkCount}명에 일괄 적용
+     </button>
+    </div>
+   )}
+  </div>
  );
 }
 
@@ -511,7 +544,7 @@ function SingleSeriesGraph({
     {latestExam && (
      <div className={styles.saebomDailyCheckItem}>
       <span>최근 응시 결과 ({shortDate(latestExam.date)})</span>
-      <strong>{latestExam.name} · {latestExam.rate}점</strong>
+      <strong>{latestExam.rate}점</strong>
      </div>
     )}
    </div>
@@ -604,6 +637,273 @@ function AdaptiveGradesDisplay({
  );
 }
 
+interface CompetencyItem {
+ key: string;
+ label: string;
+ score: number;
+ detail: string;
+ strengthDesc: string;
+ weaknessDesc: string;
+}
+
+function computeMonthlyCompetencies(s: StudentData): {
+ items: CompetencyItem[];
+ topStrengths: CompetencyItem[];
+ focusWeaknesses: CompetencyItem[];
+} {
+ const attScore =
+  s.recordedAtt > 0
+   ? Math.max(35, Math.min(100, Math.round(((s.attended + s.late * 0.6) / s.recordedAtt) * 100)))
+   : 95;
+ const hwScore = s.hwRate !== null ? Math.max(25, Math.min(100, s.hwRate)) : 90;
+ const wrongScore = s.periodWrongCompleted
+  ? 100
+  : s.wrongRate !== null
+    ? Math.max(25, Math.min(100, s.wrongRate))
+    : 78;
+ const gradeScore = s.avgScore !== null ? Math.max(25, Math.min(100, s.avgScore)) : 82;
+ const progScore =
+  s.avgProgress !== null
+   ? Math.min(100, Math.max(45, Math.round(s.avgProgress * 0.65 + Math.min(35, Math.max(15, s.periodProgressLogs.length * 7)))))
+   : 84;
+
+ const items: CompetencyItem[] = [
+  {
+   key: 'attendance',
+   label: '출결 성실도',
+   score: attScore,
+   detail: s.recordedAtt > 0 ? `등원 ${s.recordedAtt}일 중 출석 ${s.attended}일` : '규칙적 등원 유지',
+   strengthDesc: '결석·지각 없이 규칙적인 등원 리듬과 수업 참여 태도가 매우 안정적입니다.',
+   weaknessDesc: '지각·결석으로 인한 학습 흐름 단절을 줄이고 일정한 등원 리듬을 유지해야 합니다.',
+  },
+  {
+   key: 'homework',
+   label: '과제 수행력',
+   score: hwScore,
+   detail: s.hwRecorded.length > 0 ? `검사 ${s.hwRecorded.length}회 중 완료(O) ${s.hwDone}회` : '과제 성실 이행',
+   strengthDesc: '부여된 과제를 성실히 완수하여 수업 개념을 스스로 체화하는 자기주도성이 뛰어납니다.',
+   weaknessDesc: '과제 미완료·지연을 줄이고 수업 전까지 정해진 분량을 끝까지 풀어오는 습관이 필요합니다.',
+  },
+  {
+   key: 'wrong',
+   label: '오답 완성도',
+   score: wrongScore,
+   detail: !s.hasWrongRecord
+    ? '오답 클리닉 기록 없음'
+    : s.periodWrongCompleted
+      ? '기간 내 오답 클리닉 완료'
+      : `오답 ${s.totalWrong}문항 중 ${s.fixedWrong}문항 해결`,
+   strengthDesc: '틀린 문항을 끝까지 다시 풀어 완벽히 이해하고 넘어가는 오답 정리 습관이 우수합니다.',
+   weaknessDesc: '틀린 문항이 누적되지 않도록 오답 클리닉을 미루지 않고 제때 마무리하는 훈련이 필요합니다.',
+  },
+  {
+   key: 'grades',
+   label: '평가 성취도',
+   score: gradeScore,
+   detail: s.exams.length > 0 ? `${s.exams.length}회 응시 · 평균 ${s.avgScore}점` : '정기 평가 점검',
+   strengthDesc: '실전 테스트에서 배운 개념을 정확히 적용하여 높은 정답률과 득점력을 보여주고 있습니다.',
+   weaknessDesc: '단원·정기 평가에서 자주 실수하는 유형을 점검하고 핵심 문항 득점력을 끌어올려야 합니다.',
+  },
+  {
+   key: 'progress',
+   label: '진도 달성력',
+   score: progScore,
+   detail: s.bookProgressList.length > 0 ? `교재 ${s.bookProgressList.length}권 · 평균 ${s.avgProgress ?? 0}%` : '목표 진도 이행',
+   strengthDesc: '계획된 교재 진도와 단원 학습 목표를 흔들림 없이 꾸준히 추진하고 있습니다.',
+   weaknessDesc: '계획된 단원 진도가 밀리지 않도록 주간 학습 분량을 일정한 속도로 소화해야 합니다.',
+  },
+ ];
+
+ const sorted = [...items].sort((a, b) => b.score - a.score);
+ const topStrengths = sorted.slice(0, 2);
+ const focusWeaknesses = [...sorted].reverse().slice(0, 2);
+ return { items, topStrengths, focusWeaknesses };
+}
+
+function MonthlyCompetencyDiagnosis({ s }: { s: StudentData }) {
+ const { items, topStrengths, focusWeaknesses } = computeMonthlyCompetencies(s);
+ const topKeys = new Set(topStrengths.map(i => i.key));
+ const weakKey = focusWeaknesses[0]?.key;
+
+ const cx = 86;
+ const cy = 78;
+ const maxR = 50;
+ const angles = items.map((_, i) => -Math.PI / 2 + (i * 2 * Math.PI) / 5);
+
+ const polygonPoints = (ratio: number) =>
+  angles
+   .map(a => `${(cx + Math.cos(a) * maxR * ratio).toFixed(1)},${(cy + Math.sin(a) * maxR * ratio).toFixed(1)}`)
+   .join(' ');
+
+ const valuePoints = items
+  .map((item, i) => {
+   const r = (Math.max(20, Math.min(100, item.score)) / 100) * maxR;
+   return `${(cx + Math.cos(angles[i]) * r).toFixed(1)},${(cy + Math.sin(angles[i]) * r).toFixed(1)}`;
+  })
+  .join(' ');
+
+ return (
+  <div
+   style={{
+    display: 'grid',
+    gridTemplateColumns: '168px 1.15fr 1fr',
+    gap: 12,
+    alignItems: 'center',
+    background: '#f8fafc',
+    border: '1px solid #dbe5f2',
+    borderRadius: 10,
+    padding: '10px 12px',
+   }}
+  >
+   {/* 1. 오각형 레이더 차트 */}
+   <svg viewBox="0 0 172 152" style={{ width: '100%', height: 138, overflow: 'visible' }} role="img" aria-label="월간 5대 학습 역량 오각형 차트">
+    {[0.35, 0.68, 1].map(level => (
+     <polygon
+      key={level}
+      points={polygonPoints(level)}
+      fill={level === 1 ? '#ffffff' : 'none'}
+      stroke="#cbd5e1"
+      strokeWidth={level === 1 ? '1.1' : '0.8'}
+      strokeDasharray={level < 1 ? '2 2' : undefined}
+     />
+    ))}
+    {angles.map((a, idx) => (
+     <line
+      key={idx}
+      x1={cx}
+      y1={cy}
+      x2={cx + Math.cos(a) * maxR}
+      y2={cy + Math.sin(a) * maxR}
+      stroke="#e2e8f0"
+      strokeWidth="0.9"
+     />
+    ))}
+    <polygon
+     points={valuePoints}
+     fill="var(--theme-accent, #2563eb)"
+     fillOpacity="0.18"
+     stroke="var(--theme-accent, #2563eb)"
+     strokeWidth="2"
+    />
+    {items.map((item, i) => {
+     const r = (Math.max(20, Math.min(100, item.score)) / 100) * maxR;
+     const px = cx + Math.cos(angles[i]) * r;
+     const py = cy + Math.sin(angles[i]) * r;
+     const lx = cx + Math.cos(angles[i]) * (maxR + 17);
+     const ly = cy + Math.sin(angles[i]) * (maxR + 14);
+     const isTop = topKeys.has(item.key);
+     const isWeak = item.key === weakKey;
+     return (
+      <g key={item.key}>
+       <circle
+        cx={px}
+        cy={py}
+        r="3.2"
+        fill={isTop ? '#16a34a' : isWeak ? '#d97706' : 'var(--theme-accent, #2563eb)'}
+        stroke="#ffffff"
+        strokeWidth="1.2"
+       />
+       <text
+        x={lx}
+        y={ly + 3}
+        textAnchor="middle"
+        fontSize="7.8"
+        fontWeight="800"
+        fill={isTop ? '#15803d' : isWeak ? '#b45309' : '#334155'}
+       >
+        {item.label}
+       </text>
+      </g>
+     );
+    })}
+   </svg>
+
+   {/* 2. 5대 평가 요소별 점수 바 */}
+   <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+    {items.map(item => {
+     const isTop = topKeys.has(item.key);
+     const isWeak = item.key === weakKey;
+     const barColor = isTop ? '#16a34a' : isWeak ? '#f59e0b' : 'var(--theme-accent, #2563eb)';
+     const badgeText = isTop ? '강점' : isWeak ? '보완' : '안정';
+     const badgeBg = isTop ? '#dcfce7' : isWeak ? '#fef3c7' : '#dbeafe';
+     const badgeColor = isTop ? '#15803d' : isWeak ? '#b45309' : '#1d4ed8';
+     return (
+      <div key={item.key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+         <strong style={{ color: '#0f172a', fontSize: 10.5 }}>{item.label}</strong>
+         <span
+          style={{
+           fontSize: 8.5,
+           fontWeight: 800,
+           padding: '0.5px 5px',
+           borderRadius: 999,
+           background: badgeBg,
+           color: badgeColor,
+          }}
+         >
+          {badgeText}
+         </span>
+        </div>
+        <span style={{ fontSize: 9.5, color: '#475569', fontWeight: 700 }}>
+         {item.detail} · <b style={{ color: barColor }}>{item.score}점</b>
+        </span>
+       </div>
+       <div style={{ height: 6, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden' }}>
+        <div style={{ width: `${item.score}%`, height: '100%', background: barColor, borderRadius: 999 }} />
+       </div>
+      </div>
+     );
+    })}
+   </div>
+
+   {/* 3. 강점 & 약점(보완점) 진단 요약 카드 */}
+   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div
+     style={{
+      background: '#ffffff',
+      border: '1px solid #bbf7d0',
+      borderLeft: '3.5px solid #16a34a',
+      borderRadius: 8,
+      padding: '7px 9px',
+     }}
+    >
+     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+      <span style={{ fontSize: 9.5, fontWeight: 800, color: '#15803d' }}>💪 이번 달 핵심 강점</span>
+      <strong style={{ fontSize: 9.5, color: '#166534' }}>
+       {topStrengths.map(t => t.label).join(' · ')}
+      </strong>
+     </div>
+     <p style={{ margin: 0, fontSize: 9.5, color: '#334155', lineHeight: 1.4 }}>
+      {topStrengths[0]?.strengthDesc}
+     </p>
+    </div>
+
+    <div
+     style={{
+      background: '#ffffff',
+      border: '1px solid #fde68a',
+      borderLeft: '3.5px solid #f59e0b',
+      borderRadius: 8,
+      padding: '7px 9px',
+     }}
+    >
+     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+      <span style={{ fontSize: 9.5, fontWeight: 800, color: '#b45309' }}>🎯 집중 보완 포인트</span>
+      <strong style={{ fontSize: 9.5, color: '#92400e' }}>
+       {focusWeaknesses[0]?.label}
+       {focusWeaknesses[1] && focusWeaknesses[1].score < 80 ? ` · ${focusWeaknesses[1].label}` : ''}
+      </strong>
+     </div>
+     <p style={{ margin: 0, fontSize: 9.5, color: '#334155', lineHeight: 1.4 }}>
+      {focusWeaknesses[0]?.weaknessDesc}
+     </p>
+    </div>
+   </div>
+  </div>
+ );
+}
+
 interface LayoutConfig {
  enabledSet: Set<Kind>;
  hasKind: (k: Kind) => boolean;
@@ -678,6 +978,8 @@ function SaebomForestSheet({
  period,
  periodKor,
  onEditFeedback,
+ onBulkEditFeedback,
+ bulkTargetCount,
 }: {
  p: Preview;
  s: StudentData;
@@ -686,6 +988,8 @@ function SaebomForestSheet({
  period: 'day' | 'week' | 'month';
  periodKor: string;
  onEditFeedback?: (studentId: string, date: string, memo: string) => void;
+ onBulkEditFeedback?: (date: string, memo: string) => void;
+ bulkTargetCount?: number;
 }) {
  const academyTitle = template.academyName?.trim() || '유니데스크';
  const cycleBadge =
@@ -772,15 +1076,19 @@ function SaebomForestSheet({
  }
 
  if (cfg.hasKind('wrong')) {
+  const hasRec = period === 'day' ? s.todayHasWrongRecord : s.hasWrongRecord;
   const isWrongDone = period === 'day' ? s.todayWrongCompleted : s.periodWrongCompleted;
   summaryMetrics.push({
    key: 'wrong',
    label: period === 'day' ? '당일 오답 클리닉' : period === 'week' ? '주간 오답 클리닉' : '월간 오답 클리닉',
-   value: isWrongDone ? '오답 완료' : s.wrongRate !== null ? `${s.wrongRate}%` : '오답 완료',
-   sub: isWrongDone
-    ? (period === 'day' ? '당일 오답 클리닉 완료 확인' : '기간 내 오답 클리닉 완료 확인')
-    : `오답 ${s.totalWrong}문항 중 ${s.fixedWrong}문항 해결 진행 중`,
-   accent: true,
+   value: !hasRec ? '기록 없음' : isWrongDone ? '오답 완료' : s.wrongRate !== null ? `${s.wrongRate}%` : '미완료',
+   sub: !hasRec
+    ? (period === 'day' ? '당일 등록된 오답 클리닉 기록 없음' : '해당 기간 오답 클리닉 기록 없음')
+    : isWrongDone
+      ? (period === 'day' ? '당일 오답 클리닉 완료 확인' : '기간 내 오답 클리닉 완료 확인')
+      : `오답 ${s.totalWrong}문항 중 ${s.fixedWrong}문항 해결 진행 중`,
+   accent: hasRec,
+   toneColor: !hasRec ? '#64748b' : undefined,
   });
  } else if (cfg.hasKind('progress')) {
   summaryMetrics.push({
@@ -815,7 +1123,7 @@ function SaebomForestSheet({
  const ringPct = cfg.hasKind('homework')
   ? (s.hwRate ?? 100)
   : cfg.hasKind('wrong')
-    ? (s.wrongRate ?? 100)
+    ? ((period === 'day' ? s.todayHasWrongRecord : s.hasWrongRecord) ? (s.wrongRate ?? 100) : 0)
     : (s.attRate ?? 100);
  const ringRadius = 30;
  const ringCircumference = 2 * Math.PI * ringRadius;
@@ -998,15 +1306,19 @@ function SaebomForestSheet({
           <strong>
            {cfg.hasKind('homework')
             ? `당일 과제 상태: ${hwStatusLabel}`
-            : isWrongDone
-              ? '오답 클리닉: 오답 완료'
-              : `오답 클리닉 진행 중 (${s.wrongRate ?? 0}%)`}
+            : !s.todayHasWrongRecord
+              ? '오답 클리닉: 기록 없음'
+              : isWrongDone
+                ? '오답 클리닉: 오답 완료'
+                : `오답 클리닉 진행 중 (${s.wrongRate ?? 0}%)`}
           </strong>
           <p>
            {cfg.hasKind('homework') && showWrongTogether
-            ? isWrongDone
-              ? `과제 성실 수행률 ${s.hwRate ?? 100}% · 당일 오답 클리닉 완료 확인`
-              : `과제 성실 수행률 ${s.hwRate ?? 100}% · 오답 ${s.totalWrong}문항 중 ${s.fixedWrong}문항 해결`
+            ? !s.todayHasWrongRecord
+              ? `과제 성실 수행률 ${s.hwRate ?? 100}% · 당일 오답 클리닉 기록 없음`
+              : isWrongDone
+                ? `과제 성실 수행률 ${s.hwRate ?? 100}% · 당일 오답 클리닉 완료 확인`
+                : `과제 성실 수행률 ${s.hwRate ?? 100}% · 오답 ${s.totalWrong}문항 중 ${s.fixedWrong}문항 해결`
             : cfg.hasKind('homework')
               ? `수업 시간마다 제출한 숙제 검사와 학습 계획 이행 기준입니다.`
               : `틀린 문항을 다시 풀어 완벽히 이해했는지 점검한 결과입니다.`}
@@ -1023,12 +1335,12 @@ function SaebomForestSheet({
          {showWrongTogether && (
           <div className={styles.saebomDailyCheckItem}>
            <span>당일 오답 클리닉</span>
-           <strong style={{ color: isWrongDone ? '#15803d' : s.todayTotalWrong > 0 ? '#2563eb' : '#64748b' }}>
-            {isWrongDone
-             ? '✓ 오답 완료'
-             : s.todayTotalWrong > 0
-               ? `${s.todayFixedWrong}/${s.todayTotalWrong}문항 진행중`
-               : '오답 완료'}
+           <strong style={{ color: !s.todayHasWrongRecord ? '#64748b' : isWrongDone ? '#15803d' : '#2563eb' }}>
+            {!s.todayHasWrongRecord
+             ? '기록 없음'
+             : isWrongDone
+               ? '✓ 오답 완료'
+               : `${s.todayFixedWrong}/${s.todayTotalWrong}문항 진행중`}
            </strong>
           </div>
          )}
@@ -1062,15 +1374,19 @@ function SaebomForestSheet({
           <strong>
            {cfg.hasKind('homework')
             ? `부여된 과제 ${s.hwRecorded.length}회 중 ${s.hwDone}회 완료`
-            : isWrongDone
-              ? '오답 클리닉: 오답 완료'
-              : `오답 클리닉 진행 중 (${s.wrongRate ?? 0}%)`}
+            : !s.hasWrongRecord
+              ? '오답 클리닉: 기록 없음'
+              : isWrongDone
+                ? '오답 클리닉: 오답 완료'
+                : `오답 클리닉 진행 중 (${s.wrongRate ?? 0}%)`}
           </strong>
           <p>
            {cfg.hasKind('homework') && showWrongTogether
-            ? isWrongDone
-              ? `과제 성실 수행률 ${s.hwRate ?? 100}% · 기간 내 오답 클리닉 완료 확인`
-              : `과제 성실 수행률 ${s.hwRate ?? 100}% · 오답 ${s.totalWrong}문항 중 ${s.fixedWrong}문항 해결`
+            ? !s.hasWrongRecord
+              ? `과제 성실 수행률 ${s.hwRate ?? 100}% · 기간 내 오답 클리닉 기록 없음`
+              : isWrongDone
+                ? `과제 성실 수행률 ${s.hwRate ?? 100}% · 기간 내 오답 클리닉 완료 확인`
+                : `과제 성실 수행률 ${s.hwRate ?? 100}% · 오답 ${s.totalWrong}문항 중 ${s.fixedWrong}문항 해결`
             : cfg.hasKind('homework')
               ? `수업 시간마다 제출한 숙제 검사와 학습 계획 이행 기준입니다.`
               : `틀린 문항을 다시 풀어 완벽히 이해했는지 점검한 결과입니다.`}
@@ -1088,11 +1404,20 @@ function SaebomForestSheet({
          <span><i style={{ background: '#f87171' }}/> 미완료 {s.hwMiss}일</span>
          {showWrongTogether && (
           <span>
-           <i style={{ background: '#16a34a' }}/>{' '}
-           {isWrongDone ? '오답 클리닉: 오답 완료' : `오답 해결 ${s.wrongRate ?? 100}%`}
+           <i style={{ background: !s.hasWrongRecord ? '#94a3b8' : '#16a34a' }}/>{' '}
+           {!s.hasWrongRecord ? '오답 클리닉: 기록 없음' : isWrongDone ? '오답 클리닉: 오답 완료' : `오답 해결 ${s.wrongRate ?? 0}%`}
           </span>
          )}
         </div>
+        {period === 'month' && (
+         <div style={{ marginTop: 10 }}>
+          <div className={styles.saebomDailySubHead} style={{ marginTop: 0, marginBottom: 6 }}>
+           <span><i className={styles.saebomDash}/> 월간 5대 학습 역량 진단 (강점 · 보완점 분석)</span>
+           <small>출결 · 과제 · 오답 · 성적 · 진도 종합</small>
+          </div>
+          <MonthlyCompetencyDiagnosis s={s} />
+         </div>
+        )}
        </>
       )}
      </div>
@@ -1273,6 +1598,8 @@ function SaebomForestSheet({
          value={s.todayWrongMemo}
          placeholder={`${p.name} 학생은 해당 기간 출석률 ${s.attRate ?? 100}%, 과제 수행률 ${s.hwRate ?? 100}%를 기록했습니다. 이곳을 클릭하여 선생님 피드백 코멘트를 직접 입력하거나 수정할 수 있습니다.`}
          onChange={val => onEditFeedback(p.id, p.end, val)}
+         onBulkApply={onBulkEditFeedback ? val => onBulkEditFeedback(p.end, val) : undefined}
+         bulkCount={bulkTargetCount}
         />
        </div>
       ) : s.comments.length > 0 ? (
@@ -1456,7 +1783,12 @@ function DayBody({p,s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
       <section className={styles.moduleCard}>
        <h3 className={styles.moduleHeader}><FileWarning size={14}/> 당일 오답 클리닉</h3>
        <div className={styles.stampRow}>
-        {s.todayWrongCompleted || s.todayTotalWrong === 0 ? (
+        {!s.todayHasWrongRecord ? (
+         <div className={`${styles.stampCircle} ${styles.stampWide}`} style={{ width: 112 }}>
+          <strong style={{ fontSize: 13, color: '#64748b' }}>기록 없음</strong>
+          <small>클리닉 미기록</small>
+         </div>
+        ) : s.todayWrongCompleted ? (
          <div className={`${styles.stampCircle} ${styles.stampWide} ${styles.stampAttGood}`} style={{ width: 112 }}>
           <Check size={11} className={`${styles.stampCheck} ${styles.stampCheckGood}`}/>
           <strong style={{ fontSize: 14 }}>오답 완료</strong>
@@ -1477,9 +1809,11 @@ function DayBody({p,s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
         )}
        </div>
        <small className={styles.moduleCaption}>
-        {s.todayWrongCompleted || s.todayTotalWrong === 0
-         ? '당일 오답 클리닉 완료 확인'
-         : `남은 오답 ${Math.max(0, s.todayTotalWrong - s.todayFixedWrong)}문항 클리닉 진행 중`}
+        {!s.todayHasWrongRecord
+         ? '당일 등록된 오답 클리닉 기록 없음'
+         : s.todayWrongCompleted
+           ? '당일 오답 클리닉 완료 확인'
+           : `남은 오답 ${Math.max(0, s.todayTotalWrong - s.todayFixedWrong)}문항 클리닉 진행 중`}
        </small>
       </section>
      )}
@@ -1583,7 +1917,7 @@ function WeekBody({p,s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
  }
  if (showWrong) {
   matrixTitleParts.push('오답');
-  matrixStatParts.push(s.periodWrongCompleted ? '오답 완료' : `오답 해결 ${s.wrongRate ?? 100}%`);
+  matrixStatParts.push(!s.hasWrongRecord ? '오답 기록 없음' : s.periodWrongCompleted ? '오답 완료' : `오답 해결 ${s.wrongRate ?? 0}%`);
  }
 
  const showProg = cfg.hasKind('progress');
@@ -1653,6 +1987,8 @@ function WeekBody({p,s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
              <span className={`${styles.statusPill} ${styles.pillWarn}`}>
               {d.fixedWrong}/{d.totalWrong}문항
              </span>
+            ) : d.attendance || d.hw ? (
+             <span className={styles.dashCell}>기록 없음</span>
             ) : (
              <span className={styles.dashCell}>-</span>
             )}
@@ -1878,20 +2214,25 @@ function MonthBody({s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
           <div className={styles.monthGaugeItem}>
            <div className={styles.monthGaugeHead}>
             <b>월간 오답 클리닉</b>
-            <strong style={s.periodWrongCompleted ? { color: '#15803d' } : undefined}>
-             {s.periodWrongCompleted ? '오답 완료' : s.wrongRate !== null ? `${s.wrongRate}%` : '오답 완료'}
+            <strong style={!s.hasWrongRecord ? { color: '#64748b' } : s.periodWrongCompleted ? { color: '#15803d' } : undefined}>
+             {!s.hasWrongRecord ? '기록 없음' : s.periodWrongCompleted ? '오답 완료' : `${s.wrongRate ?? 0}%`}
             </strong>
            </div>
            <div className={styles.monthGaugeBar}>
-            <i style={{width:`${s.periodWrongCompleted ? 100 : (s.wrongRate??100)}%`, background: s.periodWrongCompleted ? '#16a34a' : undefined}}/>
+            <i style={{width:`${!s.hasWrongRecord ? 0 : s.periodWrongCompleted ? 100 : (s.wrongRate ?? 0)}%`, background: s.periodWrongCompleted ? '#16a34a' : undefined}}/>
            </div>
            <small>
-            {s.periodWrongCompleted
-             ? '이번 달 부여된 오답 클리닉이 모두 완료되었습니다.'
-             : `한 달간 발생한 오답 ${s.totalWrong}문항 중 ${s.fixedWrong}문항 해결 완료`}
+            {!s.hasWrongRecord
+             ? '이번 달 등록된 오답 클리닉 기록이 없습니다.'
+             : s.periodWrongCompleted
+               ? '이번 달 부여된 오답 클리닉이 모두 완료되었습니다.'
+               : `한 달간 발생한 오답 ${s.totalWrong}문항 중 ${s.fixedWrong}문항 해결 완료`}
            </small>
           </div>
          )}
+        </div>
+        <div style={{ marginTop: 10 }}>
+         <MonthlyCompetencyDiagnosis s={s} />
         </div>
        </div>
       </section>
@@ -1913,10 +2254,14 @@ export default function ReportSheets({
  preview:p,
  template=presets[0],
  onEditFeedback,
+ onBulkEditFeedback,
+ bulkTargetCount,
 }:{
  preview:Preview;
  template?:Template;
  onEditFeedback?: (studentId: string, date: string, memo: string) => void;
+ onBulkEditFeedback?: (date: string, memo: string) => void;
+ bulkTargetCount?: number;
 }){
  const s=computeStudentData(p);
  const cfg=buildLayoutConfig(template, s);
@@ -1947,6 +2292,8 @@ export default function ReportSheets({
       period={period}
       periodKor={periodKor}
       onEditFeedback={onEditFeedback}
+      onBulkEditFeedback={onBulkEditFeedback}
+      bulkTargetCount={bulkTargetCount}
      />
     </div>
    </article>
@@ -2067,6 +2414,8 @@ export default function ReportSheets({
          value={s.todayWrongMemo}
          placeholder={`${p.name} 학생은 해당 기간 출석률 ${s.attRate ?? 100}%, 과제 수행률 ${s.hwRate ?? 100}%를 기록했습니다. 이곳을 클릭하여 선생님 피드백 코멘트를 입력하세요.`}
          onChange={val => onEditFeedback(p.id, p.end, val)}
+         onBulkApply={onBulkEditFeedback ? val => onBulkEditFeedback(p.end, val) : undefined}
+         bulkCount={bulkTargetCount}
         />
        ) : (
         <div className={styles.miriRuledLines}>
@@ -2094,7 +2443,7 @@ export default function ReportSheets({
      <footer className={styles.miriYellowTakeaway}>
       <h3 className={styles.miriYellowSecTitle}>{periodKor} 학습 핵심 진단 및 피드백</h3>
       <div className={styles.miriTakeawayList}>
-       <p><CheckCircle2 size={13} className={styles.miriCheckIconGreen}/> <span>해당 기간 출석률 {s.attRate??100}% · 숙제 수행률 {s.hwRate??100}% · {s.periodWrongCompleted || s.todayWrongCompleted ? '오답 완료' : `오답 해결률 ${s.wrongRate??100}%`}</span></p>
+       <p><CheckCircle2 size={13} className={styles.miriCheckIconGreen}/> <span>해당 기간 출석률 {s.attRate??100}% · 숙제 수행률 {s.hwRate??100}% · {!s.hasWrongRecord ? '오답 클리닉 기록 없음' : s.periodWrongCompleted || s.todayWrongCompleted ? '오답 완료' : `오답 해결률 ${s.wrongRate??0}%`}</span></p>
       </div>
       <div className={styles.miriConclusionPill}>
        <Lightbulb size={15} className={styles.miriBulbIcon}/>
@@ -2105,6 +2454,8 @@ export default function ReportSheets({
           value={s.todayWrongMemo}
           placeholder={`${p.name} 학생의 ${periodKor} 학습 태도와 과제 이행 상태를 점검하였으며, 부족한 유형은 클리닉을 통해 보완 지도합니다. (클릭하여 코멘트 입력)`}
           onChange={val => onEditFeedback(p.id, p.end, val)}
+          onBulkApply={onBulkEditFeedback ? val => onBulkEditFeedback(p.end, val) : undefined}
+          bulkCount={bulkTargetCount}
          />
         ) : (
          <span>
@@ -2126,6 +2477,8 @@ export default function ReportSheets({
          value={s.todayWrongMemo}
          placeholder={`${p.name} 학생은 해당 기간 출석률 ${s.attRate ?? 100}%, 과제 수행률 ${s.hwRate ?? 100}%를 기록했습니다. 이곳을 클릭하여 선생님 종합 코멘트를 입력하세요.`}
          onChange={val => onEditFeedback(p.id, p.end, val)}
+         onBulkApply={onBulkEditFeedback ? val => onBulkEditFeedback(p.end, val) : undefined}
+         bulkCount={bulkTargetCount}
         />
        ) : s.comments.length>0?s.comments.slice(0,cfg.getRowLimit('feedback', 3)).map(c=>(
         <p key={c.id}><MessageSquareText size={13} className={styles.miriCommentIcon}/> <span><b>[{c.tag}]</b> {c.text} ({shortDate(c.date)})</span></p>

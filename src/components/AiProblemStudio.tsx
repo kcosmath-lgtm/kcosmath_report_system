@@ -91,7 +91,6 @@ const STUDIO_MODES: Array<{
   { id: "generate", label: "문제 제작", desc: "모의고사·EBS 변형 및 신규 문항 출제", icon: Sparkles },
   { id: "typing", label: "타이핑", desc: "시험지 PDF·이미지 수식/문항 추출", icon: ScanText },
   { id: "geometry", label: "도형 작도", desc: "알지오매스·지오지브라형 함수·기하 작도", icon: Compass },
-  { id: "report", label: "보고서 템플릿", desc: "학생 성취도·일일·주간·월간 보고서 템플릿 설계", icon: LayoutTemplate },
 ];
 
 const STUDIO_REPORT_SAMPLE_PREVIEW: ReportPreview = {

@@ -1377,6 +1377,108 @@
   font-weight: 800 !important;
 }
 
+.wrongStateGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: #e2e8f0;
+  padding: 2.5px;
+  border-radius: 9px;
+}
+
+.wrongStateBtn {
+  height: 24px;
+  padding: 0 8px !important;
+  border-radius: 7px !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: #475569 !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  white-space: nowrap;
+  transition: all 0.14s ease;
+}
+
+.wrongStateBtn:hover:not(:disabled) {
+  color: #0f172a !important;
+}
+
+.wrongStateBtn[data-tone="slate"][aria-pressed="true"] {
+  background: #ffffff !important;
+  color: #334155 !important;
+  font-weight: 800 !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.wrongStateBtn[data-tone="amber"][aria-pressed="true"] {
+  background: #f59e0b !important;
+  color: #ffffff !important;
+  font-weight: 800 !important;
+  box-shadow: 0 1px 3px rgba(245, 158, 11, 0.3);
+}
+
+.wrongStateBtn[data-tone="emerald"][aria-pressed="true"] {
+  background: #10b981 !important;
+  color: #ffffff !important;
+  font-weight: 800 !important;
+  box-shadow: 0 1px 3px rgba(16, 185, 129, 0.3);
+}
+
+.wrongCountAdjustRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.wrongCountPair {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  padding: 1px 4px;
+}
+
+.wrongCountPair span {
+  font-size: 10.5px;
+  color: #64748b;
+  margin: 0 2px;
+}
+
+.wrongCountPair b {
+  min-width: 14px;
+  text-align: center;
+  font-size: 11.5px;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+
+.miniCountBtn {
+  width: 18px;
+  height: 18px;
+  padding: 0 !important;
+  border-radius: 4px !important;
+  border: 0 !important;
+  background: #f1f5f9 !important;
+  color: #334155 !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.miniCountBtn:hover:not(:disabled) {
+  background: #e2e8f0 !important;
+}
+
 .miniDonutWrap {
   position: relative;
   width: 46px;

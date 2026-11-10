@@ -30,7 +30,6 @@ import StudentSidebar from '../../../components/layout/Sidebar';
 import LandingMenu from '../../../components/LandingMenu';
 import {useAuth} from '../../../components/AuthProvider';
 import {loadStudentDaily,loadWrongAnswerRange,loadProgress,saveWrongAnswer} from '../../../lib/report-storage';
-import {loadActiveAiReportTemplate,loadAiReportTemplates,saveActiveAiReportTemplate} from '../../../lib/ai-copilot';
 import {reportMonths} from '../../../lib/wrong-answer-report';
 import type {ReportStudent} from '../../../types/report';
 import ReportSheets,{type Preview} from './ReportSheets';
@@ -126,8 +125,6 @@ export default function NewReportPage(){
  const [cycle,setCycle]=useState<ReportCycle>('day');
  const [theme,setTheme]=useState<Theme>('saebom');
  const [orientation,setOrientation]=useState<'portrait'|'landscape'>('portrait');
- const [customTemplate,setCustomTemplate]=useState<Template|null>(null);
- const [aiTemplates,setAiTemplates]=useState<Template[]>([]);
 
  // 학원별 맞춤 요소 ON/OFF 및 칸 크기/브랜딩 상태
  const [enabledKinds, setEnabledKinds] = useState<Kind[]>(ALL_KINDS);
@@ -142,6 +139,11 @@ export default function NewReportPage(){
  const [accentColor, setAccentColor] = useState('');
  const [footerNotice, setFooterNotice] = useState('');
  const [showCustomizer, setShowCustomizer] = useState(false);
+
+ // 다중 학생 일괄 피드백 코멘트 작성 상태
+ const [bulkFeedbackText, setBulkFeedbackText] = useState('');
+ const [bulkFeedbackTargets, setBulkFeedbackTargets] = useState<string[]>([]);
+ const [showBulkFeedbackBar, setShowBulkFeedbackBar] = useState(true);
 
  // 미리보기 확대/축소 & 전체화면 크게 보기 모달 상태
  const [zoomMode, setZoomMode] = useState<'fit' | number>('fit');
@@ -183,20 +185,6 @@ export default function NewReportPage(){
  }, [defaultPrefKey]);
 
  const template:Template=useMemo(()=>{
-  if(customTemplate){
-   return {
-    ...customTemplate,
-    orientation,
-    hideEmpty,
-    showNextHomework,
-    academyName: academyName || customTemplate.academyName,
-    customTitle: customTitle || customTemplate.customTitle,
-    logoDataUrl: logoDataUrl || customTemplate.logoDataUrl,
-    logoPosition,
-    accentColor: accentColor || customTemplate.accentColor,
-    footerNotice: footerNotice || customTemplate.footerNotice,
-   };
-  }
   const built = buildStructuredTemplate({
    cycle,
    focus:'balanced',
@@ -223,7 +211,6 @@ export default function NewReportPage(){
    blocks: orderedBlocks.length > 0 ? orderedBlocks : built.blocks,
   };
  },[
-  customTemplate,
   orientation,
   cycle,
   theme,
@@ -240,16 +227,14 @@ export default function NewReportPage(){
   heightOverrides,
  ]);
 
- const start=periodStart(customTemplate?.period??cycle,end,today);
+ const start=periodStart(cycle,end,today);
  const [reports,setReports]=useState<Preview[]>([]),[loading,setLoading]=useState(false),[exporting,setExporting]=useState(false),[message,setMessage]=useState(''),[revision,setRevision]=useState(0);
 
  const selectCycle=(nextCycle:ReportCycle)=>{
-  setCustomTemplate(null);
   setCycle(nextCycle);
  };
 
  const toggleKind = (k: Kind) => {
-  setCustomTemplate(null);
   setEnabledKinds(prev => {
    if (prev.includes(k)) {
     if (prev.length <= 1) return prev; // 최소 1개 항목은 유지
@@ -260,7 +245,6 @@ export default function NewReportPage(){
  };
 
  const moveKindOrder = (k: Kind, dir: -1 | 1) => {
-  setCustomTemplate(null);
   setEnabledKinds(prev => {
    const idx = prev.indexOf(k);
    if (idx === -1) return prev;
@@ -300,40 +284,6 @@ export default function NewReportPage(){
   }
  };
 
- const applyAiTemplate=(tpl:Template)=>{
-  setCustomTemplate(tpl);
-  setOrientation(tpl.orientation);
-  if(tpl.period==='day'||tpl.period==='week'||tpl.period==='month')setCycle(tpl.period);
-  if(tpl.theme)setTheme(tpl.theme);
-  if(Array.isArray(tpl.blocks)&&tpl.blocks.length>0){
-   const uniqueKinds = Array.from(new Set(tpl.blocks.map(b => b.kind)));
-   setEnabledKinds(uniqueKinds);
-  }
-  saveActiveAiReportTemplate(tpl);
- };
-
- useEffect(()=>{
-  const loaded=loadAiReportTemplates();
-  setAiTemplates(loaded);
-  if(typeof window!=='undefined'){
-   const params=new URLSearchParams(window.location.search);
-   if(params.get('from')==='ai-studio'){
-    const activeTpl=loadActiveAiReportTemplate()??loaded[0];
-    if(activeTpl){
-     applyAiTemplate(activeTpl);
-    }
-   }
-  }
-  const onAiTemplate=(e:Event)=>{
-   const built=(e as CustomEvent<Template>).detail;
-   if(!built||!isTemplate(built))return;
-   setAiTemplates(loadAiReportTemplates());
-   applyAiTemplate(built);
-  };
-  window.addEventListener('cosmath-ai-template-updated',onAiTemplate);
-  return()=>window.removeEventListener('cosmath-ai-template-updated',onAiTemplate);
- },[]);
-
  const pageWidth=orientation==='landscape'?1123:794,pageHeight=orientation==='landscape'?794:1123;
  const sheets=useRef<HTMLDivElement>(null);
  const [fitScale,setFitScale]=useState(1);
@@ -353,7 +303,14 @@ export default function NewReportPage(){
 
  const effectiveScale = zoomMode === 'fit' ? fitScale : zoomMode;
 
- const select=useCallback((next:ReportStudent[])=>{setStudents(next);setActive(current=>next.some(s=>s.id===current)?current:next[0]?.id??'');},[]);
+ const select=useCallback((next:ReportStudent[])=>{
+  setStudents(next);
+  setActive(current=>next.some(s=>s.id===current)?current:next[0]?.id??'');
+  setBulkFeedbackTargets(prev => {
+   const validPrev = prev.filter(id => next.some(s => s.id === id));
+   return validPrev.length > 0 ? validPrev : next.map(s => s.id);
+  });
+ },[]);
 
  const feedbackSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
  const handleEditFeedback = useCallback((studentId: string, date: string, memo: string) => {
@@ -392,6 +349,48 @@ export default function NewReportPage(){
    return next;
   });
  }, []);
+
+ const handleBulkEditFeedback = useCallback((date: string, memo: string, customTargetIds?: string[]) => {
+  const targetIds = (customTargetIds && customTargetIds.length > 0 ? customTargetIds : bulkFeedbackTargets.length > 0 ? bulkFeedbackTargets : students.map(s => s.id))
+   .filter(id => students.some(s => s.id === id));
+  if (targetIds.length === 0) return;
+
+  setReports(prev => {
+   return prev.map(r => {
+    if (!targetIds.includes(r.id)) return r;
+    const idx = r.wrong.findIndex(w => w.record_date === date);
+    let nextWrong = [...r.wrong];
+    let targetRecord;
+    if (idx >= 0) {
+     targetRecord = { ...nextWrong[idx], memo };
+     nextWrong[idx] = targetRecord;
+    } else {
+     targetRecord = {
+      id: `${r.id}_${date}`,
+      student_id: r.id,
+      record_date: date,
+      total_wrong: 0,
+      corrected_count: 0,
+      completed: false,
+      homework_status: null,
+      memo,
+      version: 1,
+     };
+     nextWrong.push(targetRecord);
+     nextWrong = nextWrong.sort((a, b) => a.record_date.localeCompare(b.record_date));
+    }
+    const timerKey = `${r.id}:${date}`;
+    if (feedbackSaveTimers.current[timerKey]) clearTimeout(feedbackSaveTimers.current[timerKey]);
+    const recToSave = targetRecord;
+    feedbackSaveTimers.current[timerKey] = setTimeout(() => {
+     void saveWrongAnswer(recToSave);
+    }, 200);
+    return { ...r, wrong: nextWrong };
+   });
+  });
+  setBulkFeedbackText(memo);
+  setMessage(`선택한 ${targetIds.length}명의 학생 보고서에 피드백 코멘트를 일괄 적용했습니다.`);
+ }, [bulkFeedbackTargets, students]);
 
  useEffect(()=>{
   let cancelled=false;
@@ -553,7 +552,7 @@ export default function NewReportPage(){
      <span className={styles.presetLabel}>템플릿 스타일</span>
      <div className={styles.segmented} role="group" aria-label="템플릿 분위기 선택">
       {studioThemes.map(({key,label,Icon,badge})=>(
-       <button key={key} type="button" disabled={exporting} aria-pressed={!customTemplate&&theme===key} onClick={()=>{setCustomTemplate(null);setTheme(key);}} className={styles.themeTabBtn}>
+       <button key={key} type="button" disabled={exporting} aria-pressed={theme===key} onClick={()=>setTheme(key)} className={styles.themeTabBtn}>
         <Icon size={14}/>
         {label}
         {badge&&<span style={{fontSize:9.5,fontWeight:800,padding:'1px 5px',borderRadius:999,background:'#dcfce7',color:'#15803d'}}>{badge}</span>}
@@ -568,7 +567,7 @@ export default function NewReportPage(){
      <span className={styles.presetLabel}>보고 주기</span>
      <div className={styles.segmented} role="group" aria-label="보고 주기 선택">
       {(Object.entries(reportCycles) as [ReportCycle,typeof reportCycles[ReportCycle]][]).map(([key,item])=>(
-       <button key={key} type="button" disabled={exporting} aria-pressed={!customTemplate&&cycle===key} onClick={()=>selectCycle(key)} title={item.desc}>
+       <button key={key} type="button" disabled={exporting} aria-pressed={cycle===key} onClick={()=>selectCycle(key)} title={item.desc}>
         {item.label}
        </button>
       ))}
@@ -620,6 +619,28 @@ export default function NewReportPage(){
     </div>
 
     <div className={styles.presetGroupRight}>
+     {students.length > 1 && (
+      <button
+       type="button"
+       onClick={() => setShowBulkFeedbackBar(v => !v)}
+       style={{
+        display:'inline-flex',
+        alignItems:'center',
+        gap:6,
+        height:34,
+        padding:'0 12px',
+        borderRadius:10,
+        border:showBulkFeedbackBar?'1.5px solid #2563eb':'1px solid #cbd5e1',
+        background:showBulkFeedbackBar?'#eff6ff':'#ffffff',
+        color:showBulkFeedbackBar?'#1d4ed8':'#1e293b',
+        fontSize:12,
+        fontWeight:700,
+        cursor:'pointer',
+       }}
+      >
+       💬 선택 학생 피드백 일괄 작성 ({bulkFeedbackTargets.length || students.length}명) {showBulkFeedbackBar ? '▲' : '▼'}
+      </button>
+     )}
      <button
       type="button"
       onClick={() => setShowCustomizer(v => !v)}
@@ -640,31 +661,6 @@ export default function NewReportPage(){
      >
       <SlidersHorizontal size={13}/> 칸 크기 · 로고 · 문구 설정 {showCustomizer ? '▲' : '▼'}
      </button>
-
-     {aiTemplates.length>0&&(
-      <select
-       aria-label="AI 스튜디오 템플릿 선택"
-       disabled={exporting}
-       value={customTemplate?.id??''}
-       onChange={e=>{
-        const found=aiTemplates.find(t=>t.id===e.target.value);
-        if(found)applyAiTemplate(found);
-        else setCustomTemplate(null);
-       }}
-       style={{height:34,borderRadius:10,border:'1px solid #cbd5e1',padding:'0 10px',fontSize:12,fontWeight:600,background:customTemplate?'#eff6ff':'#ffffff',color:customTemplate?'#1d4ed8':'#334155'}}
-      >
-       <option value="">저장된 AI 템플릿 ({aiTemplates.length})</option>
-       {aiTemplates.map(t=>(
-        <option key={t.id} value={t.id}>{t.name}</option>
-       ))}
-      </select>
-     )}
-     <Link
-      href="/ai-studio?mode=report"
-      style={{display:'inline-flex',alignItems:'center',gap:6,height:34,padding:'0 12px',borderRadius:10,background:'#0f172a',color:'#ffffff',fontSize:12,fontWeight:700,textDecoration:'none'}}
-     >
-      <Sparkles size={13}/> AI 템플릿 스튜디오 ↗
-     </Link>
     </div>
    </section>
 
@@ -682,7 +678,6 @@ export default function NewReportPage(){
            key={preset.id}
            type="button"
            onClick={() => {
-            setCustomTemplate(null);
             setEnabledKinds(preset.kinds);
             setShowNextHomework(preset.showNextHomework);
            }}
@@ -884,6 +879,123 @@ export default function NewReportPage(){
 
    {!valid&&<p role="alert" className={styles.message}>시작일과 종료일을 확인해 주세요. 한 번에 최대 12개 월의 기록을 조회할 수 있습니다.</p>}
    {message&&<p role="status" className={styles.message}>{message}</p>}
+
+   {/* 다중 학생 선택 시 피드백 코멘트 일괄 작성 · 적용 바 */}
+   {students.length > 1 && showBulkFeedbackBar && (
+    <section
+     aria-label="선택 학생 피드백 일괄 작성"
+     style={{
+      margin:'8px 18px 4px',
+      padding:'12px 16px',
+      background:'#f8fafc',
+      border:'1px solid #bfdbfe',
+      borderRadius:12,
+      display:'flex',
+      flexDirection:'column',
+      gap:8,
+     }}
+    >
+     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+       <strong style={{fontSize:12.5,color:'#1e40af'}}>
+        💬 선택 학생 피드백 코멘트 일괄 적용 ({bulkFeedbackTargets.length}명 대상)
+       </strong>
+       <button
+        type="button"
+        onClick={() =>
+         setBulkFeedbackTargets(
+          bulkFeedbackTargets.length === students.length ? [] : students.map(s => s.id)
+         )
+        }
+        style={{
+         padding:'3px 8px',
+         fontSize:11,
+         fontWeight:700,
+         borderRadius:6,
+         border:'1px solid #93c5fd',
+         background:'#ffffff',
+         color:'#1d4ed8',
+         cursor:'pointer',
+        }}
+       >
+        {bulkFeedbackTargets.length === students.length ? '전체 해제' : `전체 선택 (${students.length}명)`}
+       </button>
+       <div style={{display:'flex',alignItems:'center',gap:4,flexWrap:'wrap'}}>
+        {students.map(s => {
+         const checkedTarget = bulkFeedbackTargets.includes(s.id);
+         return (
+          <button
+           key={s.id}
+           type="button"
+           aria-pressed={checkedTarget}
+           onClick={() =>
+            setBulkFeedbackTargets(prev =>
+             prev.includes(s.id) ? prev.filter(id => id !== s.id) : [...prev, s.id]
+            )
+           }
+           style={{
+            padding:'3px 9px',
+            fontSize:11,
+            fontWeight:700,
+            borderRadius:999,
+            border:checkedTarget ? '1px solid #2563eb' : '1px solid #cbd5e1',
+            background:checkedTarget ? '#2563eb' : '#ffffff',
+            color:checkedTarget ? '#ffffff' : '#475569',
+            cursor:'pointer',
+           }}
+          >
+           {checkedTarget ? '✓ ' : ''}{s.name}
+          </button>
+         );
+        })}
+       </div>
+      </div>
+     </div>
+     <div style={{display:'flex',alignItems:'stretch',gap:8,flexWrap:'wrap'}}>
+      <textarea
+       rows={2}
+       aria-label="일괄 피드백 코멘트"
+       value={bulkFeedbackText}
+       onChange={e => setBulkFeedbackText(e.target.value)}
+       placeholder="선택한 학생들의 보고서 피드백란에 일괄로 들어갈 코멘트를 입력하세요..."
+       style={{
+        flex:1,
+        minWidth:240,
+        padding:'8px 11px',
+        fontSize:12.5,
+        borderRadius:8,
+        border:'1px solid #cbd5e1',
+        background:'#ffffff',
+        color:'#0f172a',
+        resize:'vertical',
+       }}
+      />
+      <button
+       type="button"
+       disabled={exporting || bulkFeedbackTargets.length === 0}
+       onClick={() => handleBulkEditFeedback(end, bulkFeedbackText, bulkFeedbackTargets)}
+       style={{
+        display:'inline-flex',
+        alignItems:'center',
+        justifyContent:'center',
+        gap:6,
+        padding:'0 16px',
+        borderRadius:8,
+        border:'1px solid #1d4ed8',
+        background:bulkFeedbackTargets.length > 0 ? '#2563eb' : '#94a3b8',
+        color:'#ffffff',
+        fontSize:12.5,
+        fontWeight:800,
+        cursor:bulkFeedbackTargets.length > 0 ? 'pointer' : 'default',
+        whiteSpace:'nowrap',
+       }}
+      >
+       <Check size={14}/> 선택 {bulkFeedbackTargets.length}명 피드백 일괄 적용
+      </button>
+     </div>
+    </section>
+   )}
+
    {students.length>0&&(
     <nav aria-label="보고서 학생 선택" className={styles.studentTabs}>
      {students.map(s=>(
@@ -908,7 +1020,13 @@ export default function NewReportPage(){
     ):(
      current.map(report=>(
       <div key={report.id} data-report={report.id} data-active={active===report.id} className={styles.reportStack}>
-       <ReportSheets preview={report} template={template} onEditFeedback={handleEditFeedback}/>
+       <ReportSheets
+        preview={report}
+        template={template}
+        onEditFeedback={handleEditFeedback}
+        onBulkEditFeedback={(dateStr, memoText) => handleBulkEditFeedback(dateStr, memoText)}
+        bulkTargetCount={bulkFeedbackTargets.length || students.length}
+       />
       </div>
      ))
     )}

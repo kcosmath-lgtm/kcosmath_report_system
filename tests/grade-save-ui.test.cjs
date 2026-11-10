@@ -20,9 +20,15 @@ test('Excel confirmation submits exams on an existing attendance record and repo
   await act(async()=>{root=create(React.createElement(Grades,props));});
   const upload=async()=>act(async()=>{root.root.findByProps({type:'file'}).props.onChange({target:{files:[{size:100,arrayBuffer:async()=>new TextEncoder().encode('<table/>').buffer}],value:'file'}});});
   await upload();
+  const bulkInput=root.root.findByProps({'aria-label':'일괄 시험명'});
+  await act(async()=>{bulkInput.props.onChange({target:{value:'10월 월말평가'}});});
+  const applyBtn=root.root.findAllByType('button').find(b=>b.children.join('')==='시험명 일괄 적용');
+  await act(async()=>{applyBtn.props.onClick();});
+  assert.equal(root.root.findByProps({'aria-label':'A 시험명'}).props.value,'10월 월말평가');
   const save=()=>root.root.findAllByType('button').find(b=>b.children.join('')==='확인한 성적 저장');
   await act(async()=>{await save().props.onClick();});
   assert.ok(submitted,JSON.stringify(root.toJSON()));assert.equal(submitted[0].daily.id,'daily');assert.equal(submitted[0].daily.version,1);
+  assert.equal(submitted[0].daily.exams[0].name,'10월 월말평가');
   assert.equal(submitted[0].daily.exams[0].score,93);assert.equal(submitted[0].wrong.corrected_count,4);
   assert.equal(savedDate,'2026-10-07');
   fail=true;await upload();await act(async()=>{await save().props.onClick();});

@@ -65,7 +65,7 @@ function StatusButtons({
 
 function WrongStatus({ total, done, completed }: { total: number; done: number; completed?: boolean }) {
   const symbol = completed ? '○' : wrongAnswerStatus(total, done);
-  const label = symbol === '○' ? '전체 완료' : symbol === '△' ? '50% 이상 완료' : symbol === 'X' ? '50% 미만 완료' : '오답 개수 미입력 또는 확인 필요';
+  const label = symbol === '○' ? '전체 완료' : symbol === '△' ? '50% 이상 완료' : symbol === 'X' ? '50% 미만 완료' : '기록 없음';
   return <span className={styles.stateBadge} data-state={symbol} aria-label={`오답 상태: ${label}`} title={label}>{symbol}</span>;
 }
 
@@ -276,6 +276,43 @@ export default function StudentDailyRecords({
           wrong: {
             ...r.wrong,
             corrected_count: 0,
+            completed: false,
+          },
+        };
+      }
+      return {
+        ...r,
+        wrong: {
+          ...r.wrong,
+          corrected_count: r.wrong.total_wrong,
+          completed: true,
+        },
+      };
+    });
+  }
+
+  function setWrongClinicState(id: string, target: 'none' | 'incomplete' | 'done') {
+    edit(id, r => {
+      if (target === 'none') {
+        return {
+          ...r,
+          wrong: {
+            ...r.wrong,
+            total_wrong: 0,
+            corrected_count: 0,
+            completed: false,
+          },
+        };
+      }
+      if (target === 'incomplete') {
+        const nextTotal = r.wrong.total_wrong > 0 ? r.wrong.total_wrong : 3;
+        const nextDone = r.wrong.corrected_count >= nextTotal ? Math.max(0, nextTotal - 1) : r.wrong.corrected_count;
+        return {
+          ...r,
+          wrong: {
+            ...r.wrong,
+            total_wrong: nextTotal,
+            corrected_count: nextDone,
             completed: false,
           },
         };
@@ -950,12 +987,14 @@ export default function StudentDailyRecords({
 
                     const wrongTotal = r.wrong.total_wrong;
                     const wrongDone = r.wrong.corrected_count;
-                    const wrongPct =
-                      r.wrong.completed || (wrongTotal > 0 && wrongDone >= wrongTotal)
-                        ? 100
-                        : wrongTotal > 0
-                        ? Math.round((wrongDone / wrongTotal) * 100)
-                        : 0;
+                    const isWrongDone = Boolean(r.wrong.completed || (wrongTotal > 0 && wrongDone >= wrongTotal));
+                    const isWrongNone = !isWrongDone && wrongTotal === 0;
+                    const isWrongIncomplete = !isWrongDone && wrongTotal > 0;
+                    const wrongPct = isWrongDone
+                      ? 100
+                      : wrongTotal > 0
+                      ? Math.round((wrongDone / wrongTotal) * 100)
+                      : 0;
 
                     const histExams = history
                       .filter(h => h.daily.student_id === s.id && h.daily.record_date !== date)
@@ -1019,110 +1058,182 @@ export default function StudentDailyRecords({
 
                         {/* Middle 2-Column Infographic Widgets */}
                         <div className={styles.cardWidgetGrid}>
-                          {/* Widget 1: Wrong Answer Donut Ring + Stepper Buttons */}
+                          {/* Widget 1: Wrong Answer Donut Ring + 3-State Buttons */}
                           <div className={styles.miniWidget}>
                             <div>
                               <div className={styles.widgetTitle}>오답 클리닉</div>
-                              <div className={styles.widgetValue} style={wrongPct === 100 ? { color: '#059669' } : undefined}>
-                                {wrongPct === 100 ? (
-                                  '오답 완료'
-                                ) : wrongTotal > 0 ? (
-                                  <>
-                                    {wrongDone}/{wrongTotal}문항 <span>({wrongPct}%)</span>
-                                  </>
+                              <div
+                                className={styles.widgetValue}
+                                style={
+                                  isWrongDone
+                                    ? { color: '#059669' }
+                                    : isWrongNone
+                                    ? { color: '#64748b' }
+                                    : { color: '#d97706' }
+                                }
+                              >
+                                {isWrongDone ? (
+                                  wrongTotal > 0 ? `오답 완료 (${wrongTotal}문항)` : '오답 완료'
+                                ) : isWrongNone ? (
+                                  '기록 없음'
                                 ) : (
-                                  '오답 미완료'
+                                  <>
+                                    미완료 · {wrongDone}/{wrongTotal}문항 <span>({wrongPct}%)</span>
+                                  </>
                                 )}
                               </div>
                               <div className={styles.widgetControls}>
-                                <button
-                                  type="button"
-                                  className={styles.stepBtn}
-                                  title="수정 오답 -1"
-                                  onClick={() =>
-                                    edit(s.id, cur => {
-                                      const nextDone = Math.max(0, cur.wrong.corrected_count - 1);
-                                      return {
-                                        ...cur,
-                                        wrong: {
-                                          ...cur.wrong,
-                                          corrected_count: nextDone,
-                                          completed: cur.wrong.total_wrong > 0 && nextDone === cur.wrong.total_wrong,
-                                        },
-                                      };
-                                    })
-                                  }
-                                >
-                                  -
-                                </button>
-                                <button
-                                  type="button"
-                                  className={styles.stepBtn}
-                                  title="수정 오답 +1"
-                                  onClick={() =>
-                                    edit(s.id, cur => {
-                                      const nextTotal = Math.max(cur.wrong.total_wrong, cur.wrong.corrected_count + 1);
-                                      const nextDone = Math.min(nextTotal, cur.wrong.corrected_count + 1);
-                                      return {
-                                        ...cur,
-                                        wrong: {
-                                          ...cur.wrong,
-                                          total_wrong: nextTotal,
-                                          corrected_count: nextDone,
-                                          completed: nextTotal > 0 && nextDone === nextTotal,
-                                        },
-                                      };
-                                    })
-                                  }
-                                >
-                                  +
-                                </button>
-                                <button
-                                  type="button"
-                                  className={styles.stepBtn}
-                                  title="전체 오답 문항 +3"
-                                  onClick={() =>
-                                    edit(s.id, cur => {
-                                      const nextTotal = cur.wrong.total_wrong + 3;
-                                      return {
-                                        ...cur,
-                                        wrong: {
-                                          ...cur.wrong,
-                                          total_wrong: nextTotal,
-                                          completed: false,
-                                        },
-                                      };
-                                    })
-                                  }
-                                >
-                                  문항+3
-                                </button>
-                                <button
-                                  type="button"
-                                  className={styles.donePillBtn}
-                                  onClick={() => completeWrongAnswers(s.id)}
-                                >
-                                  {wrongPct === 100 ? '오답 완료 ✓' : '오답 완료'}
-                                </button>
+                                <div className={styles.wrongStateGroup} role="group" aria-label={`${s.name} 오답 클리닉 상태`}>
+                                  <button
+                                    type="button"
+                                    className={styles.wrongStateBtn}
+                                    data-tone="slate"
+                                    aria-pressed={isWrongNone}
+                                    onClick={() => setWrongClinicState(s.id, 'none')}
+                                  >
+                                    기록 없음
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={styles.wrongStateBtn}
+                                    data-tone="amber"
+                                    aria-pressed={isWrongIncomplete}
+                                    onClick={() => setWrongClinicState(s.id, 'incomplete')}
+                                  >
+                                    미완료
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={styles.wrongStateBtn}
+                                    data-tone="emerald"
+                                    aria-pressed={isWrongDone}
+                                    onClick={() => setWrongClinicState(s.id, 'done')}
+                                  >
+                                    오답 완료
+                                  </button>
+                                </div>
                               </div>
+                              {!isWrongNone && (
+                                <div className={styles.wrongCountAdjustRow}>
+                                  <div className={styles.wrongCountPair}>
+                                    <span>해결</span>
+                                    <button
+                                      type="button"
+                                      className={styles.miniCountBtn}
+                                      title="해결 오답 -1"
+                                      onClick={() =>
+                                        edit(s.id, cur => {
+                                          const nextDone = Math.max(0, cur.wrong.corrected_count - 1);
+                                          return {
+                                            ...cur,
+                                            wrong: {
+                                              ...cur.wrong,
+                                              corrected_count: nextDone,
+                                              completed: cur.wrong.total_wrong > 0 && nextDone === cur.wrong.total_wrong,
+                                            },
+                                          };
+                                        })
+                                      }
+                                    >
+                                      -
+                                    </button>
+                                    <b>{wrongDone}</b>
+                                    <button
+                                      type="button"
+                                      className={styles.miniCountBtn}
+                                      title="해결 오답 +1"
+                                      onClick={() =>
+                                        edit(s.id, cur => {
+                                          const nextTotal = Math.max(cur.wrong.total_wrong, cur.wrong.corrected_count + 1);
+                                          const nextDone = Math.min(nextTotal, cur.wrong.corrected_count + 1);
+                                          return {
+                                            ...cur,
+                                            wrong: {
+                                              ...cur.wrong,
+                                              total_wrong: nextTotal,
+                                              corrected_count: nextDone,
+                                              completed: nextTotal > 0 && nextDone === nextTotal,
+                                            },
+                                          };
+                                        })
+                                      }
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+                                  <div className={styles.wrongCountPair}>
+                                    <span>전체</span>
+                                    <button
+                                      type="button"
+                                      className={styles.miniCountBtn}
+                                      title="전체 오답 -1"
+                                      onClick={() =>
+                                        edit(s.id, cur => {
+                                          const nextTotal = Math.max(0, cur.wrong.total_wrong - 1);
+                                          const nextDone = Math.min(nextTotal, cur.wrong.corrected_count);
+                                          return {
+                                            ...cur,
+                                            wrong: {
+                                              ...cur.wrong,
+                                              total_wrong: nextTotal,
+                                              corrected_count: nextDone,
+                                              completed: nextTotal > 0 ? nextDone === nextTotal : cur.wrong.completed,
+                                            },
+                                          };
+                                        })
+                                      }
+                                    >
+                                      -
+                                    </button>
+                                    <b>{wrongTotal}</b>
+                                    <button
+                                      type="button"
+                                      className={styles.miniCountBtn}
+                                      title="전체 오답 +1"
+                                      onClick={() =>
+                                        edit(s.id, cur => {
+                                          const nextTotal = cur.wrong.total_wrong + 1;
+                                          return {
+                                            ...cur,
+                                            wrong: {
+                                              ...cur.wrong,
+                                              total_wrong: nextTotal,
+                                              completed: false,
+                                            },
+                                          };
+                                        })
+                                      }
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                             <div className={styles.miniDonutWrap}>
                               <svg className={styles.donutSvg} viewBox="0 0 44 44" aria-hidden="true">
                                 <circle cx="22" cy="22" r="17" stroke="#e2e8f0" strokeWidth="5" fill="none" />
-                                <circle
-                                  cx="22"
-                                  cy="22"
-                                  r="17"
-                                  stroke={wrongPct === 100 ? '#10b981' : '#3b82f6'}
-                                  strokeWidth="5"
-                                  strokeLinecap="round"
-                                  strokeDasharray="106.8"
-                                  strokeDashoffset={(106.8 * (1 - wrongPct / 100)).toFixed(1)}
-                                  className={styles.donutRingAnim}
-                                  fill="none"
-                                />
+                                {!isWrongNone && (
+                                  <circle
+                                    cx="22"
+                                    cy="22"
+                                    r="17"
+                                    stroke={isWrongDone ? '#10b981' : '#f59e0b'}
+                                    strokeWidth="5"
+                                    strokeLinecap="round"
+                                    strokeDasharray="106.8"
+                                    strokeDashoffset={(106.8 * (1 - wrongPct / 100)).toFixed(1)}
+                                    className={styles.donutRingAnim}
+                                    fill="none"
+                                  />
+                                )}
                               </svg>
-                              <span className={styles.miniDonutText}>{wrongPct}%</span>
+                              <span
+                                className={styles.miniDonutText}
+                                style={isWrongNone ? { color: '#94a3b8' } : undefined}
+                              >
+                                {isWrongNone ? '-' : `${wrongPct}%`}
+                              </span>
                             </div>
                           </div>
 
@@ -1489,6 +1600,16 @@ export default function StudentDailyRecords({
                           >
                             <Check size={12} /> {isDoneWrong ? '오답 완료' : '오답 완료'}
                           </button>
+                          {(r.wrong.total_wrong > 0 || r.wrong.completed) && (
+                            <button
+                              type="button"
+                              className={styles.stepBtn}
+                              aria-label={`${s.name} 오답 기록 없음`}
+                              onClick={() => setWrongClinicState(s.id, 'none')}
+                            >
+                              기록 없음
+                            </button>
+                          )}
                         </div>
                       </td>
                       <td>

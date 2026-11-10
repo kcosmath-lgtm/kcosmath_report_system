@@ -130,7 +130,12 @@ export default function NewReportPage(){
  // 학원별 맞춤 요소 ON/OFF 및 칸 크기/브랜딩 상태
  const [enabledKinds, setEnabledKinds] = useState<Kind[]>(ALL_KINDS);
  const [showNextHomework, setShowNextHomework] = useState(true);
+ const [showDailyRoutine, setShowDailyRoutine] = useState(true);
+ const [showDailySnapshot, setShowDailySnapshot] = useState(true);
+ const [showWeeklyRhythm, setShowWeeklyRhythm] = useState(true);
+ const [showWeeklyBalance, setShowWeeklyBalance] = useState(true);
  const [showMonthlyCompetency, setShowMonthlyCompetency] = useState(true);
+ const [showMonthlyGrowth, setShowMonthlyGrowth] = useState(true);
  const [hideEmpty, setHideEmpty] = useState(false);
  const [spanOverrides, setSpanOverrides] = useState<Partial<Record<Kind, BlockSpan>>>({});
  const [heightOverrides, setHeightOverrides] = useState<Partial<Record<Kind, BlockHeight>>>({});
@@ -171,7 +176,12 @@ export default function NewReportPage(){
      setEnabledKinds(savedPref.enabledKinds);
     }
     if (typeof savedPref.showNextHomework === 'boolean') setShowNextHomework(savedPref.showNextHomework);
+    if (typeof savedPref.showDailyRoutine === 'boolean') setShowDailyRoutine(savedPref.showDailyRoutine);
+    if (typeof savedPref.showDailySnapshot === 'boolean') setShowDailySnapshot(savedPref.showDailySnapshot);
+    if (typeof savedPref.showWeeklyRhythm === 'boolean') setShowWeeklyRhythm(savedPref.showWeeklyRhythm);
+    if (typeof savedPref.showWeeklyBalance === 'boolean') setShowWeeklyBalance(savedPref.showWeeklyBalance);
     if (typeof savedPref.showMonthlyCompetency === 'boolean') setShowMonthlyCompetency(savedPref.showMonthlyCompetency);
+    if (typeof savedPref.showMonthlyGrowth === 'boolean') setShowMonthlyGrowth(savedPref.showMonthlyGrowth);
     if (typeof savedPref.hideEmpty === 'boolean') setHideEmpty(savedPref.hideEmpty);
     if (savedPref.spanOverrides) setSpanOverrides(savedPref.spanOverrides);
     if (savedPref.heightOverrides) setHeightOverrides(savedPref.heightOverrides);
@@ -196,7 +206,12 @@ export default function NewReportPage(){
    enabledKinds,
    hideEmpty,
    showNextHomework,
+   showDailyRoutine,
+   showDailySnapshot,
+   showWeeklyRhythm,
+   showWeeklyBalance,
    showMonthlyCompetency,
+   showMonthlyGrowth,
    academyName,
    customTitle,
    logoDataUrl,
@@ -221,7 +236,12 @@ export default function NewReportPage(){
   enabledKinds,
   hideEmpty,
   showNextHomework,
+  showDailyRoutine,
+  showDailySnapshot,
+  showWeeklyRhythm,
+  showWeeklyBalance,
   showMonthlyCompetency,
+  showMonthlyGrowth,
   academyName,
   customTitle,
   logoDataUrl,
@@ -272,7 +292,12 @@ export default function NewReportPage(){
      orientation,
      enabledKinds,
      showNextHomework,
+     showDailyRoutine,
+     showDailySnapshot,
+     showWeeklyRhythm,
+     showWeeklyBalance,
      showMonthlyCompetency,
+     showMonthlyGrowth,
      hideEmpty,
      spanOverrides,
      heightOverrides,
@@ -611,17 +636,77 @@ export default function NewReportPage(){
       >
        {showNextHomework ? '✓ ' : '+ '}다음과제
       </button>
+      {cycle === 'day' && (
+       <>
+        <button
+         type="button"
+         disabled={exporting}
+         aria-pressed={showDailyRoutine}
+         onClick={() => setShowDailyRoutine(v => !v)}
+         className={styles.kindPill}
+         title="일간 4단계 수업 루틴 완주 플로우 표시/숨김"
+        >
+         {showDailyRoutine ? '✓ ' : '+ '}4단계루틴
+        </button>
+        <button
+         type="button"
+         disabled={exporting}
+         aria-pressed={showDailySnapshot}
+         onClick={() => setShowDailySnapshot(v => !v)}
+         className={styles.kindPill}
+         title="당일 핵심 성취 스냅샷 4칸 표시/숨김"
+        >
+         {showDailySnapshot ? '✓ ' : '+ '}당일성취요약
+        </button>
+       </>
+      )}
+      {cycle === 'week' && (
+       <>
+        <button
+         type="button"
+         disabled={exporting}
+         aria-pressed={showWeeklyRhythm}
+         onClick={() => setShowWeeklyRhythm(v => !v)}
+         className={styles.kindPill}
+         title="주간 등원일별 학습 리듬 시그널 보드 표시/숨김"
+        >
+         {showWeeklyRhythm ? '✓ ' : '+ '}주간리듬보드
+        </button>
+        <button
+         type="button"
+         disabled={exporting}
+         aria-pressed={showWeeklyBalance}
+         onClick={() => setShowWeeklyBalance(v => !v)}
+         className={styles.kindPill}
+         title="주간 3대 학습 완주 밸런스 표시/숨김"
+        >
+         {showWeeklyBalance ? '✓ ' : '+ '}주간3대밸런스
+        </button>
+       </>
+      )}
       {cycle === 'month' && (
-       <button
-        type="button"
-        disabled={exporting}
-        aria-pressed={showMonthlyCompetency}
-        onClick={() => setShowMonthlyCompetency(v => !v)}
-        className={styles.kindPill}
-        title="월간 5대 학습 역량 진단 차트 표시/숨김"
-       >
-        {showMonthlyCompetency ? '✓ ' : '+ '}5대역량진단
-       </button>
+       <>
+        <button
+         type="button"
+         disabled={exporting}
+         aria-pressed={showMonthlyCompetency}
+         onClick={() => setShowMonthlyCompetency(v => !v)}
+         className={styles.kindPill}
+         title="월간 5대 학습 역량 진단 차트 표시/숨김"
+        >
+         {showMonthlyCompetency ? '✓ ' : '+ '}5대역량진단
+        </button>
+        <button
+         type="button"
+         disabled={exporting}
+         aria-pressed={showMonthlyGrowth}
+         onClick={() => setShowMonthlyGrowth(v => !v)}
+         className={styles.kindPill}
+         title="월간 주차별 성취 흐름 및 누적 볼륨 표시/숨김"
+        >
+         {showMonthlyGrowth ? '✓ ' : '+ '}주차별성장흐름
+        </button>
+       </>
       )}
       <button
        type="button"

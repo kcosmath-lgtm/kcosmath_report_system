@@ -54,7 +54,12 @@ export type Template = {
  illustrations?:boolean;
  hideEmpty?:boolean;
  showNextHomework?:boolean;
+ showDailyRoutine?:boolean;
+ showDailySnapshot?:boolean;
+ showWeeklyRhythm?:boolean;
+ showWeeklyBalance?:boolean;
  showMonthlyCompetency?:boolean;
+ showMonthlyGrowth?:boolean;
  academyName?:string;
  customTitle?:string;
  logoDataUrl?:string;
@@ -195,7 +200,12 @@ export function buildStructuredTemplate(params:{
  illustrations?:boolean;
  hideEmpty?:boolean;
  showNextHomework?:boolean;
+ showDailyRoutine?:boolean;
+ showDailySnapshot?:boolean;
+ showWeeklyRhythm?:boolean;
+ showWeeklyBalance?:boolean;
  showMonthlyCompetency?:boolean;
+ showMonthlyGrowth?:boolean;
  academyName?:string;
  customTitle?:string;
  logoDataUrl?:string;
@@ -214,7 +224,12 @@ export function buildStructuredTemplate(params:{
   illustrations=true,
   hideEmpty=false,
   showNextHomework=true,
+  showDailyRoutine=true,
+  showDailySnapshot=true,
+  showWeeklyRhythm=true,
+  showWeeklyBalance=true,
   showMonthlyCompetency=true,
+  showMonthlyGrowth=true,
   academyName,
   customTitle,
   logoDataUrl,
@@ -250,7 +265,12 @@ export function buildStructuredTemplate(params:{
   illustrations,
   hideEmpty,
   showNextHomework,
+  showDailyRoutine,
+  showDailySnapshot,
+  showWeeklyRhythm,
+  showWeeklyBalance,
   showMonthlyCompetency,
+  showMonthlyGrowth,
   ...(academyName ? { academyName } : {}),
   ...(customTitle ? { customTitle } : {}),
   ...(logoDataUrl ? { logoDataUrl } : {}),

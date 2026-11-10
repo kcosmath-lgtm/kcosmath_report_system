@@ -1233,13 +1233,692 @@ function MonthlyCompetencyDiagnosis({ s, theme = 'saebom' }: { s: StudentData; t
  );
 }
 
+/* ============================================================================
+ * [주기별 특색 시각화 모듈]
+ * - 일간(Day): DailyRoutineFlow (4단계 수업 루틴 플로우) & DailyAchievementSnapshot (당일 핵심 성취 스냅샷)
+ * - 주간(Week): WeeklyRhythmBoard (등원일별 학습 리듬 시그널 보드) & WeeklyCompletionBalance (주간 3대 완주 밸런스)
+ * - 월간(Month): MonthlyCompetencyDiagnosis (5대 학습 역량 진단) & MonthlyWeeklyGrowth (주차별 성취 흐름 & 볼륨)
+ * ============================================================================ */
+
+function DailyRoutineFlow({ s, theme = 'saebom' }: { s: StudentData; theme?: Theme }) {
+ const [hidden, setHidden] = useState(false);
+ if (hidden) {
+  return (
+   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }} data-export-hide="true">
+    <button type="button" className={styles.restoreGraphBtn} data-export-hide="true" onClick={() => setHidden(false)}>
+     <RotateCcw size={11} /> 오늘의 4단계 수업 루틴 다시 보기
+    </button>
+   </div>
+  );
+ }
+
+ const attLabel = s.todayAtt || '출석';
+ const attTone: 'good' | 'warn' | 'bad' = attLabel === '출석' ? 'good' : attLabel === '지각' ? 'warn' : 'bad';
+
+ const hwCode = s.todayHwStatus || 'O';
+ const hwLabel = hwCode === 'O' ? '완료(O)' : hwCode === '△' ? '일부(△)' : '미완료(X)';
+ const hwTone: 'good' | 'warn' | 'bad' = hwCode === 'O' ? 'good' : hwCode === '△' ? 'warn' : 'bad';
+
+ const progCount = s.periodProgressLogs.length || s.bookProgressList.length;
+ const latestExam = s.exams[s.exams.length - 1];
+ const classLabel = latestExam ? `테스트 ${latestExam.rate}점` : progCount > 0 ? `교재 ${progCount}권 진행` : '본수업 진행';
+ const classTone: 'good' | 'warn' = latestExam && latestExam.rate < 70 ? 'warn' : 'good';
+
+ const wrongLabel = !s.todayHasWrongRecord
+  ? '기록 없음'
+  : s.todayWrongCompleted
+    ? '오답 완료'
+    : `${s.todayFixedWrong}/${s.todayTotalWrong} 해결`;
+ const wrongTone: 'good' | 'warn' | 'neutral' = !s.todayHasWrongRecord
+  ? 'neutral'
+  : s.todayWrongCompleted
+    ? 'good'
+    : 'warn';
+
+ const steps = [
+  { key: 'att', step: 'STEP 1', title: '등원 · 출결', value: attLabel, tone: attTone, Icon: CalendarCheck2 },
+  { key: 'hw', step: 'STEP 2', title: '과제 검사', value: hwLabel, tone: hwTone, Icon: ClipboardCheck },
+  { key: 'class', step: 'STEP 3', title: '본수업 · 평가', value: classLabel, tone: classTone, Icon: BookOpen },
+  { key: 'wrong', step: 'STEP 4', title: '오답 클리닉', value: wrongLabel, tone: wrongTone, Icon: FileWarning },
+ ];
+
+ const scorePoints = steps.reduce((acc, st) => acc + (st.tone === 'good' || st.tone === 'neutral' ? 25 : st.tone === 'warn' ? 15 : 5), 0);
+
+ const toneColors = (tone: string) => {
+  if (tone === 'good') return { bg: '#dcfce7', text: '#15803d', border: '#86efac', dot: '#16a34a' };
+  if (tone === 'warn') return { bg: '#fef3c7', text: '#b45309', border: '#fcd34d', dot: '#f59e0b' };
+  if (tone === 'bad') return { bg: '#fee2e2', text: '#b91c1c', border: '#fca5a5', dot: '#ef4444' };
+  return { bg: '#f1f5f9', text: '#475569', border: '#cbd5e1', dot: '#94a3b8' };
+ };
+
+ const headerBar = (
+  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 800, color: '#1e293b' }}>
+    <CheckCircle2 size={13} color="var(--theme-accent, #2563eb)" />
+    <span>오늘의 4단계 수업 루틴 완주 플로우</span>
+    <small style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--theme-accent, #2563eb)' }}>루틴 달성도 {scorePoints}%</small>
+   </div>
+   <button type="button" className={styles.hideGraphBtn} data-export-hide="true" onClick={() => setHidden(true)}>
+    <X size={11} /> 루틴 숨기기
+   </button>
+  </div>
+ );
+
+ if (theme === 'miricheck') {
+  return (
+   <div>
+    {headerBar}
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, background: '#f0f7ff', border: '1px solid #bae6fd', borderRadius: 10, padding: '9px' }}>
+     {steps.map(st => {
+      const tc = toneColors(st.tone);
+      const IconComp = st.Icon;
+      return (
+       <div key={st.key} style={{ background: '#ffffff', border: `1px solid ${tc.border}`, borderRadius: 8, padding: '8px 9px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+         <span style={{ fontSize: 8.5, fontWeight: 800, color: '#0284c7' }}>{st.step}</span>
+         <IconComp size={12} color={tc.dot} />
+        </div>
+        <strong style={{ fontSize: 10.5, color: '#0f172a' }}>{st.title}</strong>
+        <span style={{ alignSelf: 'flex-start', fontSize: 9.5, fontWeight: 800, padding: '1.5px 7px', borderRadius: 999, background: tc.bg, color: tc.text }}>
+         {st.value}
+        </span>
+       </div>
+      );
+     })}
+    </div>
+   </div>
+  );
+ }
+
+ if (theme === 'mirireport') {
+  return (
+   <div>
+    {headerBar}
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '9px 10px' }}>
+     {steps.map((st, idx) => {
+      const tc = toneColors(st.tone);
+      const IconComp = st.Icon;
+      return (
+       <div key={st.key} style={{ position: 'relative', background: '#ffffff', border: '1px solid #fde68a', borderLeft: `3.5px solid ${tc.dot}`, borderRadius: 7, padding: '7px 9px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9.5, fontWeight: 800, color: '#475569' }}>
+         <IconComp size={11} color="#d97706" />
+         <span>{idx + 1}. {st.title}</span>
+        </div>
+        <strong style={{ fontSize: 11, fontWeight: 800, color: tc.text }}>{st.value}</strong>
+       </div>
+      );
+     })}
+    </div>
+   </div>
+  );
+ }
+
+ if (theme === 'mirigraph') {
+  return (
+   <div>
+    {headerBar}
+    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 12px' }}>
+     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+      {steps.map(st => {
+       const tc = toneColors(st.tone);
+       const IconComp = st.Icon;
+       const pct = st.tone === 'good' || st.tone === 'neutral' ? 100 : st.tone === 'warn' ? 60 : 25;
+       return (
+        <div key={st.key} style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '7px 9px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 800, color: '#1e293b' }}>
+           <IconComp size={11} color="#4f46e5" />
+           {st.title}
+          </span>
+          <b style={{ fontSize: 9.5, color: tc.text }}>{st.value}</b>
+         </div>
+         <div style={{ height: 5, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden' }}>
+          <div style={{ width: `${pct}%`, height: '100%', background: tc.dot, borderRadius: 999 }} />
+         </div>
+        </div>
+       );
+      })}
+     </div>
+    </div>
+   </div>
+  );
+ }
+
+ return (
+  <div>
+   {headerBar}
+   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, background: '#f8fafc', border: '1px solid #dbe5f2', borderRadius: 10, padding: '9px 11px' }}>
+    {steps.map(st => {
+     const tc = toneColors(st.tone);
+     const IconComp = st.Icon;
+     return (
+      <div key={st.key} style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '7px 9px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ width: 24, height: 24, borderRadius: 6, background: tc.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+         <IconComp size={12} color={tc.text} />
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+         <span style={{ fontSize: 8.5, fontWeight: 700, color: '#64748b' }}>{st.step}</span>
+         <strong style={{ fontSize: 10, color: '#0f172a' }}>{st.title}</strong>
+        </div>
+       </div>
+       <span style={{ fontSize: 9.5, fontWeight: 800, padding: '2px 6px', borderRadius: 999, background: tc.bg, color: tc.text, whiteSpace: 'nowrap' }}>
+        {st.value}
+       </span>
+      </div>
+     );
+    })}
+   </div>
+  </div>
+ );
+}
+
+function DailyAchievementSnapshot({ s, theme = 'saebom' }: { s: StudentData; theme?: Theme }) {
+ const [hidden, setHidden] = useState(false);
+ if (hidden) {
+  return (
+   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }} data-export-hide="true">
+    <button type="button" className={styles.restoreGraphBtn} data-export-hide="true" onClick={() => setHidden(false)}>
+     <RotateCcw size={11} /> 당일 핵심 성취 스냅샷 다시 보기
+    </button>
+   </div>
+  );
+ }
+
+ const latestExam = s.exams[s.exams.length - 1];
+ const cards = [
+  {
+   key: 'att',
+   label: '오늘 등원 리듬',
+   value: s.todayAtt || '출석 완료',
+   sub: s.todayAttReason || '규칙적 수업 참여',
+   Icon: Clock,
+   color: '#2563eb',
+  },
+  {
+   key: 'prog',
+   label: '당일 학습 진도',
+   value: `${s.periodProgressLogs.length || s.bookProgressList.length}권 학습`,
+   sub: `교재 평균 진도율 ${s.avgProgress ?? 0}%`,
+   Icon: BookOpen,
+   color: '#0284c7',
+  },
+  {
+   key: 'exam',
+   label: '최근 테스트 득점',
+   value: latestExam ? `${latestExam.rate}점` : '진도 중심',
+   sub: s.avgScore !== null ? `최근 평균 ${s.avgScore}점` : '개념 이해 집중',
+   Icon: Award,
+   color: '#4f46e5',
+  },
+  {
+   key: 'clinic',
+   label: '귀가 전 클리닉',
+   value: !s.todayHasWrongRecord ? '기록 없음' : s.todayWrongCompleted ? '오답 완료' : `${s.todayFixedWrong}/${s.todayTotalWrong} 해결`,
+   sub: !s.todayHasWrongRecord ? '당일 등록 오답 없음' : s.todayWrongCompleted ? '당일 오답 완벽 소화' : '남은 문항 보완 중',
+   Icon: CheckCircle2,
+   color: '#16a34a',
+  },
+ ];
+
+ const headerBar = (
+  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 800, color: '#1e293b' }}>
+    <Sparkles size={13} color="var(--theme-accent, #2563eb)" />
+    <span>당일 핵심 성취 스냅샷</span>
+   </div>
+   <button type="button" className={styles.hideGraphBtn} data-export-hide="true" onClick={() => setHidden(true)}>
+    <X size={11} /> 성취 요약 숨기기
+   </button>
+  </div>
+ );
+
+ const bgByTheme = theme === 'miricheck' ? '#f0f7ff' : theme === 'mirireport' ? '#fffbeb' : '#f8fafc';
+ const borderByTheme = theme === 'miricheck' ? '#bae6fd' : theme === 'mirireport' ? '#fde68a' : '#dbe5f2';
+
+ return (
+  <div>
+   {headerBar}
+   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, background: bgByTheme, border: `1px solid ${borderByTheme}`, borderRadius: 10, padding: '9px 10px' }}>
+    {cards.map(c => {
+     const IconComp = c.Icon;
+     return (
+      <div
+       key={c.key}
+       style={{
+        background: '#ffffff',
+        border: '1px solid #e2e8f0',
+        borderTop: theme === 'mirireport' ? `3px solid #d97706` : theme === 'mirigraph' ? `3px solid ${c.color}` : undefined,
+        borderLeft: theme === 'saebom' ? `3px solid ${c.color}` : undefined,
+        borderRadius: 8,
+        padding: '7px 9px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 2,
+       }}
+      >
+       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 9.5, fontWeight: 700, color: '#64748b' }}>
+        <span>{c.label}</span>
+        <IconComp size={11} color={c.color} />
+       </div>
+       <strong style={{ fontSize: 12, fontWeight: 800, color: '#0f172a' }}>{c.value}</strong>
+       <small style={{ fontSize: 9, color: '#64748b' }}>{c.sub}</small>
+      </div>
+     );
+    })}
+   </div>
+  </div>
+ );
+}
+
+function WeeklyRhythmBoard({ s, theme = 'saebom' }: { s: StudentData; theme?: Theme }) {
+ const [hidden, setHidden] = useState(false);
+ if (hidden) {
+  return (
+   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }} data-export-hide="true">
+    <button type="button" className={styles.restoreGraphBtn} data-export-hide="true" onClick={() => setHidden(false)}>
+     <RotateCcw size={11} /> 주간 학습 리듬 시그널 보드 다시 보기
+    </button>
+   </div>
+  );
+ }
+
+ const dayItems = s.weekDays.map(d => {
+  const hasActivity = Boolean(d.attendance || d.hw || d.wrongCompleted || (d.totalWrong && d.totalWrong > 0) || d.exams.length > 0 || d.entries.length > 0);
+  const attOk = d.attendance === '출석';
+  const hwOk = d.hw === 'O';
+  const wrongOk = d.wrongCompleted || (d.totalWrong !== null && d.totalWrong > 0 && d.fixedWrong === d.totalWrong);
+  const studyOk = d.entries.length > 0 || d.exams.length > 0;
+  const activeSignals = [
+   { label: '출결', state: !d.attendance ? 'none' : attOk ? 'good' : d.attendance === '지각' ? 'warn' : 'bad' },
+   { label: '과제', state: !d.hw ? 'none' : hwOk ? 'good' : d.hw === '△' ? 'warn' : 'bad' },
+   { label: '수업', state: studyOk ? 'good' : hasActivity ? 'warn' : 'none' },
+   { label: '오답', state: d.wrongCompleted ? 'good' : d.totalWrong && d.totalWrong > 0 ? 'warn' : 'none' },
+  ];
+  const goodCount = activeSignals.filter(sig => sig.state === 'good').length;
+  const score = !hasActivity ? 0 : Math.min(100, Math.max(40, goodCount * 25 + 20));
+  return {
+   ...d,
+   hasActivity,
+   signals: activeSignals,
+   score,
+   statusText: !hasActivity ? '비등원' : goodCount >= 3 ? '안정' : goodCount >= 2 ? '양호' : '점검',
+  };
+ });
+
+ const activeDaysCount = dayItems.filter(d => d.hasActivity).length;
+
+ const headerBar = (
+  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 800, color: '#1e293b' }}>
+    <Calendar size={13} color="var(--theme-accent, #2563eb)" />
+    <span>주간 요일별 학습 리듬 시그널 보드</span>
+    <small style={{ fontSize: 9.5, fontWeight: 700, color: '#64748b' }}>주간 활동 {activeDaysCount}일</small>
+   </div>
+   <button type="button" className={styles.hideGraphBtn} data-export-hide="true" onClick={() => setHidden(true)}>
+    <X size={11} /> 리듬 보드 숨기기
+   </button>
+  </div>
+ );
+
+ const sigColor = (state: string) =>
+  state === 'good' ? '#16a34a' : state === 'warn' ? '#f59e0b' : state === 'bad' ? '#ef4444' : '#e2e8f0';
+
+ const bgByTheme = theme === 'miricheck' ? '#f0f7ff' : theme === 'mirireport' ? '#fffbeb' : '#f8fafc';
+ const borderByTheme = theme === 'miricheck' ? '#bae6fd' : theme === 'mirireport' ? '#fde68a' : '#dbe5f2';
+
+ return (
+  <div>
+   {headerBar}
+   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, background: bgByTheme, border: `1px solid ${borderByTheme}`, borderRadius: 10, padding: '9px 10px' }}>
+    {dayItems.map(d => (
+     <div
+      key={d.date}
+      style={{
+       background: d.hasActivity ? '#ffffff' : 'rgba(255,255,255,0.55)',
+       border: d.hasActivity ? '1px solid #cbd5e1' : '1px dashed #cbd5e1',
+       borderRadius: 8,
+       padding: '7px 6px',
+       display: 'flex',
+       flexDirection: 'column',
+       alignItems: 'center',
+       gap: 5,
+      }}
+     >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', fontSize: 9.5 }}>
+       <strong style={{ color: d.hasActivity ? '#0f172a' : '#94a3b8' }}>{d.label}</strong>
+       <small style={{ fontSize: 8.5, color: '#64748b' }}>{d.short}</small>
+      </div>
+      {theme === 'mirigraph' ? (
+       <div style={{ width: '100%', height: 34, background: '#f1f5f9', borderRadius: 5, display: 'flex', alignItems: 'flex-end', overflow: 'hidden', padding: 2 }}>
+        <div
+         style={{
+          width: '100%',
+          height: `${d.score}%`,
+          background: d.score >= 80 ? '#16a34a' : d.score >= 50 ? '#4f46e5' : '#cbd5e1',
+          borderRadius: 4,
+         }}
+        />
+       </div>
+      ) : (
+       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3, width: '100%' }}>
+        {d.signals.map(sig => (
+         <div
+          key={sig.label}
+          style={{
+           display: 'flex',
+           alignItems: 'center',
+           gap: 3,
+           fontSize: 8,
+           fontWeight: 700,
+           color: sig.state === 'none' ? '#94a3b8' : '#334155',
+           background: '#f8fafc',
+           padding: '2px 4px',
+           borderRadius: 4,
+          }}
+         >
+          <span style={{ width: 5, height: 5, borderRadius: 999, background: sigColor(sig.state), flexShrink: 0 }} />
+          <span>{sig.label}</span>
+         </div>
+        ))}
+       </div>
+      )}
+      <span
+       style={{
+        fontSize: 8.5,
+        fontWeight: 800,
+        padding: '1px 6px',
+        borderRadius: 999,
+        background: !d.hasActivity ? '#f1f5f9' : d.statusText === '안정' ? '#dcfce7' : '#dbeafe',
+        color: !d.hasActivity ? '#94a3b8' : d.statusText === '안정' ? '#15803d' : '#1d4ed8',
+       }}
+      >
+       {d.statusText}
+      </span>
+     </div>
+    ))}
+   </div>
+  </div>
+ );
+}
+
+function WeeklyCompletionBalance({ s, theme = 'saebom' }: { s: StudentData; theme?: Theme }) {
+ const [hidden, setHidden] = useState(false);
+ if (hidden) {
+  return (
+   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }} data-export-hide="true">
+    <button type="button" className={styles.restoreGraphBtn} data-export-hide="true" onClick={() => setHidden(false)}>
+     <RotateCcw size={11} /> 주간 3대 학습 완주 밸런스 다시 보기
+    </button>
+   </div>
+  );
+ }
+
+ const attPct = s.attRate ?? 100;
+ const hwPct = s.hwRate ?? 100;
+ const wrongPct = !s.hasWrongRecord ? 85 : s.periodWrongCompleted ? 100 : (s.wrongRate ?? 0);
+ const totalIndex = Math.round((attPct + hwPct + wrongPct) / 3);
+
+ const pillars = [
+  { key: 'att', label: '수업 참여율', pct: attPct, sub: `${s.recordedAtt}일 중 ${s.attended}일 출석`, Icon: CalendarCheck2, color: '#2563eb' },
+  { key: 'hw', label: '과제 완수율', pct: hwPct, sub: `${s.hwRecorded.length}회 중 ${s.hwDone}회 완료`, Icon: ClipboardCheck, color: '#0284c7' },
+  {
+   key: 'wrong',
+   label: '오답 해결률',
+   pct: wrongPct,
+   sub: !s.hasWrongRecord ? '클리닉 기록 없음' : s.periodWrongCompleted ? '주간 오답 완료' : `${s.fixedWrong}/${s.totalWrong}문항 해결`,
+   Icon: FileWarning,
+   color: '#16a34a',
+  },
+ ];
+
+ const headerBar = (
+  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 800, color: '#1e293b' }}>
+    <TrendingUp size={13} color="var(--theme-accent, #2563eb)" />
+    <span>주간 3대 학습 완주 밸런스</span>
+    <small style={{ fontSize: 9.5, fontWeight: 800, color: 'var(--theme-accent, #2563eb)' }}>주간 종합 완주 지수 {totalIndex}점</small>
+   </div>
+   <button type="button" className={styles.hideGraphBtn} data-export-hide="true" onClick={() => setHidden(true)}>
+    <X size={11} /> 밸런스 숨기기
+   </button>
+  </div>
+ );
+
+ if (theme === 'miricheck') {
+  return (
+   <div>
+    {headerBar}
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, background: '#f0f7ff', border: '1px solid #bae6fd', borderRadius: 10, padding: '9px 10px' }}>
+     {pillars.map(pItem => {
+      const IconComp = pItem.Icon;
+      return (
+       <div key={pItem.key} style={{ background: '#ffffff', border: '1px solid #dbeafe', borderRadius: 8, padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 800, color: '#0f172a' }}>
+          <IconComp size={11} color={pItem.color} />
+          {pItem.label}
+         </span>
+         <small style={{ fontSize: 8.5, color: '#64748b' }}>{pItem.sub}</small>
+        </div>
+        <strong style={{ fontSize: 14, fontWeight: 900, color: pItem.color }}>{pItem.pct}%</strong>
+       </div>
+      );
+     })}
+    </div>
+   </div>
+  );
+ }
+
+ if (theme === 'mirireport') {
+  return (
+   <div>
+    {headerBar}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '9px 12px' }}>
+     {pillars.map(pItem => {
+      const blocks = Math.max(1, Math.min(10, Math.round(pItem.pct / 10)));
+      const IconComp = pItem.Icon;
+      return (
+       <div key={pItem.key} style={{ display: 'grid', gridTemplateColumns: '105px 1fr 44px', alignItems: 'center', gap: 8 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 800, color: '#1e293b' }}>
+         <IconComp size={11} color="#d97706" />
+         {pItem.label}
+        </span>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 3 }}>
+         {Array.from({ length: 10 }).map((_, i) => (
+          <span key={i} style={{ height: 7, borderRadius: 3, background: i < blocks ? '#d97706' : '#fef3c7', border: i < blocks ? 'none' : '1px solid #fde68a' }} />
+         ))}
+        </div>
+        <strong style={{ fontSize: 10.5, fontWeight: 800, color: '#b45309', textAlign: 'right' }}>{pItem.pct}%</strong>
+       </div>
+      );
+     })}
+    </div>
+   </div>
+  );
+ }
+
+ return (
+  <div>
+   {headerBar}
+   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, background: '#f8fafc', border: '1px solid #dbe5f2', borderRadius: 10, padding: '9px 10px' }}>
+    {pillars.map(pItem => {
+     const IconComp = pItem.Icon;
+     return (
+      <div key={pItem.key} style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 800, color: '#0f172a' }}>
+         <IconComp size={11} color={pItem.color} />
+         {pItem.label}
+        </span>
+        <strong style={{ fontSize: 11, fontWeight: 800, color: pItem.color }}>{pItem.pct}%</strong>
+       </div>
+       <div style={{ height: 6, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden' }}>
+        <div style={{ width: `${pItem.pct}%`, height: '100%', background: pItem.color, borderRadius: 999 }} />
+       </div>
+       <small style={{ fontSize: 8.5, color: '#64748b' }}>{pItem.sub}</small>
+      </div>
+     );
+    })}
+   </div>
+  </div>
+ );
+}
+
+function MonthlyWeeklyGrowth({ s, theme = 'saebom' }: { s: StudentData; theme?: Theme }) {
+ const [hidden, setHidden] = useState(false);
+ if (hidden) {
+  return (
+   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }} data-export-hide="true">
+    <button type="button" className={styles.restoreGraphBtn} data-export-hide="true" onClick={() => setHidden(false)}>
+     <RotateCcw size={11} /> 월간 주차별 성취 흐름 다시 보기
+    </button>
+   </div>
+  );
+ }
+
+ // Group calendar days into 4 weeks (1~7일, 8~14일, 15~21일, 22일~말일)
+ const validCells = s.calendarCells.filter((c): c is NonNullable<typeof c> => Boolean(c));
+ const weekRanges = [
+  { label: '1주차', min: 1, max: 7 },
+  { label: '2주차', min: 8, max: 14 },
+  { label: '3주차', min: 15, max: 21 },
+  { label: '4주차+', min: 22, max: 31 },
+ ];
+
+ const weekStats = weekRanges.map(w => {
+  const cells = validCells.filter(c => c.day >= w.min && c.day <= w.max);
+  const attDays = cells.filter(c => c.attendance === '출석').length;
+  const recDays = cells.filter(c => Boolean(c.attendance)).length;
+  const hwDoneDays = cells.filter(c => c.hw === 'O').length;
+  const hwRecDays = cells.filter(c => Boolean(c.hw)).length;
+  const attScore = recDays > 0 ? Math.round((attDays / recDays) * 100) : null;
+  const hwScore = hwRecDays > 0 ? Math.round((hwDoneDays / hwRecDays) * 100) : null;
+  const combined =
+   attScore !== null && hwScore !== null
+    ? Math.round((attScore + hwScore) / 2)
+    : attScore !== null
+      ? attScore
+      : hwScore !== null
+        ? hwScore
+        : s.attRate ?? 90;
+  return {
+   label: w.label,
+   attDays,
+   hwDoneDays,
+   hasRecord: recDays > 0 || hwRecDays > 0,
+   score: Math.max(30, Math.min(100, combined)),
+  };
+ });
+
+ const volumeItems = [
+  { label: '월간 총 등원', value: `${s.attended}일`, Icon: CalendarCheck2, color: '#2563eb' },
+  { label: '완료한 과제', value: `${s.hwDone}회`, Icon: ClipboardCheck, color: '#0284c7' },
+  { label: '해결한 오답', value: !s.hasWrongRecord ? '기록 없음' : s.periodWrongCompleted && s.totalWrong === 0 ? '오답 완료' : `${s.fixedWrong}문항`, Icon: FileWarning, color: '#16a34a' },
+  { label: '응시한 평가', value: `${s.exams.length}회`, Icon: Award, color: '#4f46e5' },
+ ];
+
+ const headerBar = (
+  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 800, color: '#1e293b' }}>
+    <BarChart3 size={13} color="var(--theme-accent, #2563eb)" />
+    <span>월간 주차별 성취 흐름 및 누적 학습 볼륨</span>
+   </div>
+   <button type="button" className={styles.hideGraphBtn} data-export-hide="true" onClick={() => setHidden(true)}>
+    <X size={11} /> 주차별 흐름 숨기기
+   </button>
+  </div>
+ );
+
+ const bgByTheme = theme === 'miricheck' ? '#f0f7ff' : theme === 'mirireport' ? '#fffbeb' : '#f8fafc';
+ const borderByTheme = theme === 'miricheck' ? '#bae6fd' : theme === 'mirireport' ? '#fde68a' : '#dbe5f2';
+ const barAccent = theme === 'mirireport' ? '#d97706' : theme === 'mirigraph' ? '#4f46e5' : 'var(--theme-accent, #2563eb)';
+
+ return (
+  <div>
+   {headerBar}
+   <div
+    style={{
+     display: 'grid',
+     gridTemplateColumns: '1.15fr 1fr',
+     gap: 12,
+     alignItems: 'center',
+     background: bgByTheme,
+     border: `1px solid ${borderByTheme}`,
+     borderRadius: 10,
+     padding: '9px 12px',
+    }}
+   >
+    {/* 좌측: 1~4주차 성취 흐름 */}
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+     {weekStats.map(ws => (
+      <div
+       key={ws.label}
+       style={{
+        background: '#ffffff',
+        border: '1px solid #e2e8f0',
+        borderRadius: 8,
+        padding: '6px 7px',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 4,
+       }}
+      >
+       <span style={{ fontSize: 9, fontWeight: 800, color: '#475569' }}>{ws.label}</span>
+       <div style={{ width: '100%', height: 28, background: '#f1f5f9', borderRadius: 5, display: 'flex', alignItems: 'flex-end', overflow: 'hidden', padding: 2 }}>
+        <div style={{ width: '100%', height: `${ws.score}%`, background: ws.hasRecord ? barAccent : '#cbd5e1', borderRadius: 4 }} />
+       </div>
+       <strong style={{ fontSize: 9.5, fontWeight: 800, color: ws.hasRecord ? '#0f172a' : '#94a3b8' }}>
+        {ws.hasRecord ? `${ws.score}%` : '집계전'}
+       </strong>
+      </div>
+     ))}
+    </div>
+
+    {/* 우측: 한 달 누적 학습 볼륨 4칸 */}
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+     {volumeItems.map(v => {
+      const IconComp = v.Icon;
+      return (
+       <div
+        key={v.label}
+        style={{
+         background: '#ffffff',
+         border: '1px solid #e2e8f0',
+         borderRadius: 8,
+         padding: '6px 8px',
+         display: 'flex',
+         alignItems: 'center',
+         justifyContent: 'space-between',
+        }}
+       >
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 700, color: '#475569' }}>
+         <IconComp size={11} color={v.color} />
+         {v.label}
+        </span>
+        <strong style={{ fontSize: 10.5, fontWeight: 800, color: '#0f172a' }}>{v.value}</strong>
+       </div>
+      );
+     })}
+    </div>
+   </div>
+  </div>
+ );
+}
+
 interface LayoutConfig {
  enabledSet: Set<Kind>;
  hasKind: (k: Kind) => boolean;
  getSpan: (k: Kind, fallback: BlockSpan) => BlockSpan;
  getRowLimit: (k: Kind, defaultRows: number) => number;
  showNextHw: boolean;
+ showDailyRoutine: boolean;
+ showDailySnapshot: boolean;
+ showWeeklyRhythm: boolean;
+ showWeeklyBalance: boolean;
  showMonthlyCompetency: boolean;
+ showMonthlyGrowth: boolean;
  orderedKinds: Kind[];
 }
 
@@ -1289,7 +1968,12 @@ function buildLayoutConfig(template: Template, s: StudentData): LayoutConfig {
   getSpan,
   getRowLimit,
   showNextHw: template.showNextHomework !== false,
+  showDailyRoutine: template.showDailyRoutine !== false,
+  showDailySnapshot: template.showDailySnapshot !== false,
+  showWeeklyRhythm: template.showWeeklyRhythm !== false,
+  showWeeklyBalance: template.showWeeklyBalance !== false,
   showMonthlyCompetency: template.showMonthlyCompetency !== false,
+  showMonthlyGrowth: template.showMonthlyGrowth !== false,
   orderedKinds,
  };
 }
@@ -1740,12 +2424,37 @@ function SaebomForestSheet({
           </span>
          )}
         </div>
+        {period === 'week' && cfg.showWeeklyRhythm && (
+         <div style={{ marginTop: 10 }}>
+          <WeeklyRhythmBoard s={s} theme="saebom" />
+         </div>
+        )}
+        {period === 'week' && cfg.showWeeklyBalance && (
+         <div style={{ marginTop: 8 }}>
+          <WeeklyCompletionBalance s={s} theme="saebom" />
+         </div>
+        )}
         {period === 'month' && cfg.showMonthlyCompetency && (
          <div style={{ marginTop: 10 }}>
           <MonthlyCompetencyDiagnosis s={s} theme="saebom" />
          </div>
         )}
+        {period === 'month' && cfg.showMonthlyGrowth && (
+         <div style={{ marginTop: 8 }}>
+          <MonthlyWeeklyGrowth s={s} theme="saebom" />
+         </div>
+        )}
        </>
+      )}
+      {period === 'day' && cfg.showDailyRoutine && (
+       <div style={{ marginTop: 10 }}>
+        <DailyRoutineFlow s={s} theme="saebom" />
+       </div>
+      )}
+      {period === 'day' && cfg.showDailySnapshot && (
+       <div style={{ marginTop: 8 }}>
+        <DailyAchievementSnapshot s={s} theme="saebom" />
+       </div>
       )}
      </div>
     </section>
@@ -2021,7 +2730,7 @@ function SaebomForestSheet({
  * - 출석(초록) / 지각(노랑) / 결석(빨강) 색상 도장
  * - 오답 완료 시 문항 수와 관계없이 '오답 완료' 표시
  * ============================================================================ */
-function DayBody({p,s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
+function DayBody({p,s,cfg,theme}:{p:Preview;s:StudentData;cfg:LayoutConfig;theme:Theme}){
  const attOptions:('출석'|'지각'|'결석')[]=['출석','지각','결석'];
  const hwOptions:[('O'|'△'|'X'),string][]=[['O','완료'],['△','일부'],['X','미완료']];
  const todayLogs=s.periodProgressLogs.length>0?s.periodProgressLogs:s.bookProgressList.map(b=>({
@@ -2147,6 +2856,16 @@ function DayBody({p,s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
     </div>
    )}
 
+   {/* 일간 전용 특색 모듈: 4단계 수업 루틴 완주 플로우 & 당일 핵심 성취 스냅샷 */}
+   {(cfg.showDailyRoutine || cfg.showDailySnapshot) && (
+    <section className={styles.moduleCard}>
+     <div className={styles.moduleContent} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {cfg.showDailyRoutine && <DailyRoutineFlow s={s} theme={theme} />}
+      {cfg.showDailySnapshot && <DailyAchievementSnapshot s={s} theme={theme} />}
+     </div>
+    </section>
+   )}
+
    {/* 2단: 오늘 수업 진도 & 당일 테스트 결과 */}
    {(showProg || showGrades) && (
     <div className={styles.customGrid12}>
@@ -2226,7 +2945,7 @@ function DayBody({p,s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
  * - 출석(초록) / 지각(노랑) / 결석(빨강) 색상 배지
  * - 오답 완료 시 문항 수 대신 '오답 완료' 배지 표시
  * ============================================================================ */
-function WeekBody({p,s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
+function WeekBody({p,s,cfg,theme}:{p:Preview;s:StudentData;cfg:LayoutConfig;theme:Theme}){
  const showAtt = cfg.hasKind('attendance');
  const showHw = cfg.hasKind('homework');
  const showWrong = cfg.hasKind('wrong');
@@ -2325,6 +3044,16 @@ function WeekBody({p,s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
         )}
        </tbody>
       </table>
+      {cfg.showWeeklyRhythm && (
+       <div style={{ marginTop: 10 }}>
+        <WeeklyRhythmBoard s={s} theme={theme} />
+       </div>
+      )}
+      {cfg.showWeeklyBalance && (
+       <div style={{ marginTop: 8 }}>
+        <WeeklyCompletionBalance s={s} theme={theme} />
+       </div>
+      )}
      </div>
     </section>
    )}
@@ -2563,6 +3292,11 @@ function MonthBody({s,cfg,theme}:{p:Preview;s:StudentData;cfg:LayoutConfig;theme
           <MonthlyCompetencyDiagnosis s={s} theme={theme} />
          </div>
         )}
+        {cfg.showMonthlyGrowth && (
+         <div style={{ marginTop: 8 }}>
+          <MonthlyWeeklyGrowth s={s} theme={theme} />
+         </div>
+        )}
        </div>
       </section>
      )}
@@ -2725,8 +3459,8 @@ export default function ReportSheets({
     )}
 
     {/* 주기별 완전히 다른 본문 레이아웃 */}
-    {period==='day'&&<DayBody p={p} s={s} cfg={cfg}/>}
-    {period==='week'&&<WeekBody p={p} s={s} cfg={cfg}/>}
+    {period==='day'&&<DayBody p={p} s={s} cfg={cfg} theme={theme}/>}
+    {period==='week'&&<WeekBody p={p} s={s} cfg={cfg} theme={theme}/>}
     {period==='month'&&<MonthBody p={p} s={s} cfg={cfg} theme={theme}/>}
 
     {/* 하단 피드백 영역 (feedback 블록이 ON일 때만 표시) */}

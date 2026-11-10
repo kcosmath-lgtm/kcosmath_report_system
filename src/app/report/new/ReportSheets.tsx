@@ -842,9 +842,51 @@ function RadarPentagonSvg({
 }
 
 function MonthlyCompetencyDiagnosis({ s, theme = 'saebom' }: { s: StudentData; theme?: Theme }) {
+ const [hidden, setHidden] = useState(false);
  const { items, topStrengths, focusWeaknesses } = computeMonthlyCompetencies(s);
  const topKeys = new Set(topStrengths.map(i => i.key));
  const weakKey = focusWeaknesses[0]?.key;
+
+ if (hidden) {
+  return (
+   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }} data-export-hide="true">
+    <button
+     type="button"
+     className={styles.restoreGraphBtn}
+     data-export-hide="true"
+     onClick={() => setHidden(false)}
+    >
+     <RotateCcw size={11} /> 월간 5대 학습 역량 진단 다시 보기
+    </button>
+   </div>
+  );
+ }
+
+ const headerBar = (
+  <div
+   style={{
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+   }}
+  >
+   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 800, color: '#1e293b' }}>
+    <Award size={13} color="var(--theme-accent, #2563eb)" />
+    <span>월간 5대 학습 역량 진단</span>
+    <small style={{ fontSize: 9.5, fontWeight: 600, color: '#64748b' }}>출결 · 과제 · 오답 · 성적 · 진도 종합</small>
+   </div>
+   <button
+    type="button"
+    className={styles.hideGraphBtn}
+    data-export-hide="true"
+    onClick={() => setHidden(true)}
+    title="이 역량 진단 영역을 보고서에서 숨깁니다"
+   >
+    <X size={11} /> 역량 진단 숨기기
+   </button>
+  </div>
+ );
 
  const getBadgeStyle = (item: CompetencyItem) => {
   const isTop = topKeys.has(item.key);
@@ -862,17 +904,19 @@ function MonthlyCompetencyDiagnosis({ s, theme = 'saebom' }: { s: StudentData; t
  // 1) miricheck (하늘색 체크리스트형): 5열 원형 도넛 링 카드 디자인
  if (theme === 'miricheck') {
   return (
-   <div
-    style={{
-     display: 'grid',
-     gridTemplateColumns: 'repeat(5, 1fr)',
-     gap: 8,
-     background: '#f0f7ff',
-     border: '1px solid #bae6fd',
-     borderRadius: 10,
-     padding: '10px',
-    }}
-   >
+   <div>
+    {headerBar}
+    <div
+     style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(5, 1fr)',
+      gap: 8,
+      background: '#f0f7ff',
+      border: '1px solid #bae6fd',
+      borderRadius: 10,
+      padding: '10px',
+     }}
+    >
     {items.map(item => {
      const st = getBadgeStyle(item);
      const radius = 19;
@@ -941,6 +985,7 @@ function MonthlyCompetencyDiagnosis({ s, theme = 'saebom' }: { s: StudentData; t
       </div>
      );
     })}
+    </div>
    </div>
   );
  }
@@ -948,18 +993,20 @@ function MonthlyCompetencyDiagnosis({ s, theme = 'saebom' }: { s: StudentData; t
  // 2) mirireport (노란색 인포그래픽형): 좌측 오각형 레이더 + 우측 10칸 블록 캡슐 게이지
  if (theme === 'mirireport') {
   return (
-   <div
-    style={{
-     display: 'grid',
-     gridTemplateColumns: '215px 1fr',
-     gap: 14,
-     alignItems: 'center',
-     background: '#fffbeb',
-     border: '1px solid #fde68a',
-     borderRadius: 10,
-     padding: '10px 14px',
-    }}
-   >
+   <div>
+    {headerBar}
+    <div
+     style={{
+      display: 'grid',
+      gridTemplateColumns: '215px 1fr',
+      gap: 14,
+      alignItems: 'center',
+      background: '#fffbeb',
+      border: '1px solid #fde68a',
+      borderRadius: 10,
+      padding: '10px 14px',
+     }}
+    >
     <RadarPentagonSvg
      items={items}
      topKeys={topKeys}
@@ -1018,6 +1065,7 @@ function MonthlyCompetencyDiagnosis({ s, theme = 'saebom' }: { s: StudentData; t
        </div>
       );
      })}
+     </div>
     </div>
    </div>
   );
@@ -1026,18 +1074,20 @@ function MonthlyCompetencyDiagnosis({ s, theme = 'saebom' }: { s: StudentData; t
  // 3) mirigraph (파스텔 성취도 리포트형): 좌측 오각형 레이더 + 우측 세로형 컬럼 바 차트
  if (theme === 'mirigraph') {
   return (
-   <div
-    style={{
-     display: 'grid',
-     gridTemplateColumns: '215px 1fr',
-     gap: 14,
-     alignItems: 'center',
-     background: '#f8fafc',
-     border: '1px solid #e2e8f0',
-     borderRadius: 10,
-     padding: '10px 14px',
-    }}
-   >
+   <div>
+    {headerBar}
+    <div
+     style={{
+      display: 'grid',
+      gridTemplateColumns: '215px 1fr',
+      gap: 14,
+      alignItems: 'center',
+      background: '#f8fafc',
+      border: '1px solid #e2e8f0',
+      borderRadius: 10,
+      padding: '10px 14px',
+     }}
+    >
     <RadarPentagonSvg
      items={items}
      topKeys={topKeys}
@@ -1116,6 +1166,7 @@ function MonthlyCompetencyDiagnosis({ s, theme = 'saebom' }: { s: StudentData; t
        </div>
       );
      })}
+     </div>
     </div>
    </div>
   );
@@ -1123,18 +1174,20 @@ function MonthlyCompetencyDiagnosis({ s, theme = 'saebom' }: { s: StudentData; t
 
  // 4) saebom (기본형 · 클린 블루 & 화이트): 좌측 오각형 레이더 + 우측 심플 수평 바
  return (
-  <div
-   style={{
-    display: 'grid',
-    gridTemplateColumns: '215px 1fr',
-    gap: 16,
-    alignItems: 'center',
-    background: '#f8fafc',
-    border: '1px solid #dbe5f2',
-    borderRadius: 10,
-    padding: '10px 14px',
-   }}
-  >
+  <div>
+   {headerBar}
+   <div
+    style={{
+     display: 'grid',
+     gridTemplateColumns: '215px 1fr',
+     gap: 16,
+     alignItems: 'center',
+     background: '#f8fafc',
+     border: '1px solid #dbe5f2',
+     borderRadius: 10,
+     padding: '10px 14px',
+    }}
+   >
    <RadarPentagonSvg items={items} topKeys={topKeys} weakKey={weakKey} />
    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
     {items.map(item => {
@@ -1174,6 +1227,7 @@ function MonthlyCompetencyDiagnosis({ s, theme = 'saebom' }: { s: StudentData; t
       </div>
      );
     })}
+    </div>
    </div>
   </div>
  );
@@ -1185,6 +1239,7 @@ interface LayoutConfig {
  getSpan: (k: Kind, fallback: BlockSpan) => BlockSpan;
  getRowLimit: (k: Kind, defaultRows: number) => number;
  showNextHw: boolean;
+ showMonthlyCompetency: boolean;
  orderedKinds: Kind[];
 }
 
@@ -1234,6 +1289,7 @@ function buildLayoutConfig(template: Template, s: StudentData): LayoutConfig {
   getSpan,
   getRowLimit,
   showNextHw: template.showNextHomework !== false,
+  showMonthlyCompetency: template.showMonthlyCompetency !== false,
   orderedKinds,
  };
 }
@@ -1684,12 +1740,8 @@ function SaebomForestSheet({
           </span>
          )}
         </div>
-        {period === 'month' && (
+        {period === 'month' && cfg.showMonthlyCompetency && (
          <div style={{ marginTop: 10 }}>
-          <div className={styles.saebomDailySubHead} style={{ marginTop: 0, marginBottom: 6 }}>
-           <span><i className={styles.saebomDash}/> 월간 5대 학습 역량 진단 (강점 · 보완점 분석)</span>
-           <small>출결 · 과제 · 오답 · 성적 · 진도 종합</small>
-          </div>
           <MonthlyCompetencyDiagnosis s={s} theme="saebom" />
          </div>
         )}
@@ -2506,9 +2558,11 @@ function MonthBody({s,cfg,theme}:{p:Preview;s:StudentData;cfg:LayoutConfig;theme
           </div>
          )}
         </div>
-        <div style={{ marginTop: 10 }}>
-         <MonthlyCompetencyDiagnosis s={s} theme={theme} />
-        </div>
+        {cfg.showMonthlyCompetency && (
+         <div style={{ marginTop: 10 }}>
+          <MonthlyCompetencyDiagnosis s={s} theme={theme} />
+         </div>
+        )}
        </div>
       </section>
      )}

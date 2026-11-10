@@ -54,6 +54,7 @@ export type Template = {
  illustrations?:boolean;
  hideEmpty?:boolean;
  showNextHomework?:boolean;
+ showMonthlyCompetency?:boolean;
  academyName?:string;
  customTitle?:string;
  logoDataUrl?:string;
@@ -194,6 +195,7 @@ export function buildStructuredTemplate(params:{
  illustrations?:boolean;
  hideEmpty?:boolean;
  showNextHomework?:boolean;
+ showMonthlyCompetency?:boolean;
  academyName?:string;
  customTitle?:string;
  logoDataUrl?:string;
@@ -212,6 +214,7 @@ export function buildStructuredTemplate(params:{
   illustrations=true,
   hideEmpty=false,
   showNextHomework=true,
+  showMonthlyCompetency=true,
   academyName,
   customTitle,
   logoDataUrl,
@@ -247,6 +250,7 @@ export function buildStructuredTemplate(params:{
   illustrations,
   hideEmpty,
   showNextHomework,
+  showMonthlyCompetency,
   ...(academyName ? { academyName } : {}),
   ...(customTitle ? { customTitle } : {}),
   ...(logoDataUrl ? { logoDataUrl } : {}),

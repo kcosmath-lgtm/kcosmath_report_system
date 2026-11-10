@@ -130,6 +130,7 @@ export default function NewReportPage(){
  // 학원별 맞춤 요소 ON/OFF 및 칸 크기/브랜딩 상태
  const [enabledKinds, setEnabledKinds] = useState<Kind[]>(ALL_KINDS);
  const [showNextHomework, setShowNextHomework] = useState(true);
+ const [showMonthlyCompetency, setShowMonthlyCompetency] = useState(true);
  const [hideEmpty, setHideEmpty] = useState(false);
  const [spanOverrides, setSpanOverrides] = useState<Partial<Record<Kind, BlockSpan>>>({});
  const [heightOverrides, setHeightOverrides] = useState<Partial<Record<Kind, BlockHeight>>>({});
@@ -170,6 +171,7 @@ export default function NewReportPage(){
      setEnabledKinds(savedPref.enabledKinds);
     }
     if (typeof savedPref.showNextHomework === 'boolean') setShowNextHomework(savedPref.showNextHomework);
+    if (typeof savedPref.showMonthlyCompetency === 'boolean') setShowMonthlyCompetency(savedPref.showMonthlyCompetency);
     if (typeof savedPref.hideEmpty === 'boolean') setHideEmpty(savedPref.hideEmpty);
     if (savedPref.spanOverrides) setSpanOverrides(savedPref.spanOverrides);
     if (savedPref.heightOverrides) setHeightOverrides(savedPref.heightOverrides);
@@ -194,6 +196,7 @@ export default function NewReportPage(){
    enabledKinds,
    hideEmpty,
    showNextHomework,
+   showMonthlyCompetency,
    academyName,
    customTitle,
    logoDataUrl,
@@ -218,6 +221,7 @@ export default function NewReportPage(){
   enabledKinds,
   hideEmpty,
   showNextHomework,
+  showMonthlyCompetency,
   academyName,
   customTitle,
   logoDataUrl,
@@ -268,6 +272,7 @@ export default function NewReportPage(){
      orientation,
      enabledKinds,
      showNextHomework,
+     showMonthlyCompetency,
      hideEmpty,
      spanOverrides,
      heightOverrides,
@@ -606,6 +611,18 @@ export default function NewReportPage(){
       >
        {showNextHomework ? '✓ ' : '+ '}다음과제
       </button>
+      {cycle === 'month' && (
+       <button
+        type="button"
+        disabled={exporting}
+        aria-pressed={showMonthlyCompetency}
+        onClick={() => setShowMonthlyCompetency(v => !v)}
+        className={styles.kindPill}
+        title="월간 5대 학습 역량 진단 차트 표시/숨김"
+       >
+        {showMonthlyCompetency ? '✓ ' : '+ '}5대역량진단
+       </button>
+      )}
       <button
        type="button"
        disabled={exporting}

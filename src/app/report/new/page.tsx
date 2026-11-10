@@ -25,6 +25,7 @@ import {
  ArrowDown,
  ChevronLeft,
  ChevronRight,
+ MessageSquareText,
 } from 'lucide-react';
 import StudentSidebar from '../../../components/layout/Sidebar';
 import LandingMenu from '../../../components/LandingMenu';
@@ -638,7 +639,7 @@ export default function NewReportPage(){
         cursor:'pointer',
        }}
       >
-       💬 선택 학생 피드백 일괄 작성 ({bulkFeedbackTargets.length || students.length}명) {showBulkFeedbackBar ? '▲' : '▼'}
+       <MessageSquareText size={13}/> 선택 학생 피드백 일괄 작성 ({bulkFeedbackTargets.length || students.length}명) {showBulkFeedbackBar ? '▲' : '▼'}
       </button>
      )}
      <button
@@ -681,10 +682,10 @@ export default function NewReportPage(){
             setEnabledKinds(preset.kinds);
             setShowNextHomework(preset.showNextHomework);
            }}
-           style={{padding:'4px 9px',fontSize:11,fontWeight:700,borderRadius:999,border:'1px solid #cbd5e1',background:'#ffffff'}}
+           style={{display:'inline-flex',alignItems:'center',gap:4,padding:'4px 9px',fontSize:11,fontWeight:700,borderRadius:999,border:'1px solid #cbd5e1',background:'#ffffff'}}
            title={preset.desc}
           >
-           ⚡ {preset.label}
+           <Sparkles size={11}/> {preset.label}
           </button>
          ))}
         </div>
@@ -897,8 +898,8 @@ export default function NewReportPage(){
     >
      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
       <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
-       <strong style={{fontSize:12.5,color:'#1e40af'}}>
-        💬 선택 학생 피드백 코멘트 일괄 적용 ({bulkFeedbackTargets.length}명 대상)
+       <strong style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:12.5,color:'#1e40af'}}>
+        <MessageSquareText size={14}/> 선택 학생 피드백 코멘트 일괄 적용 ({bulkFeedbackTargets.length}명 대상)
        </strong>
        <button
         type="button"
@@ -1061,8 +1062,8 @@ export default function NewReportPage(){
       }}
      >
       <div style={{display:'flex',alignItems:'center',gap:12}}>
-       <strong style={{fontSize:15}}>
-        🔍 크게 미리보기 — {activeReport.name} ({activeReport.grade} · {activeReport.group})
+       <strong style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:15}}>
+        <Maximize2 size={15}/> 크게 미리보기 — {activeReport.name} ({activeReport.grade} · {activeReport.group})
        </strong>
        {current.length > 1 && (
         <div style={{display:'inline-flex',alignItems:'center',gap:6,marginLeft:10}}>

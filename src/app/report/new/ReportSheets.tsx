@@ -17,6 +17,7 @@ import {
  AlertCircle,
  Calendar,
  TrendingUp,
+ BarChart3,
  Megaphone,
  X,
  RotateCcw,
@@ -600,8 +601,9 @@ function AdaptiveGradesDisplay({
    {visibleGroups.map(group => (
     <div key={group.key} className={styles.examSeriesBlock}>
      <div className={styles.examSeriesSubHead}>
-      <span className={styles.examSeriesBadge}>
-       📊 {group.title} ({group.exams.length}회 · 평균 {group.avgScore}점)
+      <span className={styles.examSeriesBadge} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+       <BarChart3 size={12} />
+       {group.title} ({group.exams.length}회 · 평균 {group.avgScore}점)
       </span>
       <button
        type="button"
@@ -720,14 +722,39 @@ function computeMonthlyCompetencies(s: StudentData): {
  return { items, topStrengths, focusWeaknesses };
 }
 
-function MonthlyCompetencyDiagnosis({ s }: { s: StudentData }) {
- const { items, topStrengths, focusWeaknesses } = computeMonthlyCompetencies(s);
- const topKeys = new Set(topStrengths.map(i => i.key));
- const weakKey = focusWeaknesses[0]?.key;
+function CompetencyIcon({ itemKey, size = 12, color }: { itemKey: string; size?: number; color?: string }) {
+ switch (itemKey) {
+  case 'attendance':
+   return <CalendarCheck2 size={size} color={color} />;
+  case 'homework':
+   return <ClipboardCheck size={size} color={color} />;
+  case 'wrong':
+   return <FileWarning size={size} color={color} />;
+  case 'grades':
+   return <Award size={size} color={color} />;
+  default:
+   return <BookOpen size={size} color={color} />;
+ }
+}
 
- const cx = 86;
- const cy = 78;
- const maxR = 50;
+function RadarPentagonSvg({
+ items,
+ topKeys,
+ weakKey,
+ accentColor = 'var(--theme-accent, #2563eb)',
+ gridStroke = '#cbd5e1',
+ bgFill = '#ffffff',
+}: {
+ items: CompetencyItem[];
+ topKeys: Set<string>;
+ weakKey?: string;
+ accentColor?: string;
+ gridStroke?: string;
+ bgFill?: string;
+}) {
+ const cx = 115;
+ const cy = 76;
+ const maxR = 44;
  const angles = items.map((_, i) => -Math.PI / 2 + (i * 2 * Math.PI) / 5);
 
  const polygonPoints = (ratio: number) =>
@@ -743,162 +770,410 @@ function MonthlyCompetencyDiagnosis({ s }: { s: StudentData }) {
   .join(' ');
 
  return (
-  <div
-   style={{
-    display: 'grid',
-    gridTemplateColumns: '168px 1.15fr 1fr',
-    gap: 12,
-    alignItems: 'center',
-    background: '#f8fafc',
-    border: '1px solid #dbe5f2',
-    borderRadius: 10,
-    padding: '10px 12px',
-   }}
+  <svg
+   viewBox="0 0 230 144"
+   style={{ width: '100%', height: 132, overflow: 'visible' }}
+   role="img"
+   aria-label="월간 5대 학습 역량 오각형 차트"
   >
-   {/* 1. 오각형 레이더 차트 */}
-   <svg viewBox="0 0 172 152" style={{ width: '100%', height: 138, overflow: 'visible' }} role="img" aria-label="월간 5대 학습 역량 오각형 차트">
-    {[0.35, 0.68, 1].map(level => (
-     <polygon
-      key={level}
-      points={polygonPoints(level)}
-      fill={level === 1 ? '#ffffff' : 'none'}
-      stroke="#cbd5e1"
-      strokeWidth={level === 1 ? '1.1' : '0.8'}
-      strokeDasharray={level < 1 ? '2 2' : undefined}
-     />
-    ))}
-    {angles.map((a, idx) => (
-     <line
-      key={idx}
-      x1={cx}
-      y1={cy}
-      x2={cx + Math.cos(a) * maxR}
-      y2={cy + Math.sin(a) * maxR}
-      stroke="#e2e8f0"
-      strokeWidth="0.9"
-     />
-    ))}
+   {[0.35, 0.68, 1].map(level => (
     <polygon
-     points={valuePoints}
-     fill="var(--theme-accent, #2563eb)"
-     fillOpacity="0.18"
-     stroke="var(--theme-accent, #2563eb)"
-     strokeWidth="2"
+     key={level}
+     points={polygonPoints(level)}
+     fill={level === 1 ? bgFill : 'none'}
+     stroke={gridStroke}
+     strokeWidth={level === 1 ? '1.1' : '0.8'}
+     strokeDasharray={level < 1 ? '2 2' : undefined}
     />
-    {items.map((item, i) => {
-     const r = (Math.max(20, Math.min(100, item.score)) / 100) * maxR;
-     const px = cx + Math.cos(angles[i]) * r;
-     const py = cy + Math.sin(angles[i]) * r;
-     const lx = cx + Math.cos(angles[i]) * (maxR + 17);
-     const ly = cy + Math.sin(angles[i]) * (maxR + 14);
-     const isTop = topKeys.has(item.key);
-     const isWeak = item.key === weakKey;
-     return (
-      <g key={item.key}>
-       <circle
-        cx={px}
-        cy={py}
-        r="3.2"
-        fill={isTop ? '#16a34a' : isWeak ? '#d97706' : 'var(--theme-accent, #2563eb)'}
-        stroke="#ffffff"
-        strokeWidth="1.2"
-       />
-       <text
-        x={lx}
-        y={ly + 3}
-        textAnchor="middle"
-        fontSize="7.8"
-        fontWeight="800"
-        fill={isTop ? '#15803d' : isWeak ? '#b45309' : '#334155'}
-       >
-        {item.label}
-       </text>
-      </g>
-     );
-    })}
-   </svg>
+   ))}
+   {angles.map((a, idx) => (
+    <line
+     key={idx}
+     x1={cx}
+     y1={cy}
+     x2={cx + Math.cos(a) * maxR}
+     y2={cy + Math.sin(a) * maxR}
+     stroke="#e2e8f0"
+     strokeWidth="0.9"
+    />
+   ))}
+   <polygon
+    points={valuePoints}
+    fill={accentColor}
+    fillOpacity="0.18"
+    stroke={accentColor}
+    strokeWidth="2"
+   />
+   {items.map((item, i) => {
+    const r = (Math.max(20, Math.min(100, item.score)) / 100) * maxR;
+    const px = cx + Math.cos(angles[i]) * r;
+    const py = cy + Math.sin(angles[i]) * r;
+    const labelDist = i === 0 ? maxR + 11 : maxR + 9;
+    const lx = cx + Math.cos(angles[i]) * labelDist;
+    const ly = cy + Math.sin(angles[i]) * labelDist;
+    const anchor = i === 0 ? 'middle' : i <= 2 ? 'start' : 'end';
+    const isTop = topKeys.has(item.key);
+    const isWeak = item.key === weakKey && item.score < 85;
+    return (
+     <g key={item.key}>
+      <circle
+       cx={px}
+       cy={py}
+       r="3.2"
+       fill={isTop ? '#16a34a' : isWeak ? '#d97706' : accentColor}
+       stroke="#ffffff"
+       strokeWidth="1.2"
+      />
+      <text
+       x={lx}
+       y={i === 0 ? ly : ly + 3}
+       textAnchor={anchor}
+       fontSize="8.2"
+       fontWeight="800"
+       fill={isTop ? '#15803d' : isWeak ? '#b45309' : '#334155'}
+      >
+       {item.label}
+      </text>
+     </g>
+    );
+   })}
+  </svg>
+ );
+}
 
-   {/* 2. 5대 평가 요소별 점수 바 */}
-   <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+function MonthlyCompetencyDiagnosis({ s, theme = 'saebom' }: { s: StudentData; theme?: Theme }) {
+ const { items, topStrengths, focusWeaknesses } = computeMonthlyCompetencies(s);
+ const topKeys = new Set(topStrengths.map(i => i.key));
+ const weakKey = focusWeaknesses[0]?.key;
+
+ const getBadgeStyle = (item: CompetencyItem) => {
+  const isTop = topKeys.has(item.key);
+  const isWeak = item.key === weakKey && item.score < 85;
+  return {
+   isTop,
+   isWeak,
+   text: isTop ? '강점' : isWeak ? '보완' : '안정',
+   color: isTop ? '#15803d' : isWeak ? '#b45309' : '#1d4ed8',
+   bg: isTop ? '#dcfce7' : isWeak ? '#fef3c7' : '#dbeafe',
+   bar: isTop ? '#16a34a' : isWeak ? '#f59e0b' : 'var(--theme-accent, #2563eb)',
+  };
+ };
+
+ // 1) miricheck (하늘색 체크리스트형): 5열 원형 도넛 링 카드 디자인
+ if (theme === 'miricheck') {
+  return (
+   <div
+    style={{
+     display: 'grid',
+     gridTemplateColumns: 'repeat(5, 1fr)',
+     gap: 8,
+     background: '#f0f7ff',
+     border: '1px solid #bae6fd',
+     borderRadius: 10,
+     padding: '10px',
+    }}
+   >
     {items.map(item => {
-     const isTop = topKeys.has(item.key);
-     const isWeak = item.key === weakKey;
-     const barColor = isTop ? '#16a34a' : isWeak ? '#f59e0b' : 'var(--theme-accent, #2563eb)';
-     const badgeText = isTop ? '강점' : isWeak ? '보완' : '안정';
-     const badgeBg = isTop ? '#dcfce7' : isWeak ? '#fef3c7' : '#dbeafe';
-     const badgeColor = isTop ? '#15803d' : isWeak ? '#b45309' : '#1d4ed8';
+     const st = getBadgeStyle(item);
+     const radius = 19;
+     const circum = 2 * Math.PI * radius;
+     const dashOffset = circum - (Math.max(15, Math.min(100, item.score)) / 100) * circum;
      return (
-      <div key={item.key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-         <strong style={{ color: '#0f172a', fontSize: 10.5 }}>{item.label}</strong>
-         <span
-          style={{
-           fontSize: 8.5,
-           fontWeight: 800,
-           padding: '0.5px 5px',
-           borderRadius: 999,
-           background: badgeBg,
-           color: badgeColor,
-          }}
-         >
-          {badgeText}
-         </span>
-        </div>
-        <span style={{ fontSize: 9.5, color: '#475569', fontWeight: 700 }}>
-         {item.detail} · <b style={{ color: barColor }}>{item.score}점</b>
-        </span>
+      <div
+       key={item.key}
+       style={{
+        background: '#ffffff',
+        border: '1px solid #dbeafe',
+        borderRadius: 8,
+        padding: '8px 6px',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 5,
+       }}
+      >
+       <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 800, color: '#0f172a' }}>
+        <CompetencyIcon itemKey={item.key} size={11} color={st.bar} />
+        <span>{item.label}</span>
        </div>
-       <div style={{ height: 6, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden' }}>
-        <div style={{ width: `${item.score}%`, height: '100%', background: barColor, borderRadius: 999 }} />
+       <div style={{ position: 'relative', width: 48, height: 48 }}>
+        <svg viewBox="0 0 48 48" style={{ width: 48, height: 48, transform: 'rotate(-90deg)' }}>
+         <circle cx="24" cy="24" r={radius} fill="none" stroke="#e2e8f0" strokeWidth="4.5" />
+         <circle
+          cx="24"
+          cy="24"
+          r={radius}
+          fill="none"
+          stroke={st.bar}
+          strokeWidth="4.5"
+          strokeLinecap="round"
+          strokeDasharray={circum}
+          strokeDashoffset={dashOffset}
+         />
+        </svg>
+        <strong
+         style={{
+          position: 'absolute',
+          inset: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 10.5,
+          fontWeight: 800,
+          color: '#0f172a',
+         }}
+        >
+         {item.score}
+        </strong>
        </div>
+       <span
+        style={{
+         fontSize: 8.5,
+         fontWeight: 800,
+         padding: '1px 7px',
+         borderRadius: 999,
+         background: st.bg,
+         color: st.color,
+        }}
+       >
+        {st.text}
+       </span>
       </div>
      );
     })}
    </div>
+  );
+ }
 
-   {/* 3. 강점 & 약점(보완점) 진단 요약 카드 */}
-   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+ // 2) mirireport (노란색 인포그래픽형): 좌측 오각형 레이더 + 우측 10칸 블록 캡슐 게이지
+ if (theme === 'mirireport') {
+  return (
+   <div
+    style={{
+     display: 'grid',
+     gridTemplateColumns: '215px 1fr',
+     gap: 14,
+     alignItems: 'center',
+     background: '#fffbeb',
+     border: '1px solid #fde68a',
+     borderRadius: 10,
+     padding: '10px 14px',
+    }}
+   >
+    <RadarPentagonSvg
+     items={items}
+     topKeys={topKeys}
+     weakKey={weakKey}
+     accentColor="#d97706"
+     gridStroke="#fcd34d"
+     bgFill="#ffffff"
+    />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+     {items.map(item => {
+      const st = getBadgeStyle(item);
+      const filledBlocks = Math.max(1, Math.min(10, Math.round(item.score / 10)));
+      const blockColor = st.isTop ? '#16a34a' : st.isWeak ? '#ea580c' : '#d97706';
+      return (
+       <div
+        key={item.key}
+        style={{
+         display: 'grid',
+         gridTemplateColumns: '116px 1fr 42px',
+         alignItems: 'center',
+         gap: 8,
+        }}
+       >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+         <CompetencyIcon itemKey={item.key} size={12} color={blockColor} />
+         <strong style={{ fontSize: 10.5, color: '#1e293b' }}>{item.label}</strong>
+         <span
+          style={{
+           fontSize: 8,
+           fontWeight: 800,
+           padding: '0.5px 5px',
+           borderRadius: 4,
+           background: st.bg,
+           color: st.color,
+          }}
+         >
+          {st.text}
+         </span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 3 }}>
+         {Array.from({ length: 10 }).map((_, idx) => (
+          <span
+           key={idx}
+           style={{
+            height: 8,
+            borderRadius: 3,
+            background: idx < filledBlocks ? blockColor : '#fef3c7',
+            border: idx < filledBlocks ? 'none' : '1px solid #fde68a',
+           }}
+          />
+         ))}
+        </div>
+        <strong style={{ fontSize: 10.5, fontWeight: 800, color: blockColor, textAlign: 'right' }}>
+         {item.score}점
+        </strong>
+       </div>
+      );
+     })}
+    </div>
+   </div>
+  );
+ }
+
+ // 3) mirigraph (파스텔 성취도 리포트형): 좌측 오각형 레이더 + 우측 세로형 컬럼 바 차트
+ if (theme === 'mirigraph') {
+  return (
+   <div
+    style={{
+     display: 'grid',
+     gridTemplateColumns: '215px 1fr',
+     gap: 14,
+     alignItems: 'center',
+     background: '#f8fafc',
+     border: '1px solid #e2e8f0',
+     borderRadius: 10,
+     padding: '10px 14px',
+    }}
+   >
+    <RadarPentagonSvg
+     items={items}
+     topKeys={topKeys}
+     weakKey={weakKey}
+     accentColor="#4f46e5"
+     gridStroke="#cbd5e1"
+     bgFill="#ffffff"
+    />
     <div
      style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(5, 1fr)',
+      gap: 8,
+      alignItems: 'end',
+      height: 124,
+      padding: '6px 8px',
       background: '#ffffff',
-      border: '1px solid #bbf7d0',
-      borderLeft: '3.5px solid #16a34a',
+      border: '1px solid #e2e8f0',
       borderRadius: 8,
-      padding: '7px 9px',
      }}
     >
-     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
-      <span style={{ fontSize: 9.5, fontWeight: 800, color: '#15803d' }}>💪 이번 달 핵심 강점</span>
-      <strong style={{ fontSize: 9.5, color: '#166534' }}>
-       {topStrengths.map(t => t.label).join(' · ')}
-      </strong>
-     </div>
-     <p style={{ margin: 0, fontSize: 9.5, color: '#334155', lineHeight: 1.4 }}>
-      {topStrengths[0]?.strengthDesc}
-     </p>
+     {items.map(item => {
+      const st = getBadgeStyle(item);
+      const colColor = st.isTop ? '#16a34a' : st.isWeak ? '#f59e0b' : '#4f46e5';
+      return (
+       <div
+        key={item.key}
+        style={{
+         display: 'flex',
+         flexDirection: 'column',
+         alignItems: 'center',
+         justifyContent: 'flex-end',
+         height: '100%',
+         gap: 4,
+        }}
+       >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+         <span
+          style={{
+           fontSize: 8,
+           fontWeight: 800,
+           padding: '0.5px 4px',
+           borderRadius: 999,
+           background: st.bg,
+           color: st.color,
+          }}
+         >
+          {st.text}
+         </span>
+         <strong style={{ fontSize: 9.5, color: colColor }}>{item.score}</strong>
+        </div>
+        <div
+         style={{
+          width: 22,
+          height: 64,
+          borderRadius: 6,
+          background: '#f1f5f9',
+          display: 'flex',
+          alignItems: 'flex-end',
+          overflow: 'hidden',
+         }}
+        >
+         <div
+          style={{
+           width: '100%',
+           height: `${Math.max(18, Math.min(100, item.score))}%`,
+           background: colColor,
+           borderRadius: 6,
+          }}
+         />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 9.5, fontWeight: 700, color: '#334155' }}>
+         <CompetencyIcon itemKey={item.key} size={10} color={colColor} />
+         <span>{item.label}</span>
+        </div>
+       </div>
+      );
+     })}
     </div>
+   </div>
+  );
+ }
 
-    <div
-     style={{
-      background: '#ffffff',
-      border: '1px solid #fde68a',
-      borderLeft: '3.5px solid #f59e0b',
-      borderRadius: 8,
-      padding: '7px 9px',
-     }}
-    >
-     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
-      <span style={{ fontSize: 9.5, fontWeight: 800, color: '#b45309' }}>🎯 집중 보완 포인트</span>
-      <strong style={{ fontSize: 9.5, color: '#92400e' }}>
-       {focusWeaknesses[0]?.label}
-       {focusWeaknesses[1] && focusWeaknesses[1].score < 80 ? ` · ${focusWeaknesses[1].label}` : ''}
-      </strong>
-     </div>
-     <p style={{ margin: 0, fontSize: 9.5, color: '#334155', lineHeight: 1.4 }}>
-      {focusWeaknesses[0]?.weaknessDesc}
-     </p>
-    </div>
+ // 4) saebom (기본형 · 클린 블루 & 화이트): 좌측 오각형 레이더 + 우측 심플 수평 바
+ return (
+  <div
+   style={{
+    display: 'grid',
+    gridTemplateColumns: '215px 1fr',
+    gap: 16,
+    alignItems: 'center',
+    background: '#f8fafc',
+    border: '1px solid #dbe5f2',
+    borderRadius: 10,
+    padding: '10px 14px',
+   }}
+  >
+   <RadarPentagonSvg items={items} topKeys={topKeys} weakKey={weakKey} />
+   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    {items.map(item => {
+     const st = getBadgeStyle(item);
+     return (
+      <div
+       key={item.key}
+       style={{
+        display: 'grid',
+        gridTemplateColumns: '122px 1fr 42px',
+        alignItems: 'center',
+        gap: 10,
+       }}
+      >
+       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <CompetencyIcon itemKey={item.key} size={12} color={st.bar} />
+        <strong style={{ color: '#0f172a', fontSize: 10.5 }}>{item.label}</strong>
+        <span
+         style={{
+          fontSize: 8.5,
+          fontWeight: 800,
+          padding: '0.5px 5px',
+          borderRadius: 999,
+          background: st.bg,
+          color: st.color,
+         }}
+        >
+         {st.text}
+        </span>
+       </div>
+       <div style={{ height: 7, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden' }}>
+        <div style={{ width: `${item.score}%`, height: '100%', background: st.bar, borderRadius: 999 }} />
+       </div>
+       <strong style={{ fontSize: 10.5, color: st.bar, fontWeight: 800, textAlign: 'right' }}>
+        {item.score}점
+       </strong>
+      </div>
+     );
+    })}
    </div>
   </div>
  );
@@ -1415,7 +1690,7 @@ function SaebomForestSheet({
            <span><i className={styles.saebomDash}/> 월간 5대 학습 역량 진단 (강점 · 보완점 분석)</span>
            <small>출결 · 과제 · 오답 · 성적 · 진도 종합</small>
           </div>
-          <MonthlyCompetencyDiagnosis s={s} />
+          <MonthlyCompetencyDiagnosis s={s} theme="saebom" />
          </div>
         )}
        </>
@@ -2075,7 +2350,7 @@ function WeekBody({p,s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
  * - 출석(초록) / 지각(노랑) / 결석(빨강) 월간 달력
  * - 오답 완료 시 '오답 완료' 표시
  * ============================================================================ */
-function MonthBody({s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
+function MonthBody({s,cfg,theme}:{p:Preview;s:StudentData;cfg:LayoutConfig;theme:Theme}){
  const showAtt = cfg.hasKind('attendance');
  const showGrades = cfg.hasKind('grades');
  const showProg = cfg.hasKind('progress');
@@ -2232,7 +2507,7 @@ function MonthBody({s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
          )}
         </div>
         <div style={{ marginTop: 10 }}>
-         <MonthlyCompetencyDiagnosis s={s} />
+         <MonthlyCompetencyDiagnosis s={s} theme={theme} />
         </div>
        </div>
       </section>
@@ -2398,7 +2673,7 @@ export default function ReportSheets({
     {/* 주기별 완전히 다른 본문 레이아웃 */}
     {period==='day'&&<DayBody p={p} s={s} cfg={cfg}/>}
     {period==='week'&&<WeekBody p={p} s={s} cfg={cfg}/>}
-    {period==='month'&&<MonthBody p={p} s={s} cfg={cfg}/>}
+    {period==='month'&&<MonthBody p={p} s={s} cfg={cfg} theme={theme}/>}
 
     {/* 하단 피드백 영역 (feedback 블록이 ON일 때만 표시) */}
     {cfg.hasKind('feedback') && theme==='miricheck'&&(

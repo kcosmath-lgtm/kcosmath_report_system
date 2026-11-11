@@ -73,6 +73,8 @@
   border-radius: 9px;
   font-size: 12px;
   font-weight: 800;
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
 }
 
@@ -120,6 +122,8 @@
   border-radius: 9px;
   font-size: 12px;
   font-weight: 800;
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
   box-shadow: 0 2px 6px rgba(37, 99, 235, 0.22);
 }
@@ -241,14 +245,17 @@
   height: 34px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
-  padding: 0 14px;
+  padding: 0 12px;
   background: #2563eb;
   color: #ffffff;
   border: 1px solid #1d4ed8;
   border-radius: 8px;
   font-size: 12px;
   font-weight: 800;
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
 }
 
@@ -265,6 +272,7 @@
   height: 34px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   padding: 0 12px;
   background: #f8fafc;
@@ -273,6 +281,8 @@
   border-radius: 8px;
   font-size: 11.5px;
   font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
 }
 
@@ -471,6 +481,8 @@
   color: #1d4ed8;
   font-size: 11px;
   font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
 }
 
@@ -526,6 +538,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  white-space: nowrap;
 }
 
 .historyBtn,
@@ -538,6 +551,8 @@
   border-radius: 7px;
   font-size: 11.5px;
   font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
 }
 
@@ -842,6 +857,8 @@
   border-radius: 9px;
   font-size: 12.5px;
   font-weight: 800;
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
 }
 
@@ -857,6 +874,8 @@
   border-radius: 8px;
   font-size: 12px;
   font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
 }
 
@@ -872,6 +891,8 @@
   border-radius: 8px;
   font-size: 12px;
   font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
 }
 
@@ -1132,6 +1153,17 @@
   color: #ffffff;
 }
 
+.catalogInlineSelect {
+  height: 28px !important;
+  padding: 2px 8px !important;
+  border-radius: 8px !important;
+  border: 1px solid #cbd5e1 !important;
+  background: #ffffff !important;
+  font-size: 11.5px !important;
+  font-weight: 700 !important;
+  color: #1e293b !important;
+}
+
 .catalogGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(275px, 1fr));
@@ -1182,6 +1214,21 @@
 .catalogCategoryBadge[data-category="심화서"] {
   background: #fae8ff;
   color: #a21caf;
+}
+
+.catalogCategoryBadge[data-category="교과서"] {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.catalogCategoryBadge[data-category="기출·모의"] {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.catalogCategoryBadge[data-category="연산·워크북"] {
+  background: #f1f5f9;
+  color: #334155;
 }
 
 .catalogCourseBadge {
@@ -1555,4 +1602,98 @@
 .shorthandSuggestBtn:hover {
   background: #dbeafe;
 }
+
+.classSectionsStack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.classSectionCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: #f8fafc;
+  border: 1px solid #dbe6f5;
+  border-radius: 16px;
+}
+
+.classSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.classSectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.classBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: #1d4ed8;
+  color: #ffffff;
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.classSectionTitle strong {
+  font-size: 13px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.classBookCountPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #1e40af;
+}
+
+.classTabBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 11px;
+}
+
+.classTabBar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.classTabBar button[data-active] {
+  background: #ffffff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.08);
+}
+
 

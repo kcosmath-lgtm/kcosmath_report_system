@@ -3,7 +3,14 @@ import { useEffect, useState } from 'react';
 import { BookOpen, Plus, Pencil, Trash2, Check, Library, Search, Sparkles, Table, AlignLeft, ChevronDown, ChevronUp } from 'lucide-react';
 import { loadClassBooks, manageClassBook } from '../lib/report-storage';
 import { PROGRESS_TEMPLATES } from '../constants/progressTemplates';
-import { TEXTBOOK_CATALOG, formatUnitToTextLine, parseTextLineToUnit, type TextbookPreset } from '../constants/textbookCatalog';
+import {
+  TEXTBOOK_CATALOG,
+  CATALOG_COURSES_BY_GRADE,
+  adaptPresetToCourse,
+  formatUnitToTextLine,
+  parseTextLineToUnit,
+  type TextbookPreset,
+} from '../constants/textbookCatalog';
 import { totalBookProblems, totalBookTypes, unitProblemCount, type ClassBook, type ProgressUnit } from '../types/progress';
 import type { StudentGroup } from '../types/student';
 import styles from './student-progress.module.css';
@@ -36,9 +43,10 @@ export default function ClassBookManager({
   // Catalog browser state
   const [showCatalog, setShowCatalog] = useState(false);
   const [catalogSearch, setCatalogSearch] = useState('');
-  const [catalogGrade, setCatalogGrade] = useState<'전체' | '중등' | '고등'>('전체');
-  const [catalogCategory, setCatalogCategory] = useState<'전체' | '유형서' | '개념서' | '심화서'>('전체');
+  const [catalogGrade, setCatalogGrade] = useState<'전체' | '초등' | '중등' | '고등'>('전체');
+  const [catalogCategory, setCatalogCategory] = useState<'전체' | '교과서' | '개념서' | '유형서' | '심화서' | '기출·모의' | '연산·워크북'>('전체');
   const [catalogSeries, setCatalogSeries] = useState<string>('전체');
+  const [catalogCourse, setCatalogCourse] = useState<string>('기본');
   const [expandedBookId, setExpandedBookId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -295,18 +303,37 @@ export default function ClassBookManager({
     return true;
   });
 
+  const currentGroup = groups.find(g => g.id === classId);
+  const currentClassName = currentGroup?.group ?? '선택한 반';
   const draftTotalProblems = totalBookProblems({ units: unitsDraft });
   const draftTotalTypes = totalBookTypes({ units: unitsDraft });
 
   return (
     <section className={styles.modalBody}>
+      {groups.length > 1 && (
+        <div className={styles.classTabBar} role="tablist" aria-label="교재 관리 반 탭">
+          {groups.map(g => (
+            <button
+              key={g.id}
+              type="button"
+              role="tab"
+              aria-selected={classId === g.id}
+              data-active={classId === g.id || undefined}
+              disabled={busy || !!editing}
+              onClick={() => setClassId(g.id)}
+            >
+              {g.group} <small>({g.students.length}명)</small>
+            </button>
+          ))}
+        </div>
+      )}
       <div className={styles.bookManagerTop}>
         <label style={{ flex: 1 }}>
-          관리할 반 선택
+          교재를 등록·관리할 반 선택
           <select aria-label="교재 관리 반" value={classId} disabled={busy || !!editing} onChange={e => setClassId(e.target.value)}>
             {groups.map(g => (
               <option key={g.id} value={g.id}>
-                {g.group}
+                {g.group} ({g.students.length}명)
               </option>
             ))}
           </select>
@@ -319,10 +346,10 @@ export default function ClassBookManager({
               disabled={busy || loading || !classId}
               onClick={() => setShowCatalog(v => !v)}
             >
-              <Library size={15} /> {showCatalog ? '시중 교재 카탈로그 닫기' : '시중 교재(쎈·개념원리 등) 불러오기'}
+              <Library size={15} /> {showCatalog ? '시중 교재 카탈로그 닫기' : `[${currentClassName}] 시중 교재 불러오기`}
             </button>
             <button type="button" className={styles.primaryBtn} disabled={busy || loading || !classId} onClick={() => edit()}>
-              <Plus size={15} /> 새 반 교재 직접 등록
+              <Plus size={15} /> [{currentClassName}] 교재 직접 등록
             </button>
           </div>
         )}
@@ -363,12 +390,15 @@ export default function ClassBookManager({
           <div className={styles.catalogFilterRow}>
             <div className={styles.catalogFilterGroup}>
               <span>학교급</span>
-              {(['전체', '중등', '고등'] as const).map(g => (
+              {(['전체', '초등', '중등', '고등'] as const).map(g => (
                 <button
                   key={g}
                   type="button"
                   data-active={catalogGrade === g || undefined}
-                  onClick={() => setCatalogGrade(g)}
+                  onClick={() => {
+                    setCatalogGrade(g);
+                    setCatalogCourse('기본');
+                  }}
                 >
                   {g}
                 </button>
@@ -376,7 +406,7 @@ export default function ClassBookManager({
             </div>
             <div className={styles.catalogFilterGroup}>
               <span>교재 분류</span>
-              {(['전체', '유형서', '개념서', '심화서'] as const).map(cat => (
+              {(['전체', '교과서', '개념서', '유형서', '심화서', '기출·모의', '연산·워크북'] as const).map(cat => (
                 <button
                   key={cat}
                   type="button"
@@ -389,21 +419,56 @@ export default function ClassBookManager({
             </div>
             <div className={styles.catalogFilterGroup}>
               <span>시리즈</span>
-              {seriesList.map(s => (
-                <button
-                  key={s}
-                  type="button"
-                  data-active={catalogSeries === s || undefined}
-                  onClick={() => setCatalogSeries(s)}
-                >
-                  {s}
-                </button>
-              ))}
+              <select
+                aria-label="시리즈 필터"
+                className={styles.catalogInlineSelect}
+                value={catalogSeries}
+                onChange={e => setCatalogSeries(e.target.value)}
+              >
+                {seriesList.map(s => (
+                  <option key={s} value={s}>
+                    {s === '전체' ? `전체 시리즈 (${seriesList.length - 1}종)` : s}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className={styles.catalogFilterGroup}>
+              <span>적용 과정</span>
+              <select
+                aria-label="적용할 학년·과정"
+                className={styles.catalogInlineSelect}
+                value={catalogCourse}
+                onChange={e => setCatalogCourse(e.target.value)}
+              >
+                <option value="기본">교재별 기본 과정</option>
+                {(catalogGrade === '전체' || catalogGrade === '초등') && (
+                  <optgroup label="초등 2022 개정">
+                    {CATALOG_COURSES_BY_GRADE.초등.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </optgroup>
+                )}
+                {(catalogGrade === '전체' || catalogGrade === '중등') && (
+                  <optgroup label="중등 2022 개정">
+                    {CATALOG_COURSES_BY_GRADE.중등.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </optgroup>
+                )}
+                {(catalogGrade === '전체' || catalogGrade === '고등') && (
+                  <optgroup label="고등 2022 개정">
+                    {CATALOG_COURSES_BY_GRADE.고등.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
             </div>
           </div>
 
           <div className={styles.catalogGrid}>
-            {filteredCatalog.map(preset => {
+            {filteredCatalog.map(rawPreset => {
+              const preset = adaptPresetToCourse(rawPreset, catalogCourse);
               const totalProbs = preset.units.reduce((sum, u) => sum + u.problem_count, 0);
               const totalTypes = preset.units.reduce((sum, u) => sum + (u.type_count ?? 0), 0);
               const alreadyAdded = books.some(b => b.title === preset.title);
@@ -414,7 +479,7 @@ export default function ClassBookManager({
                       {preset.category}
                     </span>
                     <span className={styles.catalogCourseBadge}>
-                      {preset.course} · {preset.publisher}
+                      {preset.gradeGroup} · {preset.course} · {preset.publisher}
                     </span>
                   </div>
                   <strong className={styles.catalogCardTitle}>{preset.title}</strong>

@@ -34,6 +34,7 @@ type Student = StudentGroup['students'][number];
 
 function ProgressRow({
   student,
+  groupName,
   checked,
   onToggleCheck,
   date,
@@ -46,6 +47,7 @@ function ProgressRow({
   onHistory,
 }: {
   student: Student;
+  groupName: string;
   checked: boolean;
   onToggleCheck: (checked: boolean) => void;
   date: string;
@@ -234,7 +236,7 @@ function ProgressRow({
         <div className={styles.studentNameCell}>
           <strong>{student.name}</strong>
           <small>
-            {student.grade}
+            {groupName} · {student.grade}
             {dirty ? <em className={styles.dirtyDot}> · 수정됨</em> : ''}
           </small>
         </div>
@@ -247,14 +249,18 @@ function ProgressRow({
           disabled={locked || dirty}
           onChange={e => void choose(e.target.value)}
         >
-          <option value="">교재 선택 · 연결</option>
-          {books.map(b => (
-            <option key={b.id} value={`assigned:${b.id}`}>
-              {b.title}
-            </option>
-          ))}
+          <option value="">[{groupName}] 교재 선택 · 연결</option>
+          {books.length > 0 && (
+            <optgroup label={`현재 연결된 교재 (${books.length}권)`}>
+              {books.map(b => (
+                <option key={b.id} value={`assigned:${b.id}`}>
+                  {b.title}
+                </option>
+              ))}
+            </optgroup>
+          )}
           {catalog.filter(c => !books.some(b => b.library_id === c.id)).length > 0 && (
-            <optgroup label="반 교재 새로 연결">
+            <optgroup label={`[${groupName}] 반 교재 새로 연결`}>
               {catalog
                 .filter(c => !books.some(b => b.library_id === c.id))
                 .map(c => (
@@ -461,15 +467,28 @@ export default function StudentProgressTable({
   const [catalog, setCatalog] = useState<ClassBook[]>([]);
   const [catalogFailed, setCatalogFailed] = useState(false);
   const [manager, setManager] = useState(false);
+  const [managerClassId, setManagerClassId] = useState<string>('');
   const [managerDirty, setManagerDirty] = useState(false);
   const [checked, setChecked] = useState<string[]>([]);
   const [unitPopup, setUnitPopup] = useState<{ book: ProgressBook; ids: string[] } | null>(null);
   const [history, setHistory] = useState<{ book: ProgressBook; entries: ProgressEntry[] } | null>(null);
-  const [bulkBook, setBulkBook] = useState('');
-  const [bulkScope, setBulkScope] = useState('');
-  const [bulkHomework, setBulkHomework] = useState('');
-  const [bulkPage, setBulkPage] = useState('');
-  const [bulkFeedback, setBulkFeedback] = useState('');
+  const [bulkByClass, setBulkByClass] = useState<
+    Record<string, { book: string; scope: string; homework: string; page: string; feedback: string }>
+  >({});
+
+  function getClassBulk(classId: string) {
+    return bulkByClass[classId] ?? { book: '', scope: '', homework: '', page: '', feedback: '' };
+  }
+
+  function patchClassBulk(
+    classId: string,
+    patch: Partial<{ book: string; scope: string; homework: string; page: string; feedback: string }>
+  ) {
+    setBulkByClass(prev => ({
+      ...prev,
+      [classId]: { ...(prev[classId] ?? { book: '', scope: '', homework: '', page: '', feedback: '' }), ...patch },
+    }));
+  }
 
   const handles = useRef<Record<string, RowHandle>>({});
   const register = useCallback((id: string, value: RowHandle | null) => {
@@ -516,9 +535,21 @@ export default function StudentProgressTable({
     };
   }, [groups, revision]);
 
-  const students = groups.flatMap(g => g.students).filter(s => studentIds.includes(s.id) || dirtyRows[s.id]);
+  const activeGroups = groups
+    .map(g => ({
+      ...g,
+      students: g.students.filter(s => studentIds.includes(s.id) || dirtyRows[s.id]),
+    }))
+    .filter(g => g.students.length > 0);
+  const students = activeGroups.flatMap(g => g.students);
   const checkedIds = students.filter(s => checked.includes(s.id)).map(s => s.id);
   const targetIds = checkedIds.length > 0 ? checkedIds : students.map(s => s.id);
+
+  function classTargetIds(group: StudentGroup) {
+    const groupStudentIds = group.students.map(s => s.id);
+    const groupChecked = groupStudentIds.filter(id => checked.includes(id));
+    return groupChecked.length > 0 ? groupChecked : groupStudentIds;
+  }
 
   function targets(ids = targetIds) {
     const rows = ids.map(id => handles.current[id]);
@@ -545,22 +576,24 @@ export default function StudentProgressTable({
     setUnitPopup({ book, ids: [...ids] });
   }
 
-  async function applyUnifiedBulk() {
-    const rows = targets(targetIds);
+  async function applyClassBulk(group: StudentGroup) {
+    const idsForClass = classTargetIds(group);
+    const rows = targets(idsForClass);
     if (!rows) return;
 
+    const bulk = getClassBulk(group.id);
     let assignedMap: Record<string, ProgressBook> = {};
-    if (bulkBook) {
-      const template = catalog.find(b => b.id === bulkBook);
+    if (bulk.book) {
+      const template = catalog.find(b => b.id === bulk.book && b.class_id === group.id);
       if (!template) return;
       if (rows.some(r => r.dirty)) {
-        setMessage('작성 중인 학생 기록을 먼저 저장하거나 취소한 뒤 교재를 일괄 변경해 주세요.');
+        setMessage(`[${group.group}] 작성 중인 학생 기록을 먼저 저장하거나 취소한 뒤 교재를 일괄 연결해 주세요.`);
         return;
       }
       setSaving(true);
       setMessage('');
       try {
-        const books = (await manageClassBook('assign', template, targetIds)) as ProgressBook[];
+        const books = (await manageClassBook('assign', template, idsForClass)) as ProgressBook[];
         assignedMap = Object.fromEntries(books.map(b => [b.student_id, b]));
         books.forEach(b => handles.current[b.student_id]?.patch({ book: b }));
       } catch (e) {
@@ -572,26 +605,26 @@ export default function StudentProgressTable({
     }
 
     const hasTextOrPage =
-      bulkScope.trim() !== '' || bulkHomework.trim() !== '' || bulkPage.trim() !== '' || bulkFeedback.trim() !== '';
+      bulk.scope.trim() !== '' || bulk.homework.trim() !== '' || bulk.page.trim() !== '' || bulk.feedback.trim() !== '';
 
     if (hasTextOrPage) {
-      if (targetIds.some(id => !assignedMap[id] && !handles.current[id]?.book)) {
-        setMessage('대상 학생 모두에게 교재를 먼저 연결해 주세요.');
+      if (idsForClass.some(id => !assignedMap[id] && !handles.current[id]?.book)) {
+        setMessage(`[${group.group}] 대상 학생 모두에게 교재를 먼저 연결해 주세요.`);
         return;
       }
       if (
-        bulkPage.trim() !== '' &&
-        (targetIds.some(id => {
+        bulk.page.trim() !== '' &&
+        (idsForClass.some(id => {
           const b = assignedMap[id] ?? handles.current[id]?.book;
-          return !b?.total_pages || Number(bulkPage) > b.total_pages;
+          return !b?.total_pages || Number(bulk.page) > b.total_pages;
         }) ||
-          !Number.isInteger(Number(bulkPage)) ||
-          Number(bulkPage) < 0)
+          !Number.isInteger(Number(bulk.page)) ||
+          Number(bulk.page) < 0)
       ) {
         setMessage('선택한 교재의 총 페이지 범위 안에서 완료 페이지를 입력해 주세요.');
         return;
       }
-      targetIds.forEach(id => {
+      idsForClass.forEach(id => {
         const r = handles.current[id];
         if (!r) return;
         const baseBook = assignedMap[id] ?? r.book!;
@@ -607,17 +640,17 @@ export default function StudentProgressTable({
         };
 
         let autoEndPage: number | undefined;
-        if (bulkScope.trim()) {
-          const resolved = expandShorthand(bulkScope);
-          nextPatch.scope = resolved && resolved.matchedUnits.length > 0 ? resolved.label : bulkScope.trim();
+        if (bulk.scope.trim()) {
+          const resolved = expandShorthand(bulk.scope);
+          nextPatch.scope = resolved && resolved.matchedUnits.length > 0 ? resolved.label : bulk.scope.trim();
           if (resolved?.endPage) autoEndPage = resolved.endPage;
         }
-        if (bulkHomework.trim()) {
-          const resolved = expandShorthand(bulkHomework);
-          nextPatch.homework = resolved && resolved.matchedUnits.length > 0 ? resolved.label : bulkHomework.trim();
+        if (bulk.homework.trim()) {
+          const resolved = expandShorthand(bulk.homework);
+          nextPatch.homework = resolved && resolved.matchedUnits.length > 0 ? resolved.label : bulk.homework.trim();
         }
-        if (bulkFeedback.trim()) nextPatch.feedback = bulkFeedback.trim();
-        const targetPage = bulkPage.trim() !== '' ? Number(bulkPage) : autoEndPage;
+        if (bulk.feedback.trim()) nextPatch.feedback = bulk.feedback.trim();
+        const targetPage = bulk.page.trim() !== '' ? Number(bulk.page) : autoEndPage;
         if (targetPage !== undefined && (!baseBook.total_pages || targetPage <= baseBook.total_pages)) {
           const nextStates = syncUnitStatesFromPage(baseBook.units, baseBook.states, targetPage);
           nextPatch.book = { ...baseBook, completed_page: targetPage, states: nextStates };
@@ -628,12 +661,8 @@ export default function StudentProgressTable({
       });
     }
 
-    setBulkBook('');
-    setBulkScope('');
-    setBulkHomework('');
-    setBulkPage('');
-    setBulkFeedback('');
-    setMessage(`${targetIds.length}명에게 일괄 적용했습니다. 우측 상단의 [진도 기록 저장]을 눌러 저장하세요.`);
+    patchClassBulk(group.id, { book: '', scope: '', homework: '', page: '', feedback: '' });
+    setMessage(`[${group.group}] ${idsForClass.length}명에게 일괄 적용했습니다. 우측 상단의 [진도 기록 저장]을 눌러 저장하세요.`);
   }
 
   async function saveAll() {
@@ -710,12 +739,20 @@ export default function StudentProgressTable({
           <p>교재 진행률과 당일 진도 범위, 부여 과제, 수업 피드백을 표에서 바로 기록하고 보고서와 연동합니다.</p>
         </div>
         <div className={styles.kpiPills}>
-          <span>대상 <b>{students.length}명</b></span>
-          <span>등록 반 교재 <b>{catalog.length}권</b></span>
+          <span>선택 반 <b>{activeGroups.length}개</b></span>
+          <span>대상 학생 <b>{students.length}명</b></span>
           <span>작성 중 <b>{dirtyCount}명</b></span>
         </div>
-        <button type="button" className={styles.bookManageBtn} disabled={hasDirty || !groups.length} onClick={() => setManager(true)}>
-          <BookOpen size={15} /> 반 교재 관리
+        <button
+          type="button"
+          className={styles.bookManageBtn}
+          disabled={hasDirty || !groups.length}
+          onClick={() => {
+            setManagerClassId(activeGroups[0]?.id ?? groups[0]?.id ?? '');
+            setManager(true);
+          }}
+        >
+          <BookOpen size={15} /> 반별 교재 관리
         </button>
         <label className={styles.datePickerLabel}>
           <Calendar size={14} />
@@ -741,158 +778,213 @@ export default function StudentProgressTable({
       {!students.length ? (
         <p className={styles.emptyNotice}>왼쪽 목록에서 반 또는 학생을 선택해 주세요.</p>
       ) : (
-        <div className={styles.tableWrap}>
-          <table className={styles.progressTable}>
-            <thead>
-              <tr>
-                <th style={{ width: '38px' }}>
-                  <input
-                    type="checkbox"
-                    className={styles.check}
-                    aria-label="보이는 학생 전체 선택"
-                    checked={students.length > 0 && students.every(s => checked.includes(s.id))}
-                    ref={input => {
-                      if (input) input.indeterminate = students.some(s => checked.includes(s.id)) && !students.every(s => checked.includes(s.id));
-                    }}
-                    onChange={e => setChecked(e.target.checked ? students.map(s => s.id) : [])}
-                  />
-                </th>
-                <th style={{ width: '125px' }}>학생</th>
-                <th style={{ width: '195px' }}>사용 교재</th>
-                <th style={{ width: '215px' }}>진도율 · 페이지 · 단원</th>
-                <th>오늘 진도 범위</th>
-                <th>오늘 부여 과제</th>
-                <th>수업 피드백 · 코멘트</th>
-                <th style={{ width: '115px' }}>관리</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className={styles.bulkTableRow}>
-                <td>
-                  <span className={styles.bulkRowDot} title="일괄 입력 행" />
-                </td>
-                <td>
-                  <div className={styles.studentNameCell}>
-                    <strong className={styles.bulkRowLabel}>공통 일괄 입력</strong>
-                    <small>{checkedIds.length > 0 ? `선택 ${checkedIds.length}명 대상` : `전체 ${students.length}명 대상`}</small>
+        <div className={styles.classSectionsStack}>
+          {activeGroups.map(group => {
+            const classCatalog = catalog.filter(c => c.class_id === group.id);
+            const bulk = getClassBulk(group.id);
+            const groupStudentIds = group.students.map(s => s.id);
+            const groupCheckedIds = groupStudentIds.filter(id => checked.includes(id));
+            const targetIdsForGroup = classTargetIds(group);
+            return (
+              <div key={group.id} className={styles.classSectionCard}>
+                <div className={styles.classSectionHeader}>
+                  <div className={styles.classSectionTitle}>
+                    <span className={styles.classBadge}>{group.group}</span>
+                    <strong>학생 {group.students.length}명</strong>
+                    <span className={styles.classBookCountPill}>
+                      이 반 등록 교재 <b>{classCatalog.length}권</b>
+                    </span>
                   </div>
-                </td>
-                <td>
-                  <select
-                    aria-label="일괄 교재"
-                    className={styles.bookSelect}
-                    value={bulkBook}
-                    disabled={saving || catalogFailed}
-                    onChange={e => setBulkBook(e.target.value)}
-                  >
-                    <option value="">교재 일괄 변경 ({catalog.length}권)</option>
-                    {catalog.map(c => (
-                      <option key={c.id} value={c.id}>
-                        {groups.find(g => g.id === c.class_id)?.group} · {c.title}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td>
-                  <div className={styles.progressSubControls}>
-                    <div className={styles.inlinePageBox}>
-                      <input
-                        type="number"
-                        aria-label="일괄 완료 페이지"
-                        min={0}
-                        value={bulkPage}
-                        onChange={e => setBulkPage(e.target.value)}
-                        placeholder="페이지"
-                      />
-                      <span>p</span>
-                    </div>
-                    <button
-                      type="button"
-                      className={styles.unitCheckBtn}
-                      disabled={saving}
-                      onClick={() => editUnits(targetIds)}
-                      title="동일 교재 사용 학생 단원 일괄 체크"
-                    >
-                      <ListChecks size={12} /> 단원 일괄
-                    </button>
-                  </div>
-                </td>
-                <td>
-                  <input
-                    type="text"
-                    className={styles.tableInput}
-                    aria-label="일괄 진행 범위"
-                    maxLength={2000}
-                    value={bulkScope}
-                    onChange={e => setBulkScope(e.target.value)}
-                    placeholder="공통 진도 범위 (예: p.42~48)"
-                  />
-                </td>
-                <td>
-                  <input
-                    type="text"
-                    className={styles.tableInput}
-                    aria-label="일괄 숙제"
-                    maxLength={2000}
-                    value={bulkHomework}
-                    onChange={e => setBulkHomework(e.target.value)}
-                    placeholder="공통 부여 과제 (예: 워크북 p.20~24)"
-                  />
-                </td>
-                <td>
-                  <input
-                    type="text"
-                    className={styles.tableInput}
-                    aria-label="일괄 오늘의 피드백"
-                    maxLength={2000}
-                    value={bulkFeedback}
-                    onChange={e => setBulkFeedback(e.target.value)}
-                    placeholder="공통 수업 피드백 코멘트"
-                  />
-                </td>
-                <td>
                   <button
                     type="button"
-                    className={styles.primaryActionBtn}
-                    disabled={
-                      saving ||
-                      (!bulkBook && !bulkScope.trim() && !bulkHomework.trim() && !bulkPage.trim() && !bulkFeedback.trim())
-                    }
-                    onClick={() => void applyUnifiedBulk()}
+                    className={styles.secondaryActionBtn}
+                    disabled={hasDirty}
+                    onClick={() => {
+                      setManagerClassId(group.id);
+                      setManager(true);
+                    }}
                   >
-                    <Check size={13} /> 일괄 적용
+                    <BookOpen size={13} /> [{group.group}] 교재 등록·관리 ({classCatalog.length}권)
                   </button>
-                </td>
-              </tr>
-              {students.map(s => (
-                <ProgressRow
-                  key={s.id}
-                  student={s}
-                  checked={checked.includes(s.id)}
-                  onToggleCheck={next => setChecked(ids => (next ? [...ids, s.id] : ids.filter(id => id !== s.id)))}
-                  date={date}
-                  revision={rosterRevision + revision}
-                  catalog={catalog.filter(c => groups.find(g => g.students.some(x => x.id === s.id))?.id === c.class_id)}
-                  onDirty={onDirty}
-                  register={register}
-                  saving={saving}
-                  onUnits={id => editUnits([id])}
-                  onHistory={id => {
-                    const r = handles.current[id];
-                    if (r?.book) setHistory({ book: r.book, entries: r.entries.filter(e => e.book_id === r.book!.id) });
-                  }}
-                />
-              ))}
-            </tbody>
-          </table>
+                </div>
+
+                <div className={styles.tableWrap}>
+                  <table className={styles.progressTable}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: '38px' }}>
+                          <input
+                            type="checkbox"
+                            className={styles.check}
+                            aria-label={activeGroups.length === 1 ? '보이는 학생 전체 선택' : `${group.group} 학생 전체 선택`}
+                            checked={group.students.length > 0 && group.students.every(s => checked.includes(s.id))}
+                            ref={input => {
+                              if (input) {
+                                input.indeterminate =
+                                  group.students.some(s => checked.includes(s.id)) &&
+                                  !group.students.every(s => checked.includes(s.id));
+                              }
+                            }}
+                            onChange={e =>
+                              setChecked(prev =>
+                                e.target.checked
+                                  ? Array.from(new Set([...prev, ...groupStudentIds]))
+                                  : prev.filter(id => !groupStudentIds.includes(id))
+                              )
+                            }
+                          />
+                        </th>
+                        <th style={{ width: '135px' }}>학생 ({group.group})</th>
+                        <th style={{ width: '215px' }}>[{group.group}] 사용 교재 연결</th>
+                        <th style={{ width: '215px' }}>진도율 · 페이지 · 단원</th>
+                        <th>오늘 진도 범위</th>
+                        <th>오늘 부여 과제</th>
+                        <th>수업 피드백 · 코멘트</th>
+                        <th style={{ width: '128px' }}>관리</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className={styles.bulkTableRow}>
+                        <td>
+                          <span className={styles.bulkRowDot} title={`${group.group} 일괄 입력 행`} />
+                        </td>
+                        <td>
+                          <div className={styles.studentNameCell}>
+                            <strong className={styles.bulkRowLabel}>{group.group} 일괄 연결</strong>
+                            <small>
+                              {groupCheckedIds.length > 0
+                                ? `선택 ${groupCheckedIds.length}명 대상`
+                                : `${group.group} ${group.students.length}명 전원`}
+                            </small>
+                          </div>
+                        </td>
+                        <td>
+                          <select
+                            aria-label={activeGroups.length === 1 ? '일괄 교재' : `${group.group} 일괄 교재`}
+                            className={styles.bookSelect}
+                            value={bulk.book}
+                            disabled={saving || catalogFailed}
+                            onChange={e => patchClassBulk(group.id, { book: e.target.value })}
+                          >
+                            <option value="">
+                              [{group.group}] 교재 일괄 연결 ({classCatalog.length}권)
+                            </option>
+                            {classCatalog.map(c => (
+                              <option key={c.id} value={c.id}>
+                                {c.title}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          <div className={styles.progressSubControls}>
+                            <div className={styles.inlinePageBox}>
+                              <input
+                                type="number"
+                                aria-label={activeGroups.length === 1 ? '일괄 완료 페이지' : `${group.group} 일괄 완료 페이지`}
+                                min={0}
+                                value={bulk.page}
+                                onChange={e => patchClassBulk(group.id, { page: e.target.value })}
+                                placeholder="페이지"
+                              />
+                              <span>p</span>
+                            </div>
+                            <button
+                              type="button"
+                              className={styles.unitCheckBtn}
+                              disabled={saving}
+                              onClick={() => editUnits(targetIdsForGroup)}
+                              title="이 반에서 동일 교재 사용 학생 단원 일괄 체크"
+                            >
+                              <ListChecks size={12} /> 단원 일괄
+                            </button>
+                          </div>
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            className={styles.tableInput}
+                            aria-label={activeGroups.length === 1 ? '일괄 진행 범위' : `${group.group} 일괄 진행 범위`}
+                            maxLength={2000}
+                            value={bulk.scope}
+                            onChange={e => patchClassBulk(group.id, { scope: e.target.value })}
+                            placeholder={`[${group.group}] 공통 진도 (예: p.42~48)`}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            className={styles.tableInput}
+                            aria-label={activeGroups.length === 1 ? '일괄 숙제' : `${group.group} 일괄 숙제`}
+                            maxLength={2000}
+                            value={bulk.homework}
+                            onChange={e => patchClassBulk(group.id, { homework: e.target.value })}
+                            placeholder={`[${group.group}] 공통 과제 (예: p.20~24)`}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            className={styles.tableInput}
+                            aria-label={activeGroups.length === 1 ? '일괄 오늘의 피드백' : `${group.group} 일괄 오늘의 피드백`}
+                            maxLength={2000}
+                            value={bulk.feedback}
+                            onChange={e => patchClassBulk(group.id, { feedback: e.target.value })}
+                            placeholder={`[${group.group}] 공통 피드백`}
+                          />
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className={styles.primaryActionBtn}
+                            disabled={
+                              saving ||
+                              (!bulk.book &&
+                                !bulk.scope.trim() &&
+                                !bulk.homework.trim() &&
+                                !bulk.page.trim() &&
+                                !bulk.feedback.trim())
+                            }
+                            onClick={() => void applyClassBulk(group)}
+                          >
+                            <Check size={13} /> 일괄 적용
+                          </button>
+                        </td>
+                      </tr>
+                      {group.students.map(s => (
+                        <ProgressRow
+                          key={s.id}
+                          student={s}
+                          groupName={group.group}
+                          checked={checked.includes(s.id)}
+                          onToggleCheck={next => setChecked(ids => (next ? [...ids, s.id] : ids.filter(id => id !== s.id)))}
+                          date={date}
+                          revision={rosterRevision + revision}
+                          catalog={classCatalog}
+                          onDirty={onDirty}
+                          register={register}
+                          saving={saving}
+                          onUnits={id => editUnits([id])}
+                          onHistory={id => {
+                            const r = handles.current[id];
+                            if (r?.book) setHistory({ book: r.book, entries: r.entries.filter(e => e.book_id === r.book!.id) });
+                          }}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
       {manager && (
-        <ProgressDialog title="반 교재 관리" locked={managerDirty} onClose={() => setManager(false)}>
+        <ProgressDialog title="반별 교재 관리" locked={managerDirty} onClose={() => setManager(false)}>
           <ClassBookManager
             groups={groups}
-            initialClassId={groups.find(g => g.students.some(s => studentIds.includes(s.id)))?.id ?? ''}
+            initialClassId={managerClassId || activeGroups[0]?.id || groups[0]?.id || ''}
             onChanged={changed}
             onDirtyChange={setManagerDirty}
           />

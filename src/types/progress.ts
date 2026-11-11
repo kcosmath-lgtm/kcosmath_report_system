@@ -1,5 +1,5 @@
 export type UnitStatus = '미시작' | '진행 중' | '완료';
-export type TextbookCategory = '유형서' | '개념서' | '심화서' | '연산서' | '기출·모의' | '기타';
+export type TextbookCategory = '교과서' | '개념서' | '유형서' | '심화서' | '기출·모의' | '연산·워크북' | '연산서' | '기타';
 
 export interface ProgressUnit {
   id: string;

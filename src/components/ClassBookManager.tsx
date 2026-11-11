@@ -6,7 +6,6 @@ import { PROGRESS_TEMPLATES } from '../constants/progressTemplates';
 import {
   TEXTBOOK_CATALOG,
   CATALOG_COURSES_BY_GRADE,
-  adaptPresetToCourse,
   formatUnitToTextLine,
   parseTextLineToUnit,
   type TextbookPreset,
@@ -46,7 +45,9 @@ export default function ClassBookManager({
   const [catalogGrade, setCatalogGrade] = useState<'전체' | '초등' | '중등' | '고등'>('전체');
   const [catalogCategory, setCatalogCategory] = useState<'전체' | '교과서' | '개념서' | '유형서' | '심화서' | '기출·모의' | '연산·워크북'>('전체');
   const [catalogSeries, setCatalogSeries] = useState<string>('전체');
-  const [catalogCourse, setCatalogCourse] = useState<string>('기본');
+  const [catalogCourse, setCatalogCourse] = useState<string>('전체');
+  const [catalogLimit, setCatalogLimit] = useState<number>(60);
+  const [previewPresetId, setPreviewPresetId] = useState<string | null>(null);
   const [expandedBookId, setExpandedBookId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -291,17 +292,15 @@ export default function ClassBookManager({
     if (catalogGrade !== '전체' && item.gradeGroup !== catalogGrade) return false;
     if (catalogCategory !== '전체' && item.category !== catalogCategory) return false;
     if (catalogSeries !== '전체' && item.series !== catalogSeries) return false;
+    if (catalogCourse !== '전체' && item.course !== catalogCourse) return false;
     if (catalogSearch.trim()) {
-      const q = catalogSearch.trim().toLowerCase();
-      return (
-        item.title.toLowerCase().includes(q) ||
-        item.series.toLowerCase().includes(q) ||
-        item.course.toLowerCase().includes(q) ||
-        item.publisher.toLowerCase().includes(q)
-      );
+      const tokens = catalogSearch.trim().toLowerCase().split(/\s+/);
+      const haystack = `${item.title} ${item.series} ${item.course} ${item.publisher}`.toLowerCase();
+      return tokens.every(tok => haystack.includes(tok));
     }
     return true;
   });
+  const visibleCatalog = filteredCatalog.slice(0, catalogLimit);
 
   const currentGroup = groups.find(g => g.id === classId);
   const currentClassName = currentGroup?.group ?? '선택한 반';
@@ -371,9 +370,9 @@ export default function ClassBookManager({
           <div className={styles.catalogHeader}>
             <div>
               <h4>
-                <Sparkles size={15} /> 시중 대표 수학 교재 카탈로그 ({filteredCatalog.length}종)
+                <Sparkles size={15} /> 시중 대표 수학 교재 카탈로그 ({filteredCatalog.length.toLocaleString()}권)
               </h4>
-              <p>단원별 시작~끝 페이지, 문항 번호 범위, 총 문항 수, 대표 유형 수가 모두 입력되어 있습니다.</p>
+              <p>모든 교재가 학년·학기·과목별(초1-1~초6-2, 중1-1~중3-2, 공통수학1~기하) 실제 단원 목차와 일치하도록 수록되어 있습니다.</p>
             </div>
             <div className={styles.catalogSearchBox}>
               <Search size={14} />
@@ -381,8 +380,11 @@ export default function ClassBookManager({
                 type="search"
                 aria-label="시중 교재 검색"
                 value={catalogSearch}
-                onChange={e => setCatalogSearch(e.target.value)}
-                placeholder="교재명·과정 검색 (예: 쎈 2-1, 공통수학1, RPM)"
+                onChange={e => {
+                  setCatalogSearch(e.target.value);
+                  setCatalogLimit(60);
+                }}
+                placeholder="교재명·과정 검색 (예: 일품 중1-2, 쎈 2-1, 공통수학1)"
               />
             </div>
           </div>
@@ -397,7 +399,8 @@ export default function ClassBookManager({
                   data-active={catalogGrade === g || undefined}
                   onClick={() => {
                     setCatalogGrade(g);
-                    setCatalogCourse('기본');
+                    setCatalogCourse('전체');
+                    setCatalogLimit(60);
                   }}
                 >
                   {g}
@@ -411,7 +414,10 @@ export default function ClassBookManager({
                   key={cat}
                   type="button"
                   data-active={catalogCategory === cat || undefined}
-                  onClick={() => setCatalogCategory(cat)}
+                  onClick={() => {
+                    setCatalogCategory(cat);
+                    setCatalogLimit(60);
+                  }}
                 >
                   {cat}
                 </button>
@@ -423,7 +429,10 @@ export default function ClassBookManager({
                 aria-label="시리즈 필터"
                 className={styles.catalogInlineSelect}
                 value={catalogSeries}
-                onChange={e => setCatalogSeries(e.target.value)}
+                onChange={e => {
+                  setCatalogSeries(e.target.value);
+                  setCatalogLimit(60);
+                }}
               >
                 {seriesList.map(s => (
                   <option key={s} value={s}>
@@ -433,14 +442,17 @@ export default function ClassBookManager({
               </select>
             </div>
             <div className={styles.catalogFilterGroup}>
-              <span>적용 과정</span>
+              <span>학년·과정</span>
               <select
-                aria-label="적용할 학년·과정"
+                aria-label="학년·과정 필터"
                 className={styles.catalogInlineSelect}
                 value={catalogCourse}
-                onChange={e => setCatalogCourse(e.target.value)}
+                onChange={e => {
+                  setCatalogCourse(e.target.value);
+                  setCatalogLimit(60);
+                }}
               >
-                <option value="기본">교재별 기본 과정</option>
+                <option value="전체">전체 학년·과정</option>
                 {(catalogGrade === '전체' || catalogGrade === '초등') && (
                   <optgroup label="초등 2022 개정">
                     {CATALOG_COURSES_BY_GRADE.초등.map(c => (
@@ -467,11 +479,11 @@ export default function ClassBookManager({
           </div>
 
           <div className={styles.catalogGrid}>
-            {filteredCatalog.map(rawPreset => {
-              const preset = adaptPresetToCourse(rawPreset, catalogCourse);
+            {visibleCatalog.map(preset => {
               const totalProbs = preset.units.reduce((sum, u) => sum + u.problem_count, 0);
               const totalTypes = preset.units.reduce((sum, u) => sum + (u.type_count ?? 0), 0);
               const alreadyAdded = books.some(b => b.title === preset.title);
+              const isPreviewOpen = previewPresetId === preset.id;
               return (
                 <div key={preset.id} className={styles.catalogCard}>
                   <div className={styles.catalogCardTop}>
@@ -488,8 +500,24 @@ export default function ClassBookManager({
                     <span>총 {preset.total_pages}p</span>
                     <span>{totalProbs.toLocaleString()}문항</span>
                     {totalTypes > 0 && <span>{totalTypes}개 유형</span>}
-                    <span>{preset.units.length}개 단원</span>
+                    <button
+                      type="button"
+                      className={styles.catalogUnitPreviewBtn}
+                      onClick={() => setPreviewPresetId(isPreviewOpen ? null : preset.id)}
+                    >
+                      {preset.units.length}개 단원 목차 {isPreviewOpen ? '접기 ▲' : '보기 ▼'}
+                    </button>
                   </div>
+                  {isPreviewOpen && (
+                    <ul className={styles.catalogUnitPreviewList}>
+                      {preset.units.map((u, idx) => (
+                        <li key={idx}>
+                          <span>{u.group ? `${u.group} › ` : ''}{u.name}</span>
+                          <small>p.{u.start_page}~{u.end_page} ({u.problem_count}문항)</small>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                   <div className={styles.catalogCardActions}>
                     <button
                       type="button"
@@ -512,6 +540,17 @@ export default function ClassBookManager({
               );
             })}
           </div>
+          {filteredCatalog.length > catalogLimit && (
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={() => setCatalogLimit(prev => prev + 60)}
+              >
+                교재 더 보기 ({visibleCatalog.length.toLocaleString()} / {filteredCatalog.length.toLocaleString()}권)
+              </button>
+            </div>
+          )}
         </div>
       )}
 

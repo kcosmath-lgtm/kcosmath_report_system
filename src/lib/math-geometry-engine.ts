@@ -672,10 +672,12 @@ export function renderMathGeoSvg(spec: MathGeoSpec): string {
         `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="#0f172a" stroke-width="1.7"${dash}/>`
       );
       if (seg.label) {
-        const mx = (x1 + x2) / 2 + 5;
-        const my = (y1 + y2) / 2 - 5;
+        const isLineSymbol = /^[lmnk]$/.test(seg.label.trim());
+        const rightIsSecond = x2 >= x1;
+        const mx = isLineSymbol ? Math.max(x1, x2) + 8 : (x1 + x2) / 2 + 5;
+        const my = isLineSymbol ? (rightIsSecond ? y2 : y1) + 5 : (y1 + y2) / 2 - 5;
         parts.push(
-          `<text x="${mx.toFixed(1)}" y="${my.toFixed(1)}" font-family="Times New Roman, serif" font-style="italic" font-size="14" fill="#0f172a" ${textHalo}>${escapeXml(seg.label)}</text>`
+          `<text x="${mx.toFixed(1)}" y="${my.toFixed(1)}" font-family="Times New Roman, serif" font-style="italic" font-size="15" fill="#0f172a" ${textHalo}>${escapeXml(seg.label)}</text>`
         );
       }
     }
@@ -988,3 +990,361 @@ export const MATH_GEO_PRESETS: Array<{ name: string; spec: MathGeoSpec }> = [
     },
   },
 ];
+
+/**
+ * 문항 텍스트를 분석해 그림/도형/그래프 작도가 필요한 문항인지 판별합니다.
+ */
+export function problemNeedsDiagram(
+  question: string,
+  boxContent = "",
+  choices: string[] = [],
+  hasFigureBox = false
+): boolean {
+  if (hasFigureBox) return true;
+  const full = `${question || ""} ${boxContent || ""} ${(choices || []).join(" ")}`;
+  return /(그림과\s*같이|오른쪽\s*그림|다음\s*그림|직선\s*\$?[lmnk]\$?\s*위|수직선\s*위|삼각형\s*\$?[A-Z]{3}|\\triangle|사각형\s*\$?[A-Z]{4}|평행사변형|마름모|사다리꼴|원\s*\$?O\$?|부채꼴|반원|외접원|내접원|동위각|엇각|맞꼭지각|좌표평면\s*위|그래프가\s*그림)/.test(
+    full
+  );
+}
+
+/**
+ * OCR 추출 문항이나 일반 문항 본문(question, boxContent, choices)을 분석하여
+ * 내부 벡터 작도기(MathGeoSpec)로 즉시 그릴 수 있는 맞춤형 도형/함수 스펙을 생성합니다.
+ */
+export function inferMathGeoSpecFromProblem(
+  question: string,
+  boxContent = "",
+  choices: string[] = [],
+  existingSpec?: MathGeoSpec | null
+): MathGeoSpec {
+  if (existingSpec) return existingSpec;
+  const raw = `${question || ""}\n${boxContent || ""}\n${(choices || []).join(" ")}`.trim();
+  const clean = raw.replace(/\$/g, "");
+
+  // 1. 직선 l / 선분 / 반직선 위의 점들 (예: "그림과 같이 직선 l 위에 있는 네 점 A, B, C, D에 대하여...")
+  if (
+    /(직선\s*[lmnk]?.*위.*점|한\s*직선\s*위.*점|선분\s*[A-Z]{2}\s*위.*점|반직선|\\overleftrightarrow|\\overrightarrow|\\overline\{[A-Z]{2}\})/.test(
+      clean
+    ) &&
+    !/(삼각형|사각형|원\s*O|이차함수|삼차함수|좌표평면)/.test(clean)
+  ) {
+    const lineMatch = clean.match(/직선\s*([lmnk])\b/);
+    const lineLabel = lineMatch ? lineMatch[1] : "l";
+
+    // 점 이름 추출 (예: 점 A, B, C, D 또는 M, N 등)
+    const ptBlockMatch = clean.match(/점\s*([A-Z](?:\s*,\s*[A-Z]){1,5})/);
+    let labels = ptBlockMatch
+      ? ptBlockMatch[1]
+          .split(",")
+          .map(s => s.trim())
+          .filter(Boolean)
+      : ["A", "B", "C", "D"];
+    if (labels.length < 2) labels = ["A", "B", "C", "D"];
+
+    const span = 6.4;
+    const startX = -span / 2;
+    const step = labels.length > 1 ? span / (labels.length - 1) : 0;
+    const points: MathPointSpec[] = labels.map((lbl, idx) => ({
+      x: Number((startX + idx * step).toFixed(2)),
+      y: 0,
+      label: lbl,
+      labelOffset: [-5, 24],
+    }));
+
+    return {
+      title: `직선 ${lineLabel} 위의 점 ${labels.join(", ")}`,
+      xRange: [-5.2, 5.4],
+      yRange: [-2.2, 2.2],
+      showAxes: false,
+      segments: [{ x1: -4.3, y1: 0, x2: 4.3, y2: 0, label: lineLabel }],
+      points,
+    };
+  }
+
+  // 2. 평행선과 동위각·엇각·맞꼭지각 (예: l // m, 평행한 두 직선 l, m)
+  if (/(평행.*직선|동위각|엇각|맞꼭지각|l\s*\/\/\s*m|\\parallel)/.test(clean)) {
+    return {
+      title: "평행선과 동위각·엇각",
+      xRange: [-5, 5.4],
+      yRange: [-3, 3],
+      showAxes: false,
+      segments: [
+        { x1: -4.2, y1: 1.2, x2: 4.2, y2: 1.2, label: "l" },
+        { x1: -4.2, y1: -1.2, x2: 4.2, y2: -1.2, label: "m" },
+        { x1: -2.2, y1: -2.5, x2: 2.2, y2: 2.5 },
+      ],
+      arcs: [
+        { cx: 1.05, cy: 1.2, r: 0.55, startDeg: 0, endDeg: 49, label: "a" },
+        { cx: -1.05, cy: -1.2, r: 0.55, startDeg: 0, endDeg: 49, label: "b" },
+      ],
+      points: [
+        { x: 1.05, y: 1.2, label: "P", labelOffset: [-16, -10] },
+        { x: -1.05, y: -1.2, label: "Q", labelOffset: [-16, -10] },
+      ],
+    };
+  }
+
+  // 3. 명시적 함수식이 있는 경우 (f(x)=..., g(x)=..., y=...)
+  const fromPrompt = buildMathGeoSpecFromPrompt(clean);
+  if (fromPrompt) {
+    return fromPrompt;
+  }
+
+  // 4. 직각삼각형 / 피타고라스 / 삼각비
+  if (/(직각삼각형|피타고라스|빗변|∠[A-Z]\s*=\s*90|\\angle\s*[A-Z]\s*=\s*90)/.test(clean)) {
+    const rightAtB = /(∠B\s*=\s*90|\\angle\s*B\s*=\s*90)/.test(clean);
+    const rightLabel = rightAtB ? "B" : "C";
+    const otherRightLabel = rightAtB ? "C" : "B";
+    return {
+      title: "직각삼각형 ABC",
+      xRange: [-1.5, 5.5],
+      yRange: [-1.2, 4.2],
+      showAxes: false,
+      equalAspect: true,
+      polygons: [{ points: [[0, 3], [0, 0], [4, 0]], shaded: false }],
+      rightAngles: [{ at: [0, 0], from: [0, 3], to: [4, 0], size: 10 }],
+      points: [
+        { x: 0, y: 3, label: "A", labelOffset: [-14, -6] },
+        { x: 0, y: 0, label: rightLabel, labelOffset: [-14, 18] },
+        { x: 4, y: 0, label: otherRightLabel, labelOffset: [8, 18] },
+      ],
+    };
+  }
+
+  // 5. 원·부채꼴·호·현·원주각·접선
+  if (/(원\s*O|부채꼴|반원|중심각|원주각|현\s*[A-Z]{2}|접선.*원|외접원)/.test(clean)) {
+    if (/(부채꼴)/.test(clean)) {
+      const degMatch = clean.match(/(\d{2,3})\s*(?:\^\{\\circ\}|°|도)/);
+      const deg = degMatch ? Math.min(160, Math.max(30, Number(degMatch[1]))) : 60;
+      const rad = (deg * Math.PI) / 180;
+      const r = 3.2;
+      const bx = Number((r * Math.cos(rad)).toFixed(2));
+      const by = Number((r * Math.sin(rad)).toFixed(2));
+      return {
+        title: "부채꼴 AOB",
+        xRange: [-1.4, 4.4],
+        yRange: [-1.2, 4.0],
+        showAxes: false,
+        equalAspect: true,
+        segments: [
+          { x1: 0, y1: 0, x2: r, y2: 0 },
+          { x1: 0, y1: 0, x2: bx, y2: by },
+        ],
+        arcs: [
+          { cx: 0, cy: 0, r, startDeg: 0, endDeg: deg },
+          { cx: 0, cy: 0, r: 0.65, startDeg: 0, endDeg: deg, label: `${deg}°` },
+        ],
+        points: [
+          { x: 0, y: 0, label: "O", labelOffset: [-16, 16] },
+          { x: r, y: 0, label: "A", labelOffset: [8, 16] },
+          { x: bx, y: by, label: "B", labelOffset: [6, -8] },
+        ],
+      };
+    }
+
+    if (/(삼각형|외접원|원주각|내접)/.test(clean)) {
+      return {
+        title: "원 O와 내접 삼각형 ABC",
+        xRange: [-3.6, 3.6],
+        yRange: [-3.2, 3.2],
+        showAxes: false,
+        equalAspect: true,
+        circles: [{ cx: 0, cy: 0, r: 2.5 }],
+        polygons: [{ points: [[-0.6, 2.42], [-2.16, -1.25], [2.16, -1.25]], shaded: false }],
+        segments: [
+          { x1: 0, y1: 0, x2: -2.16, y2: -1.25, style: "dashed" },
+          { x1: 0, y1: 0, x2: 2.16, y2: -1.25, style: "dashed" },
+        ],
+        points: [
+          { x: 0, y: 0, label: "O", labelOffset: [6, -6] },
+          { x: -0.6, y: 2.42, label: "A", labelOffset: [-6, -10] },
+          { x: -2.16, y: -1.25, label: "B", labelOffset: [-18, 14] },
+          { x: 2.16, y: -1.25, label: "C", labelOffset: [8, 14] },
+        ],
+      };
+    }
+
+    return {
+      title: "원 O와 현·접선",
+      xRange: [-3.6, 4.4],
+      yRange: [-3.2, 3.2],
+      showAxes: false,
+      equalAspect: true,
+      circles: [{ cx: 0, cy: 0, r: 2.4 }],
+      segments: [
+        { x1: -1.9, y1: 1.46, x2: 1.9, y2: 1.46 },
+        { x1: 0, y1: 0, x2: 0, y2: 1.46, style: "dashed" },
+        { x1: 0, y1: 0, x2: 1.9, y2: 1.46 },
+      ],
+      rightAngles: [{ at: [0, 1.46], from: [0, 0], to: [1.9, 1.46], size: 8 }],
+      points: [
+        { x: 0, y: 0, label: "O", labelOffset: [-14, 16] },
+        { x: -1.9, y: 1.46, label: "A", labelOffset: [-18, -6] },
+        { x: 1.9, y: 1.46, label: "B", labelOffset: [8, -6] },
+        { x: 0, y: 1.46, label: "M", labelOffset: [-6, -10] },
+      ],
+    };
+  }
+
+  // 6. 사각형 / 평행사변형 / 마름모 / 사다리꼴 / 직사각형
+  if (/(사각형\s*[A-Z]{4}|평행사변형|마름모|사다리꼴|직사각형|정사각형)/.test(clean)) {
+    const isTrapezoid = /사다리꼴/.test(clean);
+    const pts: Array<[number, number]> = isTrapezoid
+      ? [[-1.6, 2.2], [-2.8, -1.6], [2.8, -1.6], [1.4, 2.2]]
+      : [[-1.6, 2.0], [-2.8, -1.6], [2.0, -1.6], [3.2, 2.0]];
+    const hasDiag = /(대각선|교점\s*O|AC|BD)/.test(clean);
+    return {
+      title: isTrapezoid ? "사다리꼴 ABCD" : "평행사변형 ABCD",
+      xRange: [-3.8, 4.2],
+      yRange: [-2.6, 3.0],
+      showAxes: false,
+      equalAspect: true,
+      polygons: [{ points: pts, shaded: false }],
+      segments: hasDiag
+        ? [
+            { x1: pts[0][0], y1: pts[0][1], x2: pts[2][0], y2: pts[2][1], style: "dashed" },
+            { x1: pts[1][0], y1: pts[1][1], x2: pts[3][0], y2: pts[3][1], style: "dashed" },
+          ]
+        : [],
+      points: [
+        { x: pts[0][0], y: pts[0][1], label: "A", labelOffset: [-14, -8] },
+        { x: pts[1][0], y: pts[1][1], label: "B", labelOffset: [-16, 16] },
+        { x: pts[2][0], y: pts[2][1], label: "C", labelOffset: [8, 16] },
+        { x: pts[3][0], y: pts[3][1], label: "D", labelOffset: [8, -8] },
+      ],
+    };
+  }
+
+  // 7. 일반 삼각형 ABC (이등변삼각형, 내심, 외심, 무게중심, 닮음 등)
+  if (/(삼각형|\\triangle|△\s*[A-Z]{3}|내심|외심|무게중심|이등변삼각형)/.test(clean)) {
+    const isIso = /이등변삼각형/.test(clean);
+    const topX = isIso ? 0 : -0.4;
+    const hasD = /\bD\b/.test(clean);
+    return {
+      title: "삼각형 ABC",
+      xRange: [-3.6, 3.8],
+      yRange: [-2.2, 3.2],
+      showAxes: false,
+      equalAspect: true,
+      polygons: [{ points: [[topX, 2.4], [-2.4, -1.4], [2.4, -1.4]], shaded: false }],
+      segments: hasD ? [{ x1: topX, y1: 2.4, x2: 0.4, y2: -1.4, style: "dashed" }] : [],
+      points: [
+        { x: topX, y: 2.4, label: "A", labelOffset: [-6, -10] },
+        { x: -2.4, y: -1.4, label: "B", labelOffset: [-16, 16] },
+        { x: 2.4, y: -1.4, label: "C", labelOffset: [8, 16] },
+        ...(hasD ? [{ x: 0.4, y: -1.4, label: "D", labelOffset: [-4, 18] as [number, number] }] : []),
+      ],
+    };
+  }
+
+  // 8. 수직선 위의 점
+  if (/수직선/.test(clean)) {
+    return {
+      title: "수직선 위의 점",
+      xRange: [-5.5, 5.5],
+      yRange: [-2, 2],
+      showAxes: false,
+      segments: [{ x1: -4.6, y1: 0, x2: 4.6, y2: 0 }],
+      points: [
+        { x: -3, y: 0, label: "A(-3)", labelOffset: [-14, -12] },
+        { x: 0, y: 0, label: "O(0)", labelOffset: [-10, 22] },
+        { x: 2, y: 0, label: "B(2)", labelOffset: [-10, -12] },
+      ],
+    };
+  }
+
+  // 9. 함수/좌표평면 키워드별 기본 작도
+  if (/(이차함수|포물선)/.test(clean)) return MATH_GEO_PRESETS[3].spec;
+  if (/(지수함수|로그함수)/.test(clean)) return MATH_GEO_PRESETS[5].spec;
+  if (/(절댓값|미분가능)/.test(clean)) return MATH_GEO_PRESETS[0].spec;
+  return MATH_GEO_PRESETS[1].spec;
+}
+
+/**
+ * 문항 텍스트를 기반으로 실제 학교급·과목·단원·난이도를 자동 판별합니다.
+ */
+export function classifyMathProblemMeta(
+  question: string,
+  boxContent = "",
+  choices: string[] = [],
+  fallbackGrade: 1 | 2 | 3 = 2,
+  fallbackSubject = "공통수학1"
+): {
+  grade: 1 | 2 | 3;
+  subject: string;
+  unit: string;
+  difficulty: "하" | "중" | "상" | "킬러";
+} {
+  const full = `${question || ""} ${boxContent || ""} ${(choices || []).join(" ")}`;
+  const clean = full.replace(/\$/g, "");
+
+  let grade: 1 | 2 | 3 = fallbackGrade;
+  let subject = fallbackSubject;
+  let unit = "문항 분석";
+
+  if (/(직선\s*[lmnk]\s*위.*점|반직선|선분\s*[A-Z]{2}|\\overleftrightarrow|\\overrightarrow|동위각|엇각|맞꼭지각|작도|부채꼴의?\s*호)/.test(clean)) {
+    grade = 1;
+    subject = "중1-2";
+    unit = "기본 도형";
+  } else if (/(소인수분해|최대공약수|최소공배수|정수와\s*유리수|일차방정식|정비례|반비례)/.test(clean)) {
+    grade = 1;
+    subject = "중1-1";
+    unit = "문자와 식 · 좌표평면";
+  } else if (/(연립방정식|일차부등식|일차함수의?\s*그래프|유한소수|순환소수)/.test(clean)) {
+    grade = 2;
+    subject = "중2-1";
+    unit = "일차함수와 방정식";
+  } else if (/(이등변삼각형|외심|내심|평행사변형|마름모|닮음|피타고라스)/.test(clean)) {
+    grade = 2;
+    subject = "중2-2";
+    unit = "도형의 성질·닮음";
+  } else if (/(제곱근|근호|인수분해|이차방정식|이차함수.*꼭짓점)/.test(clean) && !/(복소수|허수|판별식)/.test(clean)) {
+    grade = 3;
+    subject = "중3-1";
+    unit = "이차방정식과 이차함수";
+  } else if (/(삼각비|원주각|중심각|현의\s*길이|산포도|표준편차)/.test(clean) && !/(사인법칙|코사인법칙|호도법)/.test(clean)) {
+    grade = 3;
+    subject = "중3-2";
+    unit = "삼각비와 원의 성질";
+  } else if (/(나머지정리|인수정리|복소수|허수|이차부등식|연립이차|행렬)/.test(clean)) {
+    grade = 1;
+    subject = "공통수학1";
+    unit = "다항식·방정식과 부등식";
+  } else if (/(원의\s*방정식|점과\s*직선\s*사이|평행이동|대칭이동|집합|명제|필요충분|합성함수|역함수|유리함수|무리함수)/.test(clean)) {
+    grade = 1;
+    subject = "공통수학2";
+    unit = "도형의 방정식 · 함수";
+  } else if (/(지수함수|로그함수|상용로그|호도법|사인법칙|코사인법칙|등차수열|등비수열|수학적\s*귀납법|\\sum)/.test(clean)) {
+    grade = 2;
+    subject = "대수";
+    unit = "지수·로그·삼각함수·수열";
+  } else if (/(포물선.*초점|타원.*초점|쌍곡선|벡터|내적|정사영|공간도형|공간좌표)/.test(clean)) {
+    grade = 3;
+    subject = "기하";
+    unit = "이차곡선·평면벡터·공간도형";
+  } else if (/(조건부확률|독립시행|이항분포|정규분포|신뢰구간|중복조합|원순열|같은\s*것이\s*있는\s*순열)/.test(clean)) {
+    grade = 3;
+    subject = "확률과 통계";
+    unit = "경우의 수·확률·통계";
+  } else if (/(매개변수|음함수|부분적분|치환적분|급수|\\ln\s*x|e\^)/.test(clean)) {
+    grade = 3;
+    subject = "미적분II";
+    unit = "여러 가지 미분법·적분법";
+  } else if (/(극한|연속|미분가능|극대|극소|접선|정적분|도함수)/.test(clean)) {
+    grade = 2;
+    subject = "미적분I";
+    unit = "함수의 극한·미분·적분";
+  }
+
+  let difficulty: "하" | "중" | "상" | "킬러" = "중";
+  if (clean.length < 75 && !boxContent) {
+    difficulty = "하";
+  } else if (/(킬러|최댓값과\s*최솟값의\s*합|미분가능하지\s*않은|모든\s*실수.*항상)/.test(clean) && clean.length > 180) {
+    difficulty = "킬러";
+  } else if (boxContent || clean.length > 130) {
+    difficulty = "상";
+  }
+
+  return { grade, subject, unit, difficulty };
+}
+

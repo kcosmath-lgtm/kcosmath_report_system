@@ -69,6 +69,9 @@ import { supabase } from "../lib/supabase";
 import { buildDocx, buildHwpx, downloadBlob, prepareExportDocument } from "../lib/typing-export";
 import {
   MATH_GEO_PRESETS,
+  classifyMathProblemMeta,
+  inferMathGeoSpecFromProblem,
+  problemNeedsDiagram,
   renderMathGeoPngDataUrl,
   renderMathGeoSvg,
   type MathGeoSpec,
@@ -370,40 +373,78 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
     }
   }
 
-  function selectGeoPreset(index: number) {
-    const preset = MATH_GEO_PRESETS[index];
-    if (!preset) return;
-    setGeoPresetIdx(index);
-    setGeoSpec(preset.spec);
-    setGeoJsonText(JSON.stringify(preset.spec, null, 2));
-    setGeoEqualAspect(Boolean(preset.spec.equalAspect));
-    setGeoAutoIntersections(Boolean(preset.spec.autoIntersections));
-    setGeoTangentX(preset.spec.tangents?.[0] ? String(preset.spec.tangents[0].atX) : "");
-    setGeoDomainMin(String(preset.spec.xRange?.[0] ?? -4));
-    setGeoDomainMax(String(preset.spec.xRange?.[1] ?? 4));
-    setGeoRangeMin(String(preset.spec.yRange?.[0] ?? -3));
-    setGeoRangeMax(String(preset.spec.yRange?.[1] ?? 4));
-    if (preset.spec.functions?.[0]) {
-      setGeoFn1(preset.spec.functions[0].expr);
-      setGeoFn1Label(preset.spec.functions[0].label || "y=f(x)");
+  function syncGeoControlsFromSpec(spec: MathGeoSpec) {
+    setGeoSpec(spec);
+    setGeoJsonText(JSON.stringify(spec, null, 2));
+    setGeoEqualAspect(Boolean(spec.equalAspect));
+    setGeoAutoIntersections(Boolean(spec.autoIntersections));
+    setGeoTangentX(spec.tangents?.[0] ? String(spec.tangents[0].atX) : "");
+    setGeoDomainMin(String(spec.xRange?.[0] ?? -4));
+    setGeoDomainMax(String(spec.xRange?.[1] ?? 4));
+    setGeoRangeMin(String(spec.yRange?.[0] ?? -3));
+    setGeoRangeMax(String(spec.yRange?.[1] ?? 4));
+    if (spec.functions?.[0]) {
+      setGeoFn1(spec.functions[0].expr);
+      setGeoFn1Label(spec.functions[0].label || "y=f(x)");
     } else {
       setGeoFn1("");
       setGeoFn1Label("");
     }
-    if (preset.spec.functions?.[1]) {
-      setGeoFn2(preset.spec.functions[1].expr);
-      setGeoFn2Label(preset.spec.functions[1].label || "y=g(x)");
+    if (spec.functions?.[1]) {
+      setGeoFn2(spec.functions[1].expr);
+      setGeoFn2Label(spec.functions[1].label || "y=g(x)");
     } else {
       setGeoFn2("");
       setGeoFn2Label("");
     }
-    if (preset.spec.shadedRegions?.[0]) {
+    if (spec.shadedRegions?.[0]) {
       setGeoShadeEnabled(true);
-      setGeoShadeFrom(String(preset.spec.shadedRegions[0].from));
-      setGeoShadeTo(String(preset.spec.shadedRegions[0].to));
+      setGeoShadeFrom(String(spec.shadedRegions[0].from));
+      setGeoShadeTo(String(spec.shadedRegions[0].to));
     } else {
       setGeoShadeEnabled(false);
     }
+  }
+
+  function selectGeoPreset(index: number) {
+    const preset = MATH_GEO_PRESETS[index];
+    if (!preset) return;
+    setGeoPresetIdx(index);
+    syncGeoControlsFromSpec(preset.spec);
+  }
+
+  async function handleGenerateDiagramForProblem(prob: GeneratedMathProblem) {
+    const nextSpec = inferMathGeoSpecFromProblem(prob.question, prob.boxContent, prob.choices, null);
+    syncGeoControlsFromSpec(nextSpec);
+    setTargetProblemId(prob.id);
+    setCanvasPanel("geometry");
+
+    try {
+      const pngUrl = await renderMathGeoPngDataUrl(nextSpec);
+      const updated: GeneratedMathProblem = { ...prob, geoSpec: nextSpec, figure: pngUrl };
+      setMessages(prev => {
+        const next = prev.map(m => ({
+          ...m,
+          problems: m.problems?.map(p => (p.id === prob.id ? updated : p)),
+        }));
+        persistThread(next);
+        return next;
+      });
+      setExamProblems(prev => prev.map(p => (p.id === prob.id ? updated : p)));
+      await saveGeneratedProblems([updated]);
+      setSavedProblems(await loadGeneratedProblems());
+    } catch {
+      // ignore render error
+    }
+  }
+
+  function formatProblemBadge(probGrade: number, probSubject: string, probUnit?: string) {
+    if (/^(초|중|고)/.test(probSubject.trim())) {
+      return probUnit && probUnit !== "시험지 타이핑 추출" && probUnit !== "문항 분석"
+        ? `${probSubject} · ${probUnit}`
+        : probSubject;
+    }
+    return `고${probGrade} · ${probSubject}`;
   }
 
   function applyQuickFormulaSpec() {
@@ -577,25 +618,45 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
         if (Array.isArray(data?.problems)) {
           const normalized = normalizeProblems(data.problems, i + 1);
           for (const p of normalized) {
+            const meta = classifyMathProblemMeta(p.question, p.boxContent, p.choices, grade, subject);
             let figure: string | undefined;
-            if (p.figureBox) {
+            let inferredGeoSpec: MathGeoSpec | undefined;
+
+            const shouldGenerateDiagram = problemNeedsDiagram(
+              p.question,
+              p.boxContent,
+              p.choices,
+              Boolean(p.figureBox)
+            );
+
+            if (shouldGenerateDiagram) {
               try {
-                figure = await cropFigure(page.image, paddedFigureBox(p.figureBox));
+                inferredGeoSpec = inferMathGeoSpecFromProblem(p.question, p.boxContent, p.choices);
+                figure = await renderMathGeoPngDataUrl(inferredGeoSpec);
               } catch {
-                // ignore crop failure
+                // fallback to crop if vector rendering fails
+                if (p.figureBox) {
+                  try {
+                    figure = await cropFigure(page.image, paddedFigureBox(p.figureBox));
+                  } catch {
+                    // ignore
+                  }
+                }
               }
             }
+
             extractedInputs.push({
               title: `${page.name} ${p.number}번`,
-              grade,
-              subject,
-              unit: "시험지 타이핑 추출",
-              difficulty: "상",
+              grade: meta.grade,
+              subject: meta.subject,
+              unit: meta.unit,
+              difficulty: meta.difficulty,
               sourceLabel: page.name,
               question: p.question,
               boxContent: p.boxContent,
               choices: p.choices,
               figure,
+              geoSpec: inferredGeoSpec,
               answer: "",
               solution: "",
             });
@@ -1374,7 +1435,7 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                                   <div className={styles.problemCardTop}>
                                     <div className={styles.problemMeta}>
                                       <span className={styles.metaBadge}>
-                                        고{prob.grade} · {prob.subject}
+                                        {formatProblemBadge(prob.grade, prob.subject, prob.unit)}
                                       </span>
                                       <span className={styles.metaPoints}>
                                         {prob.points
@@ -1408,16 +1469,9 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                                       <button
                                         type="button"
                                         className={styles.cardSmallBtn}
-                                        onClick={() => {
-                                          if (prob.geoSpec) {
-                                            setGeoSpec(prob.geoSpec);
-                                            setGeoJsonText(JSON.stringify(prob.geoSpec, null, 2));
-                                          }
-                                          setTargetProblemId(prob.id);
-                                          setCanvasPanel("geometry");
-                                        }}
+                                        onClick={() => void handleGenerateDiagramForProblem(prob)}
                                       >
-                                        <Compass size={13} /> {prob.figure ? "도형 편집" : "도형 작도 추가"}
+                                        <Sparkles size={13} /> 그림 생성
                                       </button>
                                       <button
                                         type="button"
@@ -2172,7 +2226,7 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                       <div key={item.id} className={styles.vaultCard}>
                         <div className={styles.vaultCardHeader}>
                           <span>
-                            고{item.grade} · {item.subject} · {item.difficulty}
+                            {formatProblemBadge(item.grade, item.subject, item.unit)} · {item.difficulty}
                           </span>
                           <div className={styles.vaultCardActions}>
                             <button type="button" onClick={() => addProblemToExam(item)}>

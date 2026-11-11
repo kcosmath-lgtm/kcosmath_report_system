@@ -35,7 +35,7 @@ export async function readSource(file: File): Promise<SourcePage[]> {
 }
 
 export function paddedFigureBox(box: FigureBox): FigureBox {
-  return [Math.max(0, box[0] - 12), Math.max(0, box[1] - 12), Math.min(1000, box[2] + 12), Math.min(1000, box[3] + 12)];
+  return [Math.max(0, box[0] - 2), Math.max(0, box[1] - 10), Math.min(1000, box[2] + 10), Math.min(1000, box[3] + 10)];
 }
 
 export async function cropFigure(image: string, box: FigureBox): Promise<string> {

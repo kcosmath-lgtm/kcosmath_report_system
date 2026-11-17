@@ -354,8 +354,20 @@ export default function NewReportPage(){
   });
  },[]);
 
+ const feedbackStorageKey = `cosmath-student-feedback:v1:${workspace?.id || 'local'}`;
+ const persistStudentFeedback = useCallback((studentId: string, memo: string) => {
+  try {
+   const currentMap = JSON.parse(localStorage.getItem(feedbackStorageKey) || '{}');
+   const nextMap = typeof currentMap === 'object' && currentMap ? { ...currentMap, [studentId]: memo } : { [studentId]: memo };
+   localStorage.setItem(feedbackStorageKey, JSON.stringify(nextMap));
+  } catch {
+   // ignore localStorage errors
+  }
+ }, [feedbackStorageKey]);
+
  const feedbackSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
  const handleEditFeedback = useCallback((studentId: string, date: string, memo: string) => {
+  persistStudentFeedback(studentId, memo);
   setReports(prev => {
    const next = prev.map(r => {
     if (r.id !== studentId) return r;
@@ -390,12 +402,14 @@ export default function NewReportPage(){
    });
    return next;
   });
- }, []);
+ }, [persistStudentFeedback]);
 
  const handleBulkEditFeedback = useCallback((date: string, memo: string, customTargetIds?: string[]) => {
   const targetIds = (customTargetIds && customTargetIds.length > 0 ? customTargetIds : bulkFeedbackTargets.length > 0 ? bulkFeedbackTargets : students.map(s => s.id))
    .filter(id => students.some(s => s.id === id));
   if (targetIds.length === 0) return;
+
+  targetIds.forEach(id => persistStudentFeedback(id, memo));
 
   setReports(prev => {
    return prev.map(r => {
@@ -432,21 +446,73 @@ export default function NewReportPage(){
   });
   setBulkFeedbackText(memo);
   setMessage(`선택한 ${targetIds.length}명의 학생 보고서에 피드백 코멘트를 일괄 적용했습니다.`);
- }, [bulkFeedbackTargets, students]);
+ }, [bulkFeedbackTargets, students, persistStudentFeedback]);
 
  useEffect(()=>{
   let cancelled=false;
   const months=reportMonths(start,end);
   if(!students.length||!months.length||months.length>12||start>end)return;
   const historyStart=dayjs(end).subtract(2,'month').startOf('month').format('YYYY-MM-DD');
-  const dailyMonths=reportMonths(historyStart<start?historyStart:start,end);
+  const rangeStart=historyStart<start?historyStart:start;
+  const dailyMonths=reportMonths(rangeStart,end);
   async function load(){
    setLoading(true);setReports([]);setMessage('');
    try{
-    const [daily,wrong]=await Promise.all([Promise.all((dailyMonths.length?dailyMonths:months).map(loadStudentDaily)),loadWrongAnswerRange(start,end,students.map(s=>s.id))]);
+    let savedFeedbackMap: Record<string, string> = {};
+    try {
+     const parsed = JSON.parse(localStorage.getItem(feedbackStorageKey) || '{}');
+     if (parsed && typeof parsed === 'object') savedFeedbackMap = parsed;
+    } catch {
+     // ignore
+    }
+    const [daily,wrong]=await Promise.all([Promise.all((dailyMonths.length?dailyMonths:months).map(loadStudentDaily)),loadWrongAnswerRange(rangeStart,end,students.map(s=>s.id))]);
     const output:Preview[]=[];
     for(let offset=0;offset<students.length;offset+=4){
-     const batch=await Promise.all(students.slice(offset,offset+4).map(async student=>{const progress=await loadProgress(student.id);return {...student,start,end,daily:daily.flat().filter(r=>r.student_id===student.id&&r.record_date<=end).sort((a,b)=>a.record_date.localeCompare(b.record_date)),wrong:wrong.filter(r=>r.student_id===student.id&&r.record_date>=start&&r.record_date<=end),books:progress.books,entries:progress.entries.filter(e=>e.record_date<=end).sort((a,b)=>a.record_date.localeCompare(b.record_date)||a.created_at.localeCompare(b.created_at))};}));
+     const batch=await Promise.all(students.slice(offset,offset+4).map(async student=>{
+      const progress=await loadProgress(student.id);
+      const studentWrong=wrong
+       .filter(r=>r.student_id===student.id&&r.record_date<=end)
+       .sort((a,b)=>a.record_date.localeCompare(b.record_date));
+      const studentEntries=progress.entries
+       .filter(e=>e.record_date<=end)
+       .sort((a,b)=>a.record_date.localeCompare(b.record_date)||a.created_at.localeCompare(b.created_at));
+
+      const endIdx=studentWrong.findIndex(r=>r.record_date===end);
+      const hasEndMemo=endIdx>=0&&Boolean(studentWrong[endIdx].memo?.trim());
+      if(!hasEndMemo){
+       const latestDbWrongMemo=[...studentWrong].reverse().find(r=>r.memo?.trim())?.memo?.trim();
+       const latestDbEntryMemo=[...studentEntries].reverse().find(e=>e.memo?.trim())?.memo?.trim();
+       const carriedMemo=(savedFeedbackMap[student.id]?.trim() || latestDbWrongMemo || latestDbEntryMemo || '');
+       if(carriedMemo){
+        if(endIdx>=0){
+         studentWrong[endIdx]={...studentWrong[endIdx],memo:carriedMemo};
+        }else{
+         studentWrong.push({
+          id:`${student.id}_${end}`,
+          student_id:student.id,
+          record_date:end,
+          total_wrong:0,
+          corrected_count:0,
+          completed:false,
+          homework_status:null,
+          memo:carriedMemo,
+          version:1,
+         });
+         studentWrong.sort((a,b)=>a.record_date.localeCompare(b.record_date));
+        }
+       }
+      }
+
+      return {
+       ...student,
+       start,
+       end,
+       daily:daily.flat().filter(r=>r.student_id===student.id&&r.record_date<=end).sort((a,b)=>a.record_date.localeCompare(b.record_date)),
+       wrong:studentWrong,
+       books:progress.books,
+       entries:studentEntries,
+      };
+     }));
      if(cancelled)return;output.push(...batch);
     }
     if(!cancelled)setReports(output);
@@ -454,7 +520,7 @@ export default function NewReportPage(){
    finally{if(!cancelled)setLoading(false);}
   }
   void load();return()=>{cancelled=true;};
- },[students,start,end,revision]);
+ },[students,start,end,revision,feedbackStorageKey]);
 
  const valid=dayjs(start).isValid()&&dayjs(end).isValid()&&start<=end&&reportMonths(start,end).length>0&&reportMonths(start,end).length<=12;
  const current=reports.filter(r=>students.some(s=>s.id===r.id)&&r.start===start&&r.end===end);

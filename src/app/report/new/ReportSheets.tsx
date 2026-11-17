@@ -161,8 +161,10 @@ function computeStudentData(p:Preview){
  const todayFixedWrong=todayWrong?.corrected_count??0;
  const todayWrongCompleted=isWrongRecordDone(todayWrong);
  const todayHasWrongRecord=Boolean(todayWrongCompleted||todayTotalWrong>0);
- const endWrong=wrong.find(r=>r.record_date===p.end);
- const todayWrongMemo=endWrong ? endWrong.memo : (todayWrong?.memo ?? '');
+ const endWrong=p.wrong.find(r=>r.record_date===p.end);
+ const latestNonEmptyWrongMemo=[...p.wrong].reverse().find(r=>r.memo?.trim())?.memo;
+ const latestNonEmptyEntryMemo=[...mergedAllEntries].reverse().find(e=>e.memo?.trim())?.memo;
+ const todayWrongMemo=endWrong ? endWrong.memo : (latestNonEmptyWrongMemo ?? latestNonEmptyEntryMemo ?? '');
 
  const totalWrong=wrong.reduce((a,b)=>a+b.total_wrong,0);
  const fixedWrong=wrong.reduce((a,b)=>a+b.corrected_count,0);

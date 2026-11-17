@@ -60,10 +60,35 @@ function isWrongRecordDone(w?: WrongAnswerRecord | null): boolean {
  return Boolean(w.completed || (w.total_wrong > 0 && w.corrected_count >= w.total_wrong));
 }
 
+function mergeEntriesByBookAndDate(entries: ProgressEntry[]): ProgressEntry[] {
+ const map = new Map<string, ProgressEntry>();
+ for (const e of entries) {
+  const key = `${e.book_id}__${e.record_date}`;
+  const prev = map.get(key);
+  if (!prev) {
+   map.set(key, { ...e });
+  } else {
+   map.set(key, {
+    ...prev,
+    ...e,
+    scope: e.scope.trim() ? e.scope : prev.scope,
+    homework: e.homework.trim() ? e.homework : prev.homework,
+    due_date: e.due_date ?? prev.due_date,
+    memo: e.memo.trim() ? e.memo : prev.memo,
+    unit_ids: e.unit_ids.length > 0 ? e.unit_ids : prev.unit_ids,
+    completed_page: e.completed_page ?? prev.completed_page,
+    total_pages_snapshot: e.total_pages_snapshot ?? prev.total_pages_snapshot,
+   });
+  }
+ }
+ return Array.from(map.values());
+}
+
 function computeStudentData(p:Preview){
  const daily=p.daily.filter(r=>r.record_date>=p.start&&r.record_date<=p.end);
  const wrong=p.wrong.filter(r=>r.record_date>=p.start&&r.record_date<=p.end);
- const entriesInPeriod=p.entries.filter(r=>r.record_date>=p.start&&r.record_date<=p.end);
+ const mergedAllEntries=mergeEntriesByBookAndDate(p.entries);
+ const entriesInPeriod=mergedAllEntries.filter(r=>r.record_date>=p.start&&r.record_date<=p.end);
  const single=p.start===p.end;
  const dateLabel=single?dayjs(p.end).format('YYYY.MM.DD'):`${dayjs(p.start).format('YYYY.MM.DD')} ~ ${dayjs(p.end).format('MM.DD')}`;
  const daySpanCount=Math.max(1,dayjs(p.end).diff(dayjs(p.start),'day')+1);
@@ -176,7 +201,7 @@ function computeStudentData(p:Preview){
  const activeBooks=p.books.filter(b=>!b.archived);
  const bookProgressList=activeBooks.map(b=>{
   const pct=progressPercent(b);
-  const bEntries=p.entries.filter(e=>e.book_id===b.id);
+  const bEntries=mergedAllEntries.filter(e=>e.book_id===b.id);
   const periodBEntries=entriesInPeriod.filter(e=>e.book_id===b.id);
   const firstInPeriod=periodBEntries[0]??bEntries[0];
   const latest=bEntries[bEntries.length-1];

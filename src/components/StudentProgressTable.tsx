@@ -680,21 +680,26 @@ export default function StudentProgressTable({
     setMessage('');
     try {
       const result = await saveProgressBatch(
-        rows.map(r => ({
-          book: r.book!,
-          entry: {
-            id: crypto.randomUUID(),
-            book_id: r.book!.id,
-            record_date: date,
-            unit_ids: r.book!.units.filter(u => r.book!.states[u.id] === '진행 중').map(u => u.id),
-            scope: r.scope,
-            homework: r.homework,
-            due_date: null,
-            memo: r.feedback,
-            states: r.book!.states,
-            created_at: '',
-          },
-        }))
+        rows.map(r => {
+          const existingToday = [...r.entries]
+            .filter(e => e.book_id === r.book!.id && e.record_date === date)
+            .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+          return {
+            book: r.book!,
+            entry: {
+              id: crypto.randomUUID(),
+              book_id: r.book!.id,
+              record_date: date,
+              unit_ids: r.book!.units.filter(u => r.book!.states[u.id] === '진행 중').map(u => u.id),
+              scope: r.scope.trim() || existingToday?.scope || '',
+              homework: r.homework.trim() || existingToday?.homework || '',
+              due_date: existingToday?.due_date ?? null,
+              memo: r.feedback,
+              states: r.book!.states,
+              created_at: '',
+            },
+          };
+        })
       );
       result.forEach(saved => rows.find(r => r.book?.id === saved.book.id)?.accept(saved));
       setMessage(`${result.length}명의 수업 진도 기록을 저장했습니다.`);

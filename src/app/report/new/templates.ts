@@ -44,6 +44,7 @@ export const themeColors:Record<Theme,string> = {
  letter:'#a44767',
  clean:'#2563eb',
 };
+export type TitlePosition = 'left' | 'center' | 'right';
 export type Template = {
  id:string;
  name:string;
@@ -57,6 +58,9 @@ export type Template = {
  showMonthlyCompetency?:boolean;
  academyName?:string;
  customTitle?:string;
+ customBadge?:string;
+ customSubTitle?:string;
+ titlePosition?:TitlePosition;
  logoDataUrl?:string;
  logoPosition?: 'left' | 'right' | 'center';
  accentColor?:string;
@@ -198,6 +202,9 @@ export function buildStructuredTemplate(params:{
  showMonthlyCompetency?:boolean;
  academyName?:string;
  customTitle?:string;
+ customBadge?:string;
+ customSubTitle?:string;
+ titlePosition?:TitlePosition;
  logoDataUrl?:string;
  logoPosition?:'left'|'right'|'center';
  accentColor?:string;
@@ -217,6 +224,9 @@ export function buildStructuredTemplate(params:{
   showMonthlyCompetency=true,
   academyName,
   customTitle,
+  customBadge,
+  customSubTitle,
+  titlePosition,
   logoDataUrl,
   logoPosition,
   accentColor,
@@ -252,7 +262,10 @@ export function buildStructuredTemplate(params:{
   showNextHomework,
   showMonthlyCompetency,
   ...(academyName ? { academyName } : {}),
-  ...(customTitle ? { customTitle } : {}),
+  ...(customTitle !== undefined ? { customTitle } : {}),
+  ...(customBadge !== undefined ? { customBadge } : {}),
+  ...(customSubTitle !== undefined ? { customSubTitle } : {}),
+  ...(titlePosition ? { titlePosition } : {}),
   ...(logoDataUrl ? { logoDataUrl } : {}),
   ...(logoPosition ? { logoPosition } : {}),
   ...(accentColor ? { accentColor } : {}),

@@ -21,12 +21,22 @@ import {
  Megaphone,
  X,
  RotateCcw,
+ AlignLeft,
+ AlignCenter,
+ AlignRight,
 } from 'lucide-react';
 import {progressPercent,type ProgressBook,type ProgressEntry} from '../../../types/progress';
 import {wrongAnswerStatus,type StudentDailyRecord} from '../../../types/student-daily';
 import type {WrongAnswerRecord} from '../../../types/wrong-answer';
-import {presets,kinds as kindLabels,type Kind,type Template,type Theme,type BlockSpan,type BlockHeight} from './templates';
+import {presets,kinds as kindLabels,type Kind,type Template,type Theme,type BlockSpan,type BlockHeight,type TitlePosition} from './templates';
 import styles from './builder.module.css';
+
+export type HeaderPatch = {
+ customTitle?: string;
+ customBadge?: string;
+ customSubTitle?: string;
+ titlePosition?: TitlePosition;
+};
 
 export type Preview={
  id:string;
@@ -1335,15 +1345,19 @@ function SaebomForestSheet({
 }) {
  const academyTitle = template.academyName?.trim() || '';
  const titlePrefix = academyTitle ? `${academyTitle} ` : '';
- const cycleBadge =
+ const defaultCycleBadge =
   period === 'day' ? 'DAILY REPORT' : period === 'week' ? 'WEEKLY REPORT' : 'MONTHLY REPORT';
+ const cycleBadge = template.customBadge !== undefined ? template.customBadge.trim() : defaultCycleBadge;
+ const defaultSubTitle = academyTitle ? `${academyTitle} · ${periodKor} 리포트` : `${periodKor} 리포트`;
+ const subTitleText = template.customSubTitle !== undefined ? template.customSubTitle.trim() : defaultSubTitle;
  const defaultHeadline =
   period === 'day'
    ? `${titlePrefix}일일 수업 결과 리포트`
    : period === 'week'
      ? `${titlePrefix}주간 학습 성취 리포트`
      : `${titlePrefix}월간 종합 평가 리포트`;
- const reportHeadline = template.customTitle?.trim() || defaultHeadline;
+ const reportHeadline = template.customTitle !== undefined ? template.customTitle.trim() : defaultHeadline;
+ const titlePos: TitlePosition = template.titlePosition || 'left';
 
  // 1) '— 한눈에' 카드에 들어갈 활성 지표 수집
  const summaryMetrics: {
@@ -1991,17 +2005,19 @@ function SaebomForestSheet({
  return (
   <div className={styles.saebomContainer}>
    <header className={styles.saebomHeader}>
-    <div className={styles.saebomHeaderTop}>
+    <div className={styles.saebomHeaderTop} data-title-pos={titlePos}>
      <div className={styles.saebomBrandRow}>
       {template.logoDataUrl && template.logoPosition !== 'right' && (
        <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg}/>
       )}
-      <div>
-       <span className={styles.saebomEyebrow}>
-        <b className={styles.saebomCycleBadge}>{cycleBadge}</b>
-        {academyTitle ? `${academyTitle} · ${periodKor} 리포트` : `${periodKor} 리포트`}
-       </span>
-       <h2 className={styles.saebomMainTitle}>{reportHeadline}</h2>
+      <div className={styles.saebomTitleBlock}>
+       {(cycleBadge || subTitleText) && (
+        <span className={styles.saebomEyebrow}>
+         {cycleBadge && <b className={styles.saebomCycleBadge}>{cycleBadge}</b>}
+         {subTitleText}
+        </span>
+       )}
+       {reportHeadline && <h2 className={styles.saebomMainTitle}>{reportHeadline}</h2>}
       </div>
      </div>
      <div className={styles.saebomStudentMeta}>
@@ -2597,12 +2613,14 @@ export default function ReportSheets({
  onEditFeedback,
  onBulkEditFeedback,
  bulkTargetCount,
+ onEditHeader,
 }:{
  preview:Preview;
  template?:Template;
  onEditFeedback?: (studentId: string, date: string, memo: string) => void;
  onBulkEditFeedback?: (date: string, memo: string) => void;
  bulkTargetCount?: number;
+ onEditHeader?: (patch: HeaderPatch) => void;
 }){
  const s=computeStudentData(p);
  const cfg=buildLayoutConfig(template, s);
@@ -2612,6 +2630,7 @@ export default function ReportSheets({
  const periodEng=period==='week'?'Weekly Learning Report':period==='month'?'Monthly Learning Report':'Daily Learning Report';
  const academyTitle=template.academyName?.trim()||'';
  const titlePrefix=academyTitle?`${academyTitle} `:'';
+ const titlePos:TitlePosition=template.titlePosition|| (theme==='mirireport'?'center':'left');
 
  const customAccentStyle: CSSProperties | undefined = template.accentColor
   ? ({
@@ -2652,16 +2671,22 @@ export default function ReportSheets({
     {/* 분위기별 맞춤 상단 헤더 */}
     {theme==='miricheck'&& (
      <>
-      <header className={styles.miriCheckHeader}>
+      <header className={styles.miriCheckHeader} data-title-pos={titlePos}>
        <div style={{display:'flex',alignItems:'center',gap:12}}>
         {template.logoDataUrl && template.logoPosition !== 'right' && (
          <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg}/>
         )}
         <div>
-         <span className={styles.miriCheckEngTitle}>{periodEng}</span>
-         <h2>
-          {template.customTitle?.trim() || `${titlePrefix}${periodKor} 학습 점검 리포트`}
-         </h2>
+         {(template.customBadge !== undefined ? template.customBadge.trim() : periodEng) && (
+          <span className={styles.miriCheckEngTitle}>
+           {template.customBadge !== undefined ? template.customBadge.trim() : periodEng}
+          </span>
+         )}
+         {(template.customTitle !== undefined ? template.customTitle.trim() : `${titlePrefix}${periodKor} 학습 점검 리포트`) && (
+          <h2>
+           {template.customTitle !== undefined ? template.customTitle.trim() : `${titlePrefix}${periodKor} 학습 점검 리포트`}
+          </h2>
+         )}
         </div>
        </div>
        <div className={styles.miriHeaderIconWrap}>
@@ -2689,20 +2714,32 @@ export default function ReportSheets({
     )}
 
     {theme==='mirireport'&& (
-     <header className={styles.miriYellowHeader}>
+     <header className={styles.miriYellowHeader} data-title-pos={titlePos}>
       {template.logoDataUrl && (
        <div style={{display:'flex',justifyContent:template.logoPosition==='right'?'flex-end':template.logoPosition==='left'?'flex-start':'center',marginBottom:6}}>
         <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg}/>
        </div>
       )}
-      <h2>{template.customTitle?.trim() || `${titlePrefix}${periodKor} 학습 분석 리포트`}</h2>
-      <p>
-       {period==='day'
-        ? `당일 ${enabledLabelList.join('·')} 성취도를 종합한 일일 브리핑`
-        : period==='week'
-          ? `주간 ${enabledLabelList.join('·')} 추이를 종합한 주간 브리핑`
-          : `한 달간의 ${enabledLabelList.join('·')} 성취율을 종합한 월간 리포트`}
-      </p>
+      {(template.customTitle !== undefined ? template.customTitle.trim() : `${titlePrefix}${periodKor} 학습 분석 리포트`) && (
+       <h2>{template.customTitle !== undefined ? template.customTitle.trim() : `${titlePrefix}${periodKor} 학습 분석 리포트`}</h2>
+      )}
+      {(template.customSubTitle !== undefined
+       ? template.customSubTitle.trim()
+       : period==='day'
+         ? `당일 ${enabledLabelList.join('·')} 성취도를 종합한 일일 브리핑`
+         : period==='week'
+           ? `주간 ${enabledLabelList.join('·')} 추이를 종합한 주간 브리핑`
+           : `한 달간의 ${enabledLabelList.join('·')} 성취율을 종합한 월간 리포트`) && (
+       <p>
+        {template.customSubTitle !== undefined
+         ? template.customSubTitle.trim()
+         : period==='day'
+           ? `당일 ${enabledLabelList.join('·')} 성취도를 종합한 일일 브리핑`
+           : period==='week'
+             ? `주간 ${enabledLabelList.join('·')} 추이를 종합한 주간 브리핑`
+             : `한 달간의 ${enabledLabelList.join('·')} 성취율을 종합한 월간 리포트`}
+       </p>
+      )}
       <div className={styles.miriYellowStudentPill}>
        <span>소속: <b>{p.group} ({p.grade})</b></span>
        <i>|</i>
@@ -2714,14 +2751,28 @@ export default function ReportSheets({
     )}
 
     {theme==='mirigraph'&& (
-     <header className={styles.miriGraphHeader}>
+     <header className={styles.miriGraphHeader} data-title-pos={titlePos}>
       <div style={{display:'flex',alignItems:'center',gap:12}}>
        {template.logoDataUrl && template.logoPosition !== 'right' && (
         <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg}/>
        )}
        <div>
-        <span className={styles.miriGraphEyebrow}>{academyTitle ? `${academyTitle.toUpperCase()} · ${periodEng.toUpperCase()}` : periodEng.toUpperCase()}</span>
-        <h2>{template.customTitle?.trim() || `${titlePrefix}${periodKor} 성취도 종합 리포트`}</h2>
+        {(template.customBadge !== undefined
+         ? template.customBadge.trim()
+         : template.customSubTitle !== undefined
+           ? template.customSubTitle.trim()
+           : academyTitle ? `${academyTitle.toUpperCase()} · ${periodEng.toUpperCase()}` : periodEng.toUpperCase()) && (
+         <span className={styles.miriGraphEyebrow}>
+          {template.customBadge !== undefined
+           ? template.customBadge.trim()
+           : template.customSubTitle !== undefined
+             ? template.customSubTitle.trim()
+             : academyTitle ? `${academyTitle.toUpperCase()} · ${periodEng.toUpperCase()}` : periodEng.toUpperCase()}
+         </span>
+        )}
+        {(template.customTitle !== undefined ? template.customTitle.trim() : `${titlePrefix}${periodKor} 성취도 종합 리포트`) && (
+         <h2>{template.customTitle !== undefined ? template.customTitle.trim() : `${titlePrefix}${periodKor} 성취도 종합 리포트`}</h2>
+        )}
        </div>
       </div>
       <div className={styles.miriGraphMetaLines}>

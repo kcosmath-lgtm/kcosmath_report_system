@@ -130,6 +130,8 @@
  * ============================================================================ */
 /* 1) 하늘색 체크리스트 헤더 */
 .miriCheckHeader{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #68a4f1;padding-bottom:10px}
+.miriCheckHeader[data-title-pos=center]{flex-direction:column;align-items:center;text-align:center;gap:8px}
+.miriCheckHeader[data-title-pos=right]{flex-direction:row-reverse;text-align:right}
 .miriCheckEngTitle{display:block;font-size:34px;font-weight:900;color:#2b6cb0;letter-spacing:-0.8px;line-height:1.05;font-family:Georgia,"Pretendard Variable","Malgun Gothic",serif}
 .miriCheckHeader h2{font-size:14.5px;font-weight:700;color:#5a7d9a;margin:5px 0 0;letter-spacing:-0.2px}
 .miriHeaderIconWrap{display:flex;align-items:flex-start;gap:6px}
@@ -142,15 +144,21 @@
 
 /* 2) 노란색 인포그래픽 헤더 */
 .miriYellowHeader{background:#fef08a;border:1.5px solid #1e293b;padding:16px 20px 14px;text-align:center}
+.miriYellowHeader[data-title-pos=left]{text-align:left}
+.miriYellowHeader[data-title-pos=center]{text-align:center}
+.miriYellowHeader[data-title-pos=right]{text-align:right}
 .miriYellowHeader h2{font-size:24px;font-weight:900;color:#0f172a;margin:0 0 5px;letter-spacing:-0.8px}
 .miriYellowHeader p{font-size:11.5px;font-weight:700;color:#334155;margin:0 0 10px}
 .miriYellowStudentPill{display:inline-flex;align-items:center;gap:6px;background:#ffffff;border:1.5px solid #1e293b;padding:5px 18px;font-size:12px;font-weight:600;color:#0f172a}
 
 /* 3) 파스텔 성취도 헤더 */
 .miriGraphHeader{display:flex;justify-content:space-between;align-items:flex-end;padding:2px 4px 6px}
+.miriGraphHeader[data-title-pos=center]{flex-direction:column;align-items:center;text-align:center;gap:10px}
+.miriGraphHeader[data-title-pos=right]{flex-direction:row-reverse;text-align:right}
 .miriGraphEyebrow{display:block;font-size:10.5px;font-weight:800;letter-spacing:2px;color:#4f75ff;margin-bottom:4px}
 .miriGraphHeader h2{font-size:30px;font-weight:900;color:#2b50aa;margin:0;letter-spacing:-1px}
 .miriGraphMetaLines{display:flex;flex-direction:column;gap:5px;min-width:235px;font-size:12px;color:#3b5bdb}
+.miriGraphHeader[data-title-pos=center] .miriGraphMetaLines{flex-direction:row;flex-wrap:wrap;justify-content:center;gap:14px}
 .miriGraphMetaLines>div{border-bottom:1.5px dotted #93c5fd;padding-bottom:3px;display:flex;gap:8px}
 .miriGraphMetaLines b{color:#1e293b}
 
@@ -657,6 +665,7 @@
 .saebomHeader{
  border-bottom:2px solid #0f172a;
  padding-bottom:11px;
+ position:relative;
 }
 .saebomHeaderTop{
  display:flex;
@@ -665,10 +674,44 @@
  gap:16px;
  margin-bottom:7px;
 }
+.saebomHeaderTop[data-title-pos=center]{
+ flex-direction:column;
+ align-items:center;
+ text-align:center;
+ gap:8px;
+}
+.saebomHeaderTop[data-title-pos=right]{
+ flex-direction:row-reverse;
+}
 .saebomBrandRow{
  display:flex;
  align-items:center;
  gap:12px;
+}
+.saebomHeaderTop[data-title-pos=center] .saebomBrandRow{
+ flex-direction:column;
+ justify-content:center;
+ align-items:center;
+ text-align:center;
+ width:100%;
+ gap:6px;
+}
+.saebomHeaderTop[data-title-pos=right] .saebomBrandRow{
+ flex-direction:row-reverse;
+ text-align:right;
+}
+.saebomTitleBlock{
+ display:flex;
+ flex-direction:column;
+ align-items:flex-start;
+}
+.saebomHeaderTop[data-title-pos=center] .saebomTitleBlock{
+ align-items:center;
+ text-align:center;
+}
+.saebomHeaderTop[data-title-pos=right] .saebomTitleBlock{
+ align-items:flex-end;
+ text-align:right;
 }
 .saebomEyebrow{
  display:inline-flex;
@@ -679,6 +722,12 @@
  color:var(--theme-accent,#2563eb);
  letter-spacing:0.6px;
  margin-bottom:3px;
+}
+.saebomHeaderTop[data-title-pos=center] .saebomEyebrow{
+ justify-content:center;
+}
+.saebomHeaderTop[data-title-pos=right] .saebomEyebrow{
+ justify-content:flex-end;
 }
 .saebomCycleBadge{
  display:inline-block;
@@ -703,6 +752,18 @@
  align-items:flex-end;
  gap:2px;
  font-size:12px;
+}
+.saebomHeaderTop[data-title-pos=center] .saebomStudentMeta{
+ width:100%;
+ flex-direction:row;
+ justify-content:space-between;
+ align-items:center;
+ padding-top:6px;
+ border-top:1px dashed #e2e8f0;
+}
+.saebomHeaderTop[data-title-pos=right] .saebomStudentMeta{
+ align-items:flex-start;
+ text-align:left;
 }
 .saebomStudentMeta strong{
  font-size:14px;
@@ -1465,7 +1526,53 @@
 .restoreGraphBtn:hover{
  background:#dbeafe;
 }
+.editableTitleZone{
+ border-radius:6px;
+ transition:background-color 0.14s ease, box-shadow 0.14s ease;
+}
+.editableTitleZone[data-editable=true]{
+ cursor:pointer;
+}
+.editableTitleZone[data-editable=true]:hover{
+ background-color:rgba(37, 99, 235, 0.05);
+ box-shadow:0 0 0 1px dashed rgba(37, 99, 235, 0.35);
+}
+.headerInlineBar{
+ display:inline-flex;
+ align-items:center;
+ gap:4px;
+ margin-bottom:4px;
+ padding:2px 6px;
+ border-radius:6px;
+ background:#f8fafc;
+ border:1px solid #dbe5f2;
+ font-size:10px;
+ color:#475569;
+}
+.headerInlineBtn{
+ display:inline-flex;
+ align-items:center;
+ gap:3px;
+ padding:2px 6px;
+ border-radius:4px;
+ border:1px solid transparent;
+ background:transparent;
+ color:#475569;
+ font-size:10px;
+ font-weight:700;
+ cursor:pointer;
+}
+.headerInlineBtn:hover{
+ background:#eff6ff;
+ color:#1d4ed8;
+}
+.headerInlineBtnActive{
+ background:#2563eb !important;
+ color:#ffffff !important;
+}
 @media print{
+ .sheet [data-export-hide=true],
+ .headerInlineBar,
  .inlineQuickAddBtn,
  .hideGraphBtn,
  .restoreGraphBtn{

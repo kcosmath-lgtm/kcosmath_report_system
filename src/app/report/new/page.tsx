@@ -26,6 +26,9 @@ import {
  ChevronLeft,
  ChevronRight,
  MessageSquareText,
+ AlignLeft,
+ AlignCenter,
+ AlignRight,
 } from 'lucide-react';
 import StudentSidebar from '../../../components/layout/Sidebar';
 import LandingMenu from '../../../components/LandingMenu';
@@ -33,7 +36,7 @@ import {useAuth} from '../../../components/AuthProvider';
 import {loadStudentDaily,loadWrongAnswerRange,loadProgress,saveWrongAnswer} from '../../../lib/report-storage';
 import {reportMonths} from '../../../lib/wrong-answer-report';
 import type {ReportStudent} from '../../../types/report';
-import ReportSheets,{type Preview} from './ReportSheets';
+import ReportSheets,{type Preview,type HeaderPatch} from './ReportSheets';
 import {
  periodStart,
  isTemplate,
@@ -47,6 +50,7 @@ import {
  type Template,
  type BlockSpan,
  type BlockHeight,
+ type TitlePosition,
 } from './templates';
 import logo from '../../../../public/logo.png';
 import styles from './report.module.css';
@@ -135,12 +139,36 @@ export default function NewReportPage(){
  const [spanOverrides, setSpanOverrides] = useState<Partial<Record<Kind, BlockSpan>>>({});
  const [heightOverrides, setHeightOverrides] = useState<Partial<Record<Kind, BlockHeight>>>({});
  const [academyName, setAcademyName] = useState('');
- const [customTitle, setCustomTitle] = useState('');
+ const [customTitle, setCustomTitle] = useState<string | undefined>(undefined);
+ const [customBadge, setCustomBadge] = useState<string | undefined>(undefined);
+ const [customSubTitle, setCustomSubTitle] = useState<string | undefined>(undefined);
+ const [titlePosition, setTitlePosition] = useState<TitlePosition>('left');
  const [logoDataUrl, setLogoDataUrl] = useState('');
  const [logoPosition, setLogoPosition] = useState<'left'|'right'|'center'>('left');
  const [accentColor, setAccentColor] = useState('');
  const [footerNotice, setFooterNotice] = useState('');
  const [showCustomizer, setShowCustomizer] = useState(false);
+
+ const defaultBadgeText =
+  cycle === 'day' ? 'DAILY REPORT' : cycle === 'week' ? 'WEEKLY REPORT' : 'MONTHLY REPORT';
+ const periodKorText = cycle === 'week' ? '주간' : cycle === 'month' ? '월간' : '일일';
+ const defaultSubTitleText = academyName.trim()
+  ? `${academyName.trim()} · ${periodKorText} 리포트`
+  : `${periodKorText} 리포트`;
+ const titlePrefixText = academyName.trim() ? `${academyName.trim()} ` : '';
+ const defaultTitleText =
+  cycle === 'day'
+   ? `${titlePrefixText}일일 수업 결과 리포트`
+   : cycle === 'week'
+     ? `${titlePrefixText}주간 학습 성취 리포트`
+     : `${titlePrefixText}월간 종합 평가 리포트`;
+
+ const handleEditHeader = useCallback((patch: HeaderPatch) => {
+  if (patch.customTitle !== undefined) setCustomTitle(patch.customTitle);
+  if (patch.customBadge !== undefined) setCustomBadge(patch.customBadge);
+  if (patch.customSubTitle !== undefined) setCustomSubTitle(patch.customSubTitle);
+  if (patch.titlePosition !== undefined) setTitlePosition(patch.titlePosition);
+ }, []);
 
  // 다중 학생 일괄 피드백 코멘트 작성 상태
  const [bulkFeedbackText, setBulkFeedbackText] = useState('');
@@ -171,6 +199,11 @@ export default function NewReportPage(){
     if (savedPref.heightOverrides) setHeightOverrides(savedPref.heightOverrides);
     if (typeof savedPref.academyName === 'string') setAcademyName(savedPref.academyName);
     if (typeof savedPref.customTitle === 'string') setCustomTitle(savedPref.customTitle);
+    if (typeof savedPref.customBadge === 'string') setCustomBadge(savedPref.customBadge);
+    if (typeof savedPref.customSubTitle === 'string') setCustomSubTitle(savedPref.customSubTitle);
+    if (savedPref.titlePosition === 'left' || savedPref.titlePosition === 'center' || savedPref.titlePosition === 'right') {
+     setTitlePosition(savedPref.titlePosition);
+    }
     if (typeof savedPref.logoDataUrl === 'string') setLogoDataUrl(savedPref.logoDataUrl);
     if (savedPref.logoPosition) setLogoPosition(savedPref.logoPosition);
     if (typeof savedPref.accentColor === 'string') setAccentColor(savedPref.accentColor);
@@ -193,6 +226,9 @@ export default function NewReportPage(){
    showMonthlyCompetency,
    academyName,
    customTitle,
+   customBadge,
+   customSubTitle,
+   titlePosition,
    logoDataUrl,
    logoPosition,
    accentColor,
@@ -218,6 +254,9 @@ export default function NewReportPage(){
   showMonthlyCompetency,
   academyName,
   customTitle,
+  customBadge,
+  customSubTitle,
+  titlePosition,
   logoDataUrl,
   logoPosition,
   accentColor,
@@ -272,13 +311,16 @@ export default function NewReportPage(){
      heightOverrides,
      academyName,
      customTitle,
+     customBadge,
+     customSubTitle,
+     titlePosition,
      logoDataUrl,
      logoPosition,
      accentColor,
      footerNotice,
     })
    );
-   setMessage('현재 보고서 구성(항목 ON/OFF·칸 크기·로고·테마)을 우리 학원 기본 양식으로 저장했습니다.');
+   setMessage('현재 보고서 구성(항목 ON/OFF·제목·위치·칸 크기·로고·테마)을 우리 학원 기본 양식으로 저장했습니다.');
   } catch {
    setMessage('브라우저 저장 공간이 부족하여 기본 양식을 저장하지 못했습니다.');
   }
@@ -433,6 +475,10 @@ export default function NewReportPage(){
     if(value.template.period==='day'||value.template.period==='week'||value.template.period==='month')setCycle(value.template.period);
     if(value.template.theme)setTheme(value.template.theme);
     setOrientation(value.template.orientation);
+    if(typeof value.template.customTitle==='string')setCustomTitle(value.template.customTitle);
+    if(typeof value.template.customBadge==='string')setCustomBadge(value.template.customBadge);
+    if(typeof value.template.customSubTitle==='string')setCustomSubTitle(value.template.customSubTitle);
+    if(value.template.titlePosition==='left'||value.template.titlePosition==='center'||value.template.titlePosition==='right')setTitlePosition(value.template.titlePosition);
    }
    setMessage('저장된 보고서를 불러왔습니다. 저장 시점의 기록입니다.');
   }catch{
@@ -630,6 +676,92 @@ export default function NewReportPage(){
      </div>
     </div>
 
+    <div className={styles.presetDivider} aria-hidden="true"/>
+
+    {/* 상단 제목 사용자 지정 및 위치 선택 */}
+    <div className={styles.presetGroup}>
+     <span className={styles.presetLabel}>상단 제목 · 위치</span>
+     <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+      <input
+       type="text"
+       value={customBadge ?? defaultBadgeText}
+       disabled={exporting}
+       onChange={e => setCustomBadge(e.target.value)}
+       placeholder="배지 비움"
+       aria-label="보고서 상단 배지 지정"
+       style={{
+        height:32,
+        width:120,
+        padding:'0 9px',
+        fontSize:11.5,
+        borderRadius:8,
+        border:'1px solid #cbd5e1',
+        background:'#ffffff',
+        color:'#0f172a',
+       }}
+      />
+      <input
+       type="text"
+       value={customSubTitle ?? defaultSubTitleText}
+       disabled={exporting}
+       onChange={e => setCustomSubTitle(e.target.value)}
+       placeholder="소제목 비움"
+       aria-label="보고서 상단 소제목 지정"
+       style={{
+        height:32,
+        width:115,
+        padding:'0 9px',
+        fontSize:11.5,
+        borderRadius:8,
+        border:'1px solid #cbd5e1',
+        background:'#ffffff',
+        color:'#0f172a',
+       }}
+      />
+      <input
+       type="text"
+       value={customTitle ?? defaultTitleText}
+       disabled={exporting}
+       onChange={e => setCustomTitle(e.target.value)}
+       placeholder="메인 제목 비움"
+       aria-label="보고서 상단 제목 지정"
+       style={{
+        height:32,
+        width:190,
+        padding:'0 10px',
+        fontSize:12,
+        fontWeight:600,
+        borderRadius:8,
+        border:'1px solid #cbd5e1',
+        background:'#ffffff',
+        color:'#0f172a',
+       }}
+      />
+      <div className={styles.segmented} role="group" aria-label="보고서 제목 위치 선택">
+       {(
+        [
+         ['left', '좌측', AlignLeft],
+         ['center', '가운데', AlignCenter],
+         ['right', '우측', AlignRight],
+        ] as const
+       ).map(([pos, label, Icon]) => (
+        <button
+         key={pos}
+         type="button"
+         disabled={exporting}
+         aria-pressed={titlePosition === pos}
+         onClick={() => setTitlePosition(pos)}
+         title={`상단 제목 ${label} 배치`}
+         style={{padding:'5px 9px',fontSize:11.5}}
+        >
+         <Icon size={13}/>
+         {label}
+        </button>
+       ))}
+      </div>
+     </div>
+    </div>
+
     <div className={styles.presetGroupRight}>
      {students.length > 1 && (
       <button
@@ -819,7 +951,37 @@ export default function NewReportPage(){
         )}
        </div>
 
-       <div style={{display:'grid',gridTemplateColumns:'1fr 1.3fr auto',gap:8,alignItems:'center'}}>
+       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1.3fr',gap:8,alignItems:'center'}}>
+        <label style={{display:'flex',flexDirection:'column',alignItems:'stretch',gap:3}}>
+         <span style={{fontSize:11,fontWeight:700,color:'#475569'}}>상단 배지 문구 (지우면 숨김)</span>
+         <input
+          value={customBadge ?? defaultBadgeText}
+          onChange={e => setCustomBadge(e.target.value)}
+          placeholder="배지 비움"
+          style={{maxWidth:'none',width:'100%'}}
+         />
+        </label>
+        <label style={{display:'flex',flexDirection:'column',alignItems:'stretch',gap:3}}>
+         <span style={{fontSize:11,fontWeight:700,color:'#475569'}}>상단 보조 제목 (지우면 숨김)</span>
+         <input
+          value={customSubTitle ?? defaultSubTitleText}
+          onChange={e => setCustomSubTitle(e.target.value)}
+          placeholder="소제목 비움"
+          style={{maxWidth:'none',width:'100%'}}
+         />
+        </label>
+        <label style={{display:'flex',flexDirection:'column',alignItems:'stretch',gap:3}}>
+         <span style={{fontSize:11,fontWeight:700,color:'#475569'}}>보고서 메인 제목 (지우면 숨김)</span>
+         <input
+          value={customTitle ?? defaultTitleText}
+          onChange={e => setCustomTitle(e.target.value)}
+          placeholder="메인 제목 비움"
+          style={{maxWidth:'none',width:'100%'}}
+         />
+        </label>
+       </div>
+
+       <div style={{display:'grid',gridTemplateColumns:'1fr auto auto',gap:8,alignItems:'center'}}>
         <label style={{display:'flex',flexDirection:'column',alignItems:'stretch',gap:3}}>
          <span style={{fontSize:11,fontWeight:700,color:'#475569'}}>학원명 표기</span>
          <input
@@ -830,13 +992,16 @@ export default function NewReportPage(){
          />
         </label>
         <label style={{display:'flex',flexDirection:'column',alignItems:'stretch',gap:3}}>
-         <span style={{fontSize:11,fontWeight:700,color:'#475569'}}>보고서 상단 제목 (비우면 자동)</span>
-         <input
-          value={customTitle}
-          onChange={e => setCustomTitle(e.target.value)}
-          placeholder="예: 11월 수학 성취도 종합 리포트"
-          style={{maxWidth:'none',width:'100%'}}
-         />
+         <span style={{fontSize:11,fontWeight:700,color:'#475569'}}>상단 제목 위치</span>
+         <select
+          value={titlePosition}
+          onChange={e => setTitlePosition(e.target.value as TitlePosition)}
+          aria-label="상단 제목 위치"
+         >
+          <option value="left">좌측 정렬</option>
+          <option value="center">가운데 정렬</option>
+          <option value="right">우측 정렬</option>
+         </select>
         </label>
         <label style={{display:'flex',flexDirection:'column',alignItems:'stretch',gap:3}}>
          <span style={{fontSize:11,fontWeight:700,color:'#475569'}}>포인트 색상</span>
@@ -1038,6 +1203,7 @@ export default function NewReportPage(){
         onEditFeedback={handleEditFeedback}
         onBulkEditFeedback={(dateStr, memoText) => handleBulkEditFeedback(dateStr, memoText)}
         bulkTargetCount={bulkFeedbackTargets.length || students.length}
+        onEditHeader={handleEditHeader}
        />
       </div>
      ))
@@ -1133,7 +1299,7 @@ export default function NewReportPage(){
      >
       <div style={{ '--preview-scale': 1.15, width: pageWidth * 1.15 } as CSSProperties}>
        <div style={{ zoom: 1.15 } as CSSProperties}>
-        <ReportSheets preview={activeReport} template={template} onEditFeedback={handleEditFeedback}/>
+        <ReportSheets preview={activeReport} template={template} onEditFeedback={handleEditFeedback} onEditHeader={handleEditHeader}/>
        </div>
       </div>
      </div>

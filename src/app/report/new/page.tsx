@@ -155,12 +155,6 @@ export default function NewReportPage(){
  const defaultPrefKey = `cosmath-academy-report-default:v1:${workspace?.id || 'local'}`;
 
  useEffect(() => {
-  if (workspace?.name && !academyName) {
-   setAcademyName(workspace.name);
-  }
- }, [workspace?.name, academyName]);
-
- useEffect(() => {
   try {
    const savedPref = JSON.parse(localStorage.getItem(defaultPrefKey) || 'null');
    if (savedPref && typeof savedPref === 'object') {

@@ -1333,15 +1333,16 @@ function SaebomForestSheet({
  onBulkEditFeedback?: (date: string, memo: string) => void;
  bulkTargetCount?: number;
 }) {
- const academyTitle = template.academyName?.trim() || '유니데스크';
+ const academyTitle = template.academyName?.trim() || '';
+ const titlePrefix = academyTitle ? `${academyTitle} ` : '';
  const cycleBadge =
   period === 'day' ? 'DAILY REPORT' : period === 'week' ? 'WEEKLY REPORT' : 'MONTHLY REPORT';
  const defaultHeadline =
   period === 'day'
-   ? `${academyTitle} 일일 수업 결과 리포트`
+   ? `${titlePrefix}일일 수업 결과 리포트`
    : period === 'week'
-     ? `${academyTitle} 주간 학습 성취 리포트`
-     : `${academyTitle} 월간 종합 평가 리포트`;
+     ? `${titlePrefix}주간 학습 성취 리포트`
+     : `${titlePrefix}월간 종합 평가 리포트`;
  const reportHeadline = template.customTitle?.trim() || defaultHeadline;
 
  // 1) '— 한눈에' 카드에 들어갈 활성 지표 수집
@@ -1993,19 +1994,19 @@ function SaebomForestSheet({
     <div className={styles.saebomHeaderTop}>
      <div className={styles.saebomBrandRow}>
       {template.logoDataUrl && template.logoPosition !== 'right' && (
-       <img src={template.logoDataUrl} alt={academyTitle} className={styles.customLogoImg}/>
+       <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg}/>
       )}
       <div>
        <span className={styles.saebomEyebrow}>
         <b className={styles.saebomCycleBadge}>{cycleBadge}</b>
-        {academyTitle} · {periodKor} 리포트
+        {academyTitle ? `${academyTitle} · ${periodKor} 리포트` : `${periodKor} 리포트`}
        </span>
        <h2 className={styles.saebomMainTitle}>{reportHeadline}</h2>
       </div>
      </div>
      <div className={styles.saebomStudentMeta}>
       {template.logoDataUrl && template.logoPosition === 'right' && (
-       <img src={template.logoDataUrl} alt={academyTitle} className={styles.customLogoImg}/>
+       <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg}/>
       )}
       <strong>{p.name} <small>({p.grade} · {p.group})</small></strong>
       <span>{period === 'day' ? `수업일: ${s.dateLabel}` : `기간: ${s.dateLabel}`}</span>
@@ -2609,7 +2610,8 @@ export default function ReportSheets({
  const period=template.period==='week'?'week':(template.period==='month'||template.period==='1month'||template.period==='3months')?'month':'day';
  const periodKor=period==='week'?'주간':period==='month'?'월간':'일일';
  const periodEng=period==='week'?'Weekly Learning Report':period==='month'?'Monthly Learning Report':'Daily Learning Report';
- const academyTitle=template.academyName?.trim()||'유니데스크 학원';
+ const academyTitle=template.academyName?.trim()||'';
+ const titlePrefix=academyTitle?`${academyTitle} `:'';
 
  const customAccentStyle: CSSProperties | undefined = template.accentColor
   ? ({
@@ -2653,18 +2655,18 @@ export default function ReportSheets({
       <header className={styles.miriCheckHeader}>
        <div style={{display:'flex',alignItems:'center',gap:12}}>
         {template.logoDataUrl && template.logoPosition !== 'right' && (
-         <img src={template.logoDataUrl} alt={academyTitle} className={styles.customLogoImg}/>
+         <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg}/>
         )}
         <div>
          <span className={styles.miriCheckEngTitle}>{periodEng}</span>
          <h2>
-          {template.customTitle?.trim() || `${academyTitle} ${periodKor} 학습 점검 리포트`}
+          {template.customTitle?.trim() || `${titlePrefix}${periodKor} 학습 점검 리포트`}
          </h2>
         </div>
        </div>
        <div className={styles.miriHeaderIconWrap}>
         {template.logoDataUrl && template.logoPosition === 'right' ? (
-         <img src={template.logoDataUrl} alt={academyTitle} className={styles.customLogoImg}/>
+         <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg}/>
         ) : (
          <>
           <Sparkles size={15} className={styles.miriSparkleIcon}/>
@@ -2690,10 +2692,10 @@ export default function ReportSheets({
      <header className={styles.miriYellowHeader}>
       {template.logoDataUrl && (
        <div style={{display:'flex',justifyContent:template.logoPosition==='right'?'flex-end':template.logoPosition==='left'?'flex-start':'center',marginBottom:6}}>
-        <img src={template.logoDataUrl} alt={academyTitle} className={styles.customLogoImg}/>
+        <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg}/>
        </div>
       )}
-      <h2>{template.customTitle?.trim() || `${academyTitle} ${periodKor} 학습 분석 리포트`}</h2>
+      <h2>{template.customTitle?.trim() || `${titlePrefix}${periodKor} 학습 분석 리포트`}</h2>
       <p>
        {period==='day'
         ? `당일 ${enabledLabelList.join('·')} 성취도를 종합한 일일 브리핑`
@@ -2715,17 +2717,17 @@ export default function ReportSheets({
      <header className={styles.miriGraphHeader}>
       <div style={{display:'flex',alignItems:'center',gap:12}}>
        {template.logoDataUrl && template.logoPosition !== 'right' && (
-        <img src={template.logoDataUrl} alt={academyTitle} className={styles.customLogoImg}/>
+        <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg}/>
        )}
        <div>
-        <span className={styles.miriGraphEyebrow}>{academyTitle.toUpperCase()} · {periodEng.toUpperCase()}</span>
-        <h2>{template.customTitle?.trim() || `${periodKor} 성취도 종합 리포트`}</h2>
+        <span className={styles.miriGraphEyebrow}>{academyTitle ? `${academyTitle.toUpperCase()} · ${periodEng.toUpperCase()}` : periodEng.toUpperCase()}</span>
+        <h2>{template.customTitle?.trim() || `${titlePrefix}${periodKor} 성취도 종합 리포트`}</h2>
        </div>
       </div>
       <div className={styles.miriGraphMetaLines}>
        {template.logoDataUrl && template.logoPosition === 'right' && (
         <div style={{borderBottom:0,justifyContent:'flex-end'}}>
-         <img src={template.logoDataUrl} alt={academyTitle} className={styles.customLogoImg}/>
+         <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg}/>
         </div>
        )}
        <div><span>학생 이름 :</span><b>{p.name} ({p.grade})</b></div>

@@ -29,6 +29,7 @@ import {
  AlignLeft,
  AlignCenter,
  AlignRight,
+ Send,
 } from 'lucide-react';
 import StudentSidebar from '../../../components/layout/Sidebar';
 import LandingMenu from '../../../components/LandingMenu';
@@ -174,12 +175,46 @@ export default function NewReportPage(){
  // 다중 학생 일괄 피드백 코멘트 작성 상태
  const [bulkFeedbackText, setBulkFeedbackText] = useState('');
  const [bulkFeedbackTargets, setBulkFeedbackTargets] = useState<string[]>([]);
- const [showBulkFeedbackBar, setShowBulkFeedbackBar] = useState(true);
+ const [showBulkFeedbackBar, setShowBulkFeedbackBar] = useState(false);
 
  // 미리보기 확대/축소 & 전체화면 크게 보기 모달 상태
  const [zoomMode, setZoomMode] = useState<'fit' | number>('fit');
  const [largeModalOpen, setLargeModalOpen] = useState(false);
  const logoInputRef = useRef<HTMLInputElement>(null);
+
+ // 카카오톡 자동 발송 모달 및 설정 상태
+ const [kakaoModalOpen, setKakaoModalOpen] = useState(false);
+ const [kakaoTargets, setKakaoTargets] = useState<string[]>([]);
+ const [kakaoSearchTemplate, setKakaoSearchTemplate] = useState<string>('{name}');
+ const [kakaoTabMode, setKakaoTabMode] = useState<'friends' | 'chats'>('friends');
+ const [kakaoDelay, setKakaoDelay] = useState<number>(1.0);
+ const [kakaoAliases, setKakaoAliases] = useState<Record<string, string>>({});
+ const [kakaoBridgeAlive, setKakaoBridgeAlive] = useState<boolean>(false);
+ const [kakaoSending, setKakaoSending] = useState<boolean>(false);
+ const [kakaoLogs, setKakaoLogs] = useState<string[]>([]);
+ const [kakaoResults, setKakaoResults] = useState<{studentId:string;name:string;searchTerm:string;success:boolean;message:string}[]>([]);
+
+ const kakaoAliasStorageKey = `cosmath-kakao-alias:v1:${workspace?.id || 'local'}`;
+ useEffect(() => {
+  try {
+   const saved = JSON.parse(localStorage.getItem(kakaoAliasStorageKey) || '{}');
+   if (saved && typeof saved === 'object') setKakaoAliases(saved);
+  } catch {
+   // ignore
+  }
+ }, [kakaoAliasStorageKey]);
+
+ const updateKakaoAlias = useCallback((studentId: string, alias: string) => {
+  setKakaoAliases(prev => {
+   const next = { ...prev, [studentId]: alias };
+   try {
+    localStorage.setItem(kakaoAliasStorageKey, JSON.stringify(next));
+   } catch {
+    // ignore
+   }
+   return next;
+  });
+ }, [kakaoAliasStorageKey]);
 
  const defaultPrefKey = `cosmath-academy-report-default:v1:${workspace?.id || 'local'}`;
 
@@ -587,6 +622,239 @@ export default function NewReportPage(){
   }catch{setMessage('이미지 일괄 저장에 실패했습니다. 파일은 저장되지 않았습니다. 다시 시도해 주세요.');}finally{setExporting(false);}
  }
 
+ const duplicateStudentNames = useMemo(() => {
+  const counts: Record<string, number> = {};
+  for (const s of students) {
+   counts[s.name] = (counts[s.name] || 0) + 1;
+  }
+  return new Set(Object.keys(counts).filter(n => counts[n] > 1));
+ }, [students]);
+
+ const formatKakaoPreviewQuery = useCallback((student: ReportStudent) => {
+  const custom = (kakaoAliases[student.id] || '').trim();
+  if (custom) return custom;
+  const isDup = duplicateStudentNames.has(student.name);
+  if (kakaoSearchTemplate === '{name}' && isDup && student.grade) {
+   return `${student.grade} ${student.name}`.trim();
+  }
+  return kakaoSearchTemplate
+   .replace(/\{name\}/g, student.name)
+   .replace(/\{grade\}/g, student.grade || '')
+   .replace(/\{group\}/g, student.group || '')
+   .replace(/\s+/g, ' ')
+   .trim() || student.name;
+ }, [kakaoAliases, duplicateStudentNames, kakaoSearchTemplate]);
+
+ const checkKakaoBridge = useCallback(async () => {
+  try {
+   const res = await fetch('http://127.0.0.1:5005/health', { cache: 'no-store' });
+   if (res.ok) {
+    setKakaoBridgeAlive(true);
+    return true;
+   }
+  } catch {
+   // try local Next.js API route fallback
+  }
+  try {
+   const res = await fetch('/api/kakao-send', { cache: 'no-store' });
+   if (res.ok) {
+    setKakaoBridgeAlive(true);
+    return true;
+   }
+  } catch {
+   // ignore
+  }
+  setKakaoBridgeAlive(false);
+  return false;
+ }, []);
+
+ const openKakaoModal = useCallback(() => {
+  setKakaoTargets(prev => {
+   const validPrev = prev.filter(id => students.some(s => s.id === id));
+   return validPrev.length > 0 ? validPrev : students.map(s => s.id);
+  });
+  setKakaoModalOpen(true);
+  void checkKakaoBridge();
+ }, [students, checkKakaoBridge]);
+
+ async function sendReportsToKakao(targetStudentIds?: string[]) {
+  const ids = (targetStudentIds && targetStudentIds.length > 0 ? targetStudentIds : kakaoTargets)
+   .filter(id => current.some(r => r.id === id));
+  if (!ready || exporting || kakaoSending || ids.length === 0) return;
+
+  setKakaoSending(true);
+  setKakaoLogs([`총 ${ids.length}명의 리포트 고화질 이미지를 생성하고 있습니다...`]);
+  setKakaoResults([]);
+
+  try {
+   await document.fonts.ready;
+   const { toPng } = await import('html-to-image');
+   const nodes = Array.from(sheets.current?.querySelectorAll<HTMLElement>('[data-report]') ?? []);
+   const items: {
+    studentId: string;
+    name: string;
+    grade: string;
+    group: string;
+    customSearch: string;
+    filename: string;
+    imageDataUrl: string;
+   }[] = [];
+
+   for (const studentId of ids) {
+    const report = current.find(r => r.id === studentId);
+    const node = nodes.find(n => n.dataset.report === studentId);
+    if (!report || !node) continue;
+    const pages = Array.from(node.querySelectorAll<HTMLElement>('[data-sheet]'));
+    for (let idx = 0; idx < pages.length; idx++) {
+     await Promise.all(Array.from(pages[idx].querySelectorAll('img')).map(img => img.decode()));
+     const dataUrl = await toPng(pages[idx], {
+      pixelRatio: 2,
+      width: pageWidth,
+      height: pages[idx].offsetHeight,
+      style: { zoom: '1' },
+      backgroundColor: '#ffffff',
+      cacheBust: false,
+      filter: el => !(el instanceof HTMLElement && el.dataset.exportHide === 'true'),
+     });
+     items.push({
+      studentId: report.id,
+      name: report.name,
+      grade: report.grade,
+      group: report.group,
+      customSearch: (kakaoAliases[report.id] || '').trim(),
+      filename: `${safeName(report.grade)} ${safeName(report.name)}.png`,
+      imageDataUrl: dataUrl,
+     });
+     setKakaoLogs(prev => [...prev, `이미지 준비 완료 (${items.length}/${ids.length}): ${report.grade} ${report.name}`]);
+    }
+   }
+
+   const payload = {
+    delay: kakaoDelay,
+    searchTemplate: kakaoSearchTemplate,
+    tabMode: kakaoTabMode,
+    useClipboardImage: true,
+    items,
+   };
+
+   let usedDirectBridge = false;
+   let startOk = false;
+   let startMsg = '';
+
+   try {
+    const directRes = await fetch('http://127.0.0.1:5005/send-reports', {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify(payload),
+    });
+    const directData = await directRes.json();
+    usedDirectBridge = true;
+    startOk = Boolean(directData?.ok);
+    startMsg = directData?.message || '';
+   } catch {
+    // Fallback to Next.js API route (which also auto-spawns local bridge on Windows)
+    const apiRes = await fetch('/api/kakao-send', {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify(payload),
+    });
+    const apiData = await apiRes.json();
+    startOk = Boolean(apiData?.ok);
+    startMsg = apiData?.message || apiData?.error || '';
+   }
+
+   if (!startOk) {
+    setKakaoLogs(prev => [...prev, `❌ 발송 시작 실패: ${startMsg || '카카오톡 통합 앱 연결을 확인해 주세요.'}`]);
+    setKakaoSending(false);
+    return;
+   }
+
+   setKakaoBridgeAlive(true);
+   setKakaoLogs(prev => [...prev, `🚀 ${startMsg}`]);
+
+   const statusUrl = usedDirectBridge ? 'http://127.0.0.1:5005/status' : '/api/kakao-send';
+   let finished = false;
+   while (!finished) {
+    await new Promise(r => setTimeout(r, 700));
+    try {
+     const stRes = await fetch(statusUrl, { cache: 'no-store' });
+     if (!stRes.ok) break;
+     const st = await stRes.json();
+     if (Array.isArray(st.logs)) setKakaoLogs(st.logs);
+     if (Array.isArray(st.results)) setKakaoResults(st.results);
+     if (!st.running) {
+      finished = true;
+     }
+    } catch {
+     break;
+    }
+   }
+  } catch (err) {
+   setKakaoLogs(prev => [...prev, `❌ 오류 발생: ${err instanceof Error ? err.message : String(err)}`]);
+  } finally {
+   setKakaoSending(false);
+  }
+ }
+
+ async function stopKakaoSend() {
+  try {
+   await fetch('http://127.0.0.1:5005/stop', { method: 'POST' });
+  } catch {
+   await fetch('/api/kakao-send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'stop' }),
+   }).catch(() => {});
+  }
+  setKakaoSending(false);
+ }
+
+ async function exportKakaoNamedZip() {
+  const ids = kakaoTargets.filter(id => current.some(r => r.id === id));
+  if (!ready || exporting || ids.length === 0) return;
+  setExporting(true);
+  setMessage('카카오톡 폴더 발송용 이미지를 준비하고 있습니다.');
+  try {
+   await document.fonts.ready;
+   const { toBlob } = await import('html-to-image');
+   const zip = new JSZip();
+   const nodes = Array.from(sheets.current?.querySelectorAll<HTMLElement>('[data-report]') ?? []);
+   for (const studentId of ids) {
+    const report = current.find(r => r.id === studentId);
+    const node = nodes.find(n => n.dataset.report === studentId);
+    if (!report || !node) continue;
+    const pages = Array.from(node.querySelectorAll<HTMLElement>('[data-sheet]'));
+    for (let index = 0; index < pages.length; index++) {
+     await Promise.all(Array.from(pages[index].querySelectorAll('img')).map(img => img.decode()));
+     const blob = await toBlob(pages[index], {
+      pixelRatio: 2,
+      width: pageWidth,
+      height: pages[index].offsetHeight,
+      style: { zoom: '1' },
+      backgroundColor: '#ffffff',
+      cacheBust: false,
+      filter: el => !(el instanceof HTMLElement && el.dataset.exportHide === 'true'),
+     });
+     if (!blob) throw new Error('Image failed');
+     const suffix = pages.length > 1 ? `_${index + 1}` : '';
+     zip.file(`${safeName(report.grade)} ${safeName(report.name)}${suffix}.png`, blob);
+    }
+   }
+   const blob = await zip.generateAsync({ type: 'blob' });
+   const url = URL.createObjectURL(blob);
+   const a = document.createElement('a');
+   a.href = url;
+   a.download = `카톡발송용_${end}_${ids.length}명.zip`;
+   a.click();
+   setTimeout(() => URL.revokeObjectURL(url), 10000);
+   setMessage(`카카오톡 발송용 이름 규칙(학년 이름.png)으로 ${ids.length}명의 이미지를 저장했습니다.`);
+  } catch {
+   setMessage('카톡용 ZIP 저장에 실패했습니다.');
+  } finally {
+   setExporting(false);
+  }
+ }
+
  return <main className={styles.workspace} data-orientation={orientation} style={{'--report-width':`${pageWidth}px`,'--report-height':`${pageHeight}px`} as CSSProperties}>
   <StudentSidebar isOpen={sidebar} onClose={()=>setSidebar(false)} onBatchSelect={select} disabled={exporting}/>
   <div className={styles.main}>
@@ -604,247 +872,41 @@ export default function NewReportPage(){
 
    <div className={styles.workspaceToolbar}>
     <div className={styles.range}>
-     <label>기준 날짜<input type="date" value={end} disabled={exporting} onChange={e=>setEnd(e.target.value)}/></label>
-     <span className={styles.rangeBadge}>조회 기간: {start===end?end:`${start} ~ ${end}`}</span>
-     <button disabled={loading||exporting||!students.length} onClick={()=>setRevision(v=>v+1)}><RefreshCw size={14}/> 기록 새로고침</button>
+     <div className={styles.segmented} role="group" aria-label="보고 주기 선택">
+      {(Object.entries(reportCycles) as [ReportCycle,typeof reportCycles[ReportCycle]][]).map(([key,item])=>(
+       <button key={key} type="button" disabled={exporting} aria-pressed={cycle===key} onClick={()=>selectCycle(key)} title={item.desc} style={{padding:'6px 11px',fontSize:12,border:0}}>
+        {item.label.replace(' 보고서', '')}
+       </button>
+      ))}
+     </div>
+     <label>기준일<input type="date" value={end} disabled={exporting} onChange={e=>setEnd(e.target.value)}/></label>
+     {start!==end&&<span className={styles.rangeBadge}>{start} ~ {end}</span>}
+     <button disabled={loading||exporting||!students.length} onClick={()=>setRevision(v=>v+1)} title="기록 새로고침" style={{padding:'8px 10px'}}>
+      <RefreshCw size={14}/> 새로고침
+     </button>
     </div>
 
     <div className={styles.toolbarActions}>
-     {/* 미리보기 배율 및 크게 보기 컨트롤 */}
-     <div style={{display:'inline-flex',alignItems:'center',gap:4,background:'#f1f5f9',padding:'3px 5px',borderRadius:9,border:'1px solid #dbe5f2'}}>
-      <button
-       type="button"
-       title="축소"
-       onClick={()=>setZoomMode(prev => Math.max(0.5, Number(((prev === 'fit' ? fitScale : prev) - 0.15).toFixed(2))))}
-       style={{padding:'5px 7px',border:0,background:'transparent'}}
-      >
-       <ZoomOut size={14}/>
-      </button>
-      <button
-       type="button"
-       onClick={()=>setZoomMode('fit')}
-       style={{padding:'4px 8px',fontSize:11,fontWeight:700,border:0,borderRadius:6,background:zoomMode==='fit'?'#ffffff':'transparent',color:zoomMode==='fit'?'#1d4ed8':'#475569'}}
-      >
-       화면맞춤 ({Math.round(fitScale*100)}%)
-      </button>
-      <button
-       type="button"
-       onClick={()=>setZoomMode(1)}
-       style={{padding:'4px 8px',fontSize:11,fontWeight:700,border:0,borderRadius:6,background:zoomMode===1?'#ffffff':'transparent',color:zoomMode===1?'#1d4ed8':'#475569'}}
-      >
-       100%
-      </button>
-      <button
-       type="button"
-       onClick={()=>setZoomMode(1.2)}
-       style={{padding:'4px 8px',fontSize:11,fontWeight:700,border:0,borderRadius:6,background:zoomMode===1.2?'#ffffff':'transparent',color:zoomMode===1.2?'#1d4ed8':'#475569'}}
-      >
-       120%
-      </button>
-      <button
-       type="button"
-       title="확대"
-       onClick={()=>setZoomMode(prev => Math.min(1.6, Number(((prev === 'fit' ? fitScale : prev) + 0.15).toFixed(2))))}
-       style={{padding:'5px 7px',border:0,background:'transparent'}}
-      >
-       <ZoomIn size={14}/>
-      </button>
-      <button
-       type="button"
-       disabled={!activeReport}
-       onClick={()=>setLargeModalOpen(true)}
-       style={{padding:'5px 10px',fontSize:11.5,fontWeight:800,border:'1px solid #1e40af',borderRadius:7,background:'#1e40af',color:'#ffffff'}}
-      >
-       <Maximize2 size={13}/> 크게 미리보기
-      </button>
-     </div>
-
-     <label className={styles.orientation}>
-      보고서 방향
-      <select aria-label="보고서 방향" value={orientation} disabled={exporting} onChange={e=>setOrientation(e.target.value as 'portrait'|'landscape')}>
-       <option value="portrait">세로형</option>
-       <option value="landscape">가로형</option>
-      </select>
-     </label>
-     <button disabled={!students.length||loading||exporting||!valid} onClick={loadSaved}>저장본 불러오기</button>
-     <button disabled={!ready||exporting} onClick={saveReports}>보고서 저장</button>
-     <button disabled={!ready||exporting} onClick={()=>window.print()}>PDF 저장</button>
-     <button className={styles.batchDownload} disabled={!ready||exporting} onClick={()=>void exportAll()}>
-      <Download size={16}/>{exporting?'이미지 생성 중…':`이미지 일괄 저장${students.length?` (${students.length}명)`:''}`}
+     <button
+      type="button"
+      onClick={() => setShowCustomizer(v => !v)}
+      style={{
+       display:'inline-flex',
+       alignItems:'center',
+       gap:6,
+       padding:'8px 12px',
+       borderRadius:9,
+       border:showCustomizer?'1.5px solid #2563eb':'1px solid #cbd5e1',
+       background:showCustomizer?'#eff6ff':'#ffffff',
+       color:showCustomizer?'#1d4ed8':'#1e293b',
+       fontSize:12,
+       fontWeight:800,
+       cursor:'pointer',
+      }}
+     >
+      <SlidersHorizontal size={13}/> 양식 · 디자인 설정 {showCustomizer ? '▲' : '▼'}
      </button>
-    </div>
-   </div>
 
-   <section className={styles.presetBar} aria-label="보고서 템플릿 설정">
-    <div className={styles.presetGroup}>
-     <span className={styles.presetLabel}>템플릿 스타일</span>
-     <div className={styles.segmented} role="group" aria-label="템플릿 분위기 선택">
-      {studioThemes.map(({key,label,Icon,badge})=>(
-       <button key={key} type="button" disabled={exporting} aria-pressed={theme===key} onClick={()=>setTheme(key)} className={styles.themeTabBtn}>
-        <Icon size={14}/>
-        {label}
-        {badge&&<span style={{fontSize:9.5,fontWeight:800,padding:'1px 5px',borderRadius:999,background:'#dcfce7',color:'#15803d'}}>{badge}</span>}
-       </button>
-      ))}
-     </div>
-    </div>
-
-    <div className={styles.presetDivider} aria-hidden="true"/>
-
-    <div className={styles.presetGroup}>
-     <span className={styles.presetLabel}>보고 주기</span>
-     <div className={styles.segmented} role="group" aria-label="보고 주기 선택">
-      {(Object.entries(reportCycles) as [ReportCycle,typeof reportCycles[ReportCycle]][]).map(([key,item])=>(
-       <button key={key} type="button" disabled={exporting} aria-pressed={cycle===key} onClick={()=>selectCycle(key)} title={item.desc}>
-        {item.label}
-       </button>
-      ))}
-     </div>
-    </div>
-
-    <div className={styles.presetDivider} aria-hidden="true"/>
-
-    {/* 1초 항목 ON/OFF 체크칩 & 빠른 학원 프리셋 */}
-    <div className={styles.presetGroup}>
-     <span className={styles.presetLabel}>포함 요소</span>
-     <div className={styles.kindPills} role="group" aria-label="보고서 포함 요소 선택">
-      {ALL_KINDS.map(k => {
-       const on = enabledKinds.includes(k);
-       return (
-        <button
-         key={k}
-         type="button"
-         disabled={exporting}
-         aria-pressed={on}
-         onClick={() => toggleKind(k)}
-         className={styles.kindPill}
-         title={`${kindLabels[k]} 영역 표시/숨김`}
-        >
-         {on ? '✓ ' : '+ '}{kindLabels[k]}
-        </button>
-       );
-      })}
-      <button
-       type="button"
-       disabled={exporting}
-       aria-pressed={showNextHomework}
-       onClick={() => setShowNextHomework(v => !v)}
-       className={styles.kindPill}
-      >
-       {showNextHomework ? '✓ ' : '+ '}다음과제
-      </button>
-      {cycle === 'month' && (
-       <button
-        type="button"
-        disabled={exporting}
-        aria-pressed={showMonthlyCompetency}
-        onClick={() => setShowMonthlyCompetency(v => !v)}
-        className={styles.kindPill}
-        title="월간 5대 학습 역량 진단 차트 표시/숨김"
-       >
-        {showMonthlyCompetency ? '✓ ' : '+ '}5대역량진단
-       </button>
-      )}
-      <button
-       type="button"
-       disabled={exporting}
-       aria-pressed={hideEmpty}
-       onClick={() => setHideEmpty(v => !v)}
-       className={styles.kindPill}
-       title="해당 학생에게 기록이 없는 항목(예: 미응시 시험, 오답 0건)을 자동으로 숨깁니다"
-      >
-       {hideEmpty ? '✓ ' : ''}빈 항목 자동숨김
-      </button>
-     </div>
-    </div>
-
-    <div className={styles.presetDivider} aria-hidden="true"/>
-
-    {/* 상단 제목 사용자 지정 및 위치 선택 */}
-    <div className={styles.presetGroup}>
-     <span className={styles.presetLabel}>상단 제목 · 위치</span>
-     <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
-      <input
-       type="text"
-       value={customBadge ?? defaultBadgeText}
-       disabled={exporting}
-       onChange={e => setCustomBadge(e.target.value)}
-       placeholder="배지 비움"
-       aria-label="보고서 상단 배지 지정"
-       style={{
-        height:32,
-        width:120,
-        padding:'0 9px',
-        fontSize:11.5,
-        borderRadius:8,
-        border:'1px solid #cbd5e1',
-        background:'#ffffff',
-        color:'#0f172a',
-       }}
-      />
-      <input
-       type="text"
-       value={customSubTitle ?? defaultSubTitleText}
-       disabled={exporting}
-       onChange={e => setCustomSubTitle(e.target.value)}
-       placeholder="소제목 비움"
-       aria-label="보고서 상단 소제목 지정"
-       style={{
-        height:32,
-        width:115,
-        padding:'0 9px',
-        fontSize:11.5,
-        borderRadius:8,
-        border:'1px solid #cbd5e1',
-        background:'#ffffff',
-        color:'#0f172a',
-       }}
-      />
-      <input
-       type="text"
-       value={customTitle ?? defaultTitleText}
-       disabled={exporting}
-       onChange={e => setCustomTitle(e.target.value)}
-       placeholder="메인 제목 비움"
-       aria-label="보고서 상단 제목 지정"
-       style={{
-        height:32,
-        width:190,
-        padding:'0 10px',
-        fontSize:12,
-        fontWeight:600,
-        borderRadius:8,
-        border:'1px solid #cbd5e1',
-        background:'#ffffff',
-        color:'#0f172a',
-       }}
-      />
-      <div className={styles.segmented} role="group" aria-label="보고서 제목 위치 선택">
-       {(
-        [
-         ['left', '좌측', AlignLeft],
-         ['center', '가운데', AlignCenter],
-         ['right', '우측', AlignRight],
-        ] as const
-       ).map(([pos, label, Icon]) => (
-        <button
-         key={pos}
-         type="button"
-         disabled={exporting}
-         aria-pressed={titlePosition === pos}
-         onClick={() => setTitlePosition(pos)}
-         title={`상단 제목 ${label} 배치`}
-         style={{padding:'5px 9px',fontSize:11.5}}
-        >
-         <Icon size={13}/>
-         {label}
-        </button>
-       ))}
-      </div>
-     </div>
-    </div>
-
-    <div className={styles.presetGroupRight}>
      {students.length > 1 && (
       <button
        type="button"
@@ -853,46 +915,182 @@ export default function NewReportPage(){
         display:'inline-flex',
         alignItems:'center',
         gap:6,
-        height:34,
-        padding:'0 12px',
-        borderRadius:10,
+        padding:'8px 12px',
+        borderRadius:9,
         border:showBulkFeedbackBar?'1.5px solid #2563eb':'1px solid #cbd5e1',
         background:showBulkFeedbackBar?'#eff6ff':'#ffffff',
         color:showBulkFeedbackBar?'#1d4ed8':'#1e293b',
         fontSize:12,
-        fontWeight:700,
+        fontWeight:800,
         cursor:'pointer',
        }}
       >
-       <MessageSquareText size={13}/> 선택 학생 피드백 일괄 작성 ({bulkFeedbackTargets.length || students.length}명) {showBulkFeedbackBar ? '▲' : '▼'}
+       <MessageSquareText size={13}/> 일괄 피드백 ({bulkFeedbackTargets.length || students.length}명) {showBulkFeedbackBar ? '▲' : '▼'}
       </button>
      )}
+
+     {/* 컴팩트 배율 & 크게 보기 */}
+     <div style={{display:'inline-flex',alignItems:'center',gap:2,background:'#f1f5f9',padding:'2px 4px',borderRadius:9,border:'1px solid #dbe5f2'}}>
+      <button
+       type="button"
+       title="축소"
+       onClick={()=>setZoomMode(prev => Math.max(0.5, Number(((prev === 'fit' ? fitScale : prev) - 0.15).toFixed(2))))}
+       style={{padding:'5px 6px',border:0,background:'transparent'}}
+      >
+       <ZoomOut size={13}/>
+      </button>
+      <button
+       type="button"
+       onClick={()=>setZoomMode(prev => prev === 'fit' ? 1 : 'fit')}
+       title="화면맞춤 / 100% 전환"
+       style={{padding:'4px 7px',fontSize:11,fontWeight:700,border:0,borderRadius:6,background:'#ffffff',color:'#1d4ed8'}}
+      >
+       {zoomMode === 'fit' ? `${Math.round(fitScale*100)}%` : `${Math.round(zoomMode*100)}%`}
+      </button>
+      <button
+       type="button"
+       title="확대"
+       onClick={()=>setZoomMode(prev => Math.min(1.6, Number(((prev === 'fit' ? fitScale : prev) + 0.15).toFixed(2))))}
+       style={{padding:'5px 6px',border:0,background:'transparent'}}
+      >
+       <ZoomIn size={13}/>
+      </button>
+      <button
+       type="button"
+       disabled={!activeReport}
+       onClick={()=>setLargeModalOpen(true)}
+       style={{padding:'5px 9px',fontSize:11.5,fontWeight:800,border:0,borderRadius:6,background:'#1e40af',color:'#ffffff'}}
+      >
+       <Maximize2 size={12}/> 크게 보기
+      </button>
+     </div>
+
+     <button disabled={!ready||exporting} onClick={()=>window.print()} style={{padding:'8px 11px'}}>PDF</button>
+     <button className={styles.batchDownload} disabled={!ready||exporting} onClick={()=>void exportAll()}>
+      <Download size={15}/>{exporting?'생성 중…':`이미지 저장${students.length?` (${students.length}명)`:''}`}
+     </button>
      <button
       type="button"
-      onClick={() => setShowCustomizer(v => !v)}
+      disabled={!ready || exporting}
+      onClick={openKakaoModal}
       style={{
        display:'inline-flex',
        alignItems:'center',
        gap:6,
-       height:34,
-       padding:'0 12px',
-       borderRadius:10,
-       border:showCustomizer?'1.5px solid #2563eb':'1px solid #cbd5e1',
-       background:showCustomizer?'#eff6ff':'#ffffff',
-       color:showCustomizer?'#1d4ed8':'#1e293b',
-       fontSize:12,
-       fontWeight:700,
-       cursor:'pointer',
+       padding:'8px 14px',
+       borderRadius:9,
+       border:'1px solid #eab308',
+       background:'#fae100',
+       color:'#3c1e1e',
+       fontSize:12.5,
+       fontWeight:800,
+       cursor:ready && !exporting ? 'pointer' : 'default',
+       boxShadow:'0 1px 4px rgba(0,0,0,0.08)',
       }}
      >
-      <SlidersHorizontal size={13}/> 칸 크기 · 로고 · 문구 설정 {showCustomizer ? '▲' : '▼'}
+      <Send size={14}/> 카카오톡 발송{students.length ? ` (${students.length}명)` : ''}
      </button>
     </div>
-   </section>
+   </div>
 
-   {/* 상세 커스터마이저 드로어 (칸 비율 조절 · 순서 변경 · 학원 로고 · 문구 · 기본값 저장) */}
+   {/* 양식 · 디자인 설정 드로어 (템플릿 스타일 · 포함 요소 · 칸 비율 · 학원 로고 · 문구 · 기본값 저장) */}
    {showCustomizer && (
     <section className={styles.templateEditor} aria-label="보고서 상세 커스텀 설정">
+     {/* 상단 요약 설정 바: 템플릿 스타일 · 포함 요소 · 방향 · 스냅샷 */}
+     <div
+      style={{
+       display:'flex',
+       alignItems:'center',
+       justifyContent:'space-between',
+       flexWrap:'wrap',
+       gap:12,
+       padding:'10px 14px',
+       marginBottom:14,
+       background:'#ffffff',
+       border:'1px solid #dbe5f2',
+       borderRadius:10,
+      }}
+     >
+      <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+       <div className={styles.presetGroup}>
+        <span className={styles.presetLabel}>템플릿 스타일</span>
+        <div className={styles.segmented} role="group" aria-label="템플릿 분위기 선택">
+         {studioThemes.map(({key,label,Icon,badge})=>(
+          <button key={key} type="button" disabled={exporting} aria-pressed={theme===key} onClick={()=>setTheme(key)} className={styles.themeTabBtn}>
+           <Icon size={14}/>
+           {label}
+           {badge&&<span style={{fontSize:9.5,fontWeight:800,padding:'1px 5px',borderRadius:999,background:'#dcfce7',color:'#15803d'}}>{badge}</span>}
+          </button>
+         ))}
+        </div>
+       </div>
+
+       <div className={styles.presetDivider} aria-hidden="true"/>
+
+       <div className={styles.presetGroup}>
+        <span className={styles.presetLabel}>포함 요소</span>
+        <div className={styles.kindPills} role="group" aria-label="보고서 포함 요소 선택">
+         {ALL_KINDS.map(k => {
+          const on = enabledKinds.includes(k);
+          return (
+           <button
+            key={k}
+            type="button"
+            disabled={exporting}
+            aria-pressed={on}
+            onClick={() => toggleKind(k)}
+            className={styles.kindPill}
+           >
+            {on ? '✓ ' : '+ '}{kindLabels[k]}
+           </button>
+          );
+         })}
+         <button
+          type="button"
+          disabled={exporting}
+          aria-pressed={showNextHomework}
+          onClick={() => setShowNextHomework(v => !v)}
+          className={styles.kindPill}
+         >
+          {showNextHomework ? '✓ ' : '+ '}다음과제
+         </button>
+         {cycle === 'month' && (
+          <button
+           type="button"
+           disabled={exporting}
+           aria-pressed={showMonthlyCompetency}
+           onClick={() => setShowMonthlyCompetency(v => !v)}
+           className={styles.kindPill}
+          >
+           {showMonthlyCompetency ? '✓ ' : '+ '}5대역량진단
+          </button>
+         )}
+         <button
+          type="button"
+          disabled={exporting}
+          aria-pressed={hideEmpty}
+          onClick={() => setHideEmpty(v => !v)}
+          className={styles.kindPill}
+         >
+          {hideEmpty ? '✓ ' : ''}빈 항목 자동숨김
+         </button>
+        </div>
+       </div>
+      </div>
+
+      <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+       <label style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:11.5,fontWeight:700,color:'#475569'}}>
+        방향
+        <select aria-label="보고서 방향" value={orientation} disabled={exporting} onChange={e=>setOrientation(e.target.value as 'portrait'|'landscape')}>
+         <option value="portrait">세로형</option>
+         <option value="landscape">가로형</option>
+        </select>
+       </label>
+       <button type="button" disabled={!students.length||loading||exporting||!valid} onClick={loadSaved}>저장본 불러오기</button>
+       <button type="button" disabled={!ready||exporting} onClick={saveReports}>현재 보고서 임시저장</button>
+      </div>
+     </div>
+
      <div style={{display:'grid',gridTemplateColumns:'1.2fr 1fr',gap:20,alignItems:'start'}}>
       {/* 좌측: 학원별 빠른 프리셋 & 요소별 칸 너비/세로 크기/순서 조절 */}
       <div>
@@ -1396,6 +1594,439 @@ export default function NewReportPage(){
       <div style={{ '--preview-scale': 1.15, width: pageWidth * 1.15 } as CSSProperties}>
        <div style={{ zoom: 1.15 } as CSSProperties}>
         <ReportSheets preview={activeReport} template={template} onEditFeedback={handleEditFeedback} onEditHeader={handleEditHeader}/>
+       </div>
+      </div>
+     </div>
+    </div>
+   )}
+
+   {/* 카카오톡 리포트 자동 발송 모달 */}
+   {kakaoModalOpen && (
+    <div
+     role="dialog"
+     aria-modal="true"
+     aria-label="카카오톡 리포트 자동 발송"
+     onClick={e => {
+      if (e.target === e.currentTarget && !kakaoSending) setKakaoModalOpen(false);
+     }}
+     style={{
+      position:'fixed',
+      inset:0,
+      zIndex:110,
+      background:'rgba(15, 23, 42, 0.72)',
+      backdropFilter:'blur(3px)',
+      display:'flex',
+      alignItems:'center',
+      justifyContent:'center',
+      padding:20,
+     }}
+    >
+     <div
+      style={{
+       width:'100%',
+       maxWidth:760,
+       maxHeight:'90vh',
+       background:'#ffffff',
+       borderRadius:18,
+       boxShadow:'0 24px 60px rgba(15, 23, 42, 0.35)',
+       display:'flex',
+       flexDirection:'column',
+       overflow:'hidden',
+      }}
+     >
+      {/* 헤더 */}
+      <div
+       style={{
+        padding:'16px 22px',
+        background:'#fae100',
+        color:'#3c1e1e',
+        display:'flex',
+        alignItems:'center',
+        justifyContent:'space-between',
+        gap:12,
+       }}
+      >
+       <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+        <strong style={{fontSize:16,fontWeight:900,display:'inline-flex',alignItems:'center',gap:6}}>
+         <Send size={16}/> 카카오톡 리포트 자동 발송
+        </strong>
+        <span
+         style={{
+          fontSize:11.5,
+          fontWeight:800,
+          padding:'3px 10px',
+          borderRadius:999,
+          background:kakaoBridgeAlive ? '#15803d' : '#b45309',
+          color:'#ffffff',
+         }}
+        >
+         {kakaoBridgeAlive ? '● 카톡 발송 엔진 연결됨' : '● 발송 시 로컬 카톡 엔진 자동 연결'}
+        </span>
+       </div>
+       <button
+        type="button"
+        disabled={kakaoSending}
+        onClick={() => setKakaoModalOpen(false)}
+        style={{
+         padding:'5px 10px',
+         borderRadius:8,
+         border:'1px solid rgba(60,30,30,0.2)',
+         background:'rgba(255,255,255,0.65)',
+         color:'#3c1e1e',
+         fontSize:12,
+         fontWeight:800,
+         cursor:kakaoSending ? 'default' : 'pointer',
+         display:'inline-flex',
+         alignItems:'center',
+         gap:4,
+        }}
+       >
+        <X size={14}/> 닫기
+       </button>
+      </div>
+
+      {/* 본문 */}
+      <div style={{padding:'18px 22px',overflowY:'auto',display:'flex',flexDirection:'column',gap:16}}>
+       {/* 1. 카톡 검색어 규칙 & 옵션 */}
+       <div
+        style={{
+         padding:'14px 16px',
+         background:'#f8fafc',
+         border:'1px solid #e2e8f0',
+         borderRadius:12,
+         display:'flex',
+         flexDirection:'column',
+         gap:10,
+        }}
+       >
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
+         <strong style={{fontSize:13,color:'#0f172a'}}>1. 카카오톡 친구/채팅방 검색어 규칙</strong>
+         <span style={{fontSize:11.5,color:'#64748b'}}>
+          동명이인이 있으면 <code>{'{name}'}</code>만 골라도 자동으로 학년이 붙습니다.
+         </span>
+        </div>
+
+        <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+         {[
+          { label: '학생 이름만 (예: 홍길동)', value: '{name}' },
+          { label: '학년 + 이름 (예: 중2 홍길동)', value: '{grade} {name}' },
+          { label: '이름 + 학부모 (예: 홍길동 학부모)', value: '{name} 학부모' },
+          { label: '학년 + 이름 + 학부모 (예: 중2 홍길동 학부모)', value: '{grade} {name} 학부모' },
+         ].map(preset => (
+          <button
+           key={preset.value}
+           type="button"
+           onClick={() => setKakaoSearchTemplate(preset.value)}
+           style={{
+            padding:'6px 11px',
+            fontSize:11.5,
+            fontWeight:800,
+            borderRadius:8,
+            border:kakaoSearchTemplate === preset.value ? '1.5px solid #2563eb' : '1px solid #cbd5e1',
+            background:kakaoSearchTemplate === preset.value ? '#eff6ff' : '#ffffff',
+            color:kakaoSearchTemplate === preset.value ? '#1d4ed8' : '#334155',
+            cursor:'pointer',
+           }}
+          >
+           {preset.label}
+          </button>
+         ))}
+        </div>
+
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))',gap:10,marginTop:2}}>
+         <label style={{display:'flex',flexDirection:'column',gap:4,fontSize:11.5,fontWeight:700,color:'#475569'}}>
+          검색어 템플릿 직접 수정
+          <input
+           type="text"
+           value={kakaoSearchTemplate}
+           onChange={e => setKakaoSearchTemplate(e.target.value)}
+           placeholder="예: {grade} {name} 어머님"
+           style={{height:34,padding:'0 10px',borderRadius:8,border:'1px solid #cbd5e1',fontSize:12.5}}
+          />
+         </label>
+
+         <label style={{display:'flex',flexDirection:'column',gap:4,fontSize:11.5,fontWeight:700,color:'#475569'}}>
+          카카오톡 검색 기준 탭
+          <select
+           value={kakaoTabMode}
+           onChange={e => setKakaoTabMode(e.target.value as 'friends' | 'chats')}
+           style={{height:34,padding:'0 10px',borderRadius:8,border:'1px solid #cbd5e1',fontSize:12.5,background:'#ffffff'}}
+          >
+           <option value="friends">친구 목록에서 검색 (Ctrl+1)</option>
+           <option value="chats">채팅방 목록에서 검색 (Ctrl+2)</option>
+          </select>
+         </label>
+
+         <label style={{display:'flex',flexDirection:'column',gap:4,fontSize:11.5,fontWeight:700,color:'#475569'}}>
+          동작 간격 (초 · 기본 1.0초)
+          <input
+           type="number"
+           min={0.5}
+           max={5}
+           step={0.1}
+           value={kakaoDelay}
+           onChange={e => setKakaoDelay(Math.max(0.5, Number(e.target.value) || 1.0))}
+           style={{height:34,padding:'0 10px',borderRadius:8,border:'1px solid #cbd5e1',fontSize:12.5}}
+          />
+         </label>
+        </div>
+       </div>
+
+       {/* 2. 발송 대상 학생 목록 및 개별 카톡 별칭 지정 */}
+       <div
+        style={{
+         padding:'14px 16px',
+         background:'#ffffff',
+         border:'1px solid #e2e8f0',
+         borderRadius:12,
+         display:'flex',
+         flexDirection:'column',
+         gap:10,
+        }}
+       >
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
+         <strong style={{fontSize:13,color:'#0f172a'}}>
+          2. 발송 대상 선택 및 학생별 카톡 검색어 확인 ({kakaoTargets.length} / {students.length}명)
+         </strong>
+         <div style={{display:'flex',gap:6}}>
+          {activeReport && (
+           <button
+            type="button"
+            onClick={() => setKakaoTargets([activeReport.id])}
+            style={{
+             padding:'4px 10px',
+             fontSize:11.5,
+             fontWeight:700,
+             borderRadius:7,
+             border:'1px solid #93c5fd',
+             background:'#eff6ff',
+             color:'#1d4ed8',
+             cursor:'pointer',
+            }}
+           >
+            현재 학생만 ({activeReport.name})
+           </button>
+          )}
+          <button
+           type="button"
+           onClick={() =>
+            setKakaoTargets(kakaoTargets.length === students.length ? [] : students.map(s => s.id))
+           }
+           style={{
+            padding:'4px 10px',
+            fontSize:11.5,
+            fontWeight:700,
+            borderRadius:7,
+            border:'1px solid #cbd5e1',
+            background:'#f8fafc',
+            color:'#334155',
+            cursor:'pointer',
+           }}
+          >
+           {kakaoTargets.length === students.length ? '전체 해제' : `전체 선택 (${students.length}명)`}
+          </button>
+         </div>
+        </div>
+
+        <div
+         style={{
+          maxHeight:210,
+          overflowY:'auto',
+          border:'1px solid #e2e8f0',
+          borderRadius:10,
+          divideY:'1px solid #f1f5f9',
+         } as CSSProperties}
+        >
+         {students.map(s => {
+          const checked = kakaoTargets.includes(s.id);
+          const previewQuery = formatKakaoPreviewQuery(s);
+          const resultItem = kakaoResults.find(r => r.studentId === s.id);
+          return (
+           <div
+            key={s.id}
+            style={{
+             display:'flex',
+             alignItems:'center',
+             justifyContent:'space-between',
+             gap:10,
+             padding:'8px 12px',
+             borderBottom:'1px solid #f1f5f9',
+             background:checked ? '#f8fbff' : '#ffffff',
+            }}
+           >
+            <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',minWidth:150}}>
+             <input
+              type="checkbox"
+              checked={checked}
+              onChange={() =>
+               setKakaoTargets(prev =>
+                prev.includes(s.id) ? prev.filter(id => id !== s.id) : [...prev, s.id]
+               )
+              }
+             />
+             <span style={{fontSize:13,fontWeight:800,color:'#0f172a'}}>{s.name}</span>
+             <small style={{fontSize:11.5,color:'#64748b'}}>{s.grade} · {s.group}</small>
+            </label>
+
+            <div style={{display:'flex',alignItems:'center',gap:8,flex:1,justifyContent:'flex-end'}}>
+             <span style={{fontSize:11.5,color:'#475569',whiteSpace:'nowrap'}}>
+              실제 검색어: <strong style={{color:'#1d4ed8'}}>{previewQuery}</strong>
+             </span>
+             <input
+              type="text"
+              value={kakaoAliases[s.id] || ''}
+              onChange={e => updateKakaoAlias(s.id, e.target.value)}
+              placeholder="별도 카톡명 지정 (자동 저장)"
+              style={{
+               width:175,
+               height:28,
+               padding:'0 8px',
+               borderRadius:6,
+               border:'1px solid #cbd5e1',
+               fontSize:11.5,
+              }}
+             />
+             {resultItem && (
+              <span
+               style={{
+                fontSize:11,
+                fontWeight:800,
+                padding:'2px 7px',
+                borderRadius:999,
+                background:resultItem.success ? '#dcfce7' : '#fee2e2',
+                color:resultItem.success ? '#15803d' : '#b91c1c',
+                whiteSpace:'nowrap',
+               }}
+              >
+               {resultItem.success ? '✓ 전송됨' : '✗ 실패'}
+              </span>
+             )}
+            </div>
+           </div>
+          );
+         })}
+        </div>
+       </div>
+
+       {/* 3. 진행 로그 */}
+       {kakaoLogs.length > 0 && (
+        <div
+         style={{
+          padding:'10px 14px',
+          background:'#0f172a',
+          color:'#e2e8f0',
+          borderRadius:10,
+          fontSize:12,
+          fontFamily:'monospace',
+          maxHeight:140,
+          overflowY:'auto',
+          display:'flex',
+          flexDirection:'column',
+          gap:3,
+         }}
+        >
+         {kakaoLogs.map((line, i) => (
+          <div key={i}>{line}</div>
+         ))}
+        </div>
+       )}
+      </div>
+
+      {/* 하단 액션 버튼 */}
+      <div
+       style={{
+        padding:'14px 22px',
+        background:'#f8fafc',
+        borderTop:'1px solid #e2e8f0',
+        display:'flex',
+        alignItems:'center',
+        justifyContent:'space-between',
+        flexWrap:'wrap',
+        gap:10,
+       }}
+      >
+       <button
+        type="button"
+        disabled={exporting || kakaoSending || kakaoTargets.length === 0}
+        onClick={() => void exportKakaoNamedZip()}
+        style={{
+         padding:'8px 13px',
+         borderRadius:9,
+         border:'1px solid #cbd5e1',
+         background:'#ffffff',
+         color:'#334155',
+         fontSize:12,
+         fontWeight:800,
+         cursor:'pointer',
+         display:'inline-flex',
+         alignItems:'center',
+         gap:6,
+        }}
+       >
+        <Download size={14}/> 카톡용 이름규칙(학년 이름.png) ZIP 다운로드
+       </button>
+
+       <div style={{display:'flex',alignItems:'center',gap:8}}>
+        {kakaoSending ? (
+         <button
+          type="button"
+          onClick={() => void stopKakaoSend()}
+          style={{
+           padding:'9px 18px',
+           borderRadius:9,
+           border:0,
+           background:'#ef4444',
+           color:'#ffffff',
+           fontSize:13,
+           fontWeight:800,
+           cursor:'pointer',
+          }}
+         >
+          발송 중단
+         </button>
+        ) : (
+         <>
+          {activeReport && (
+           <button
+            type="button"
+            disabled={!ready || exporting}
+            onClick={() => void sendReportsToKakao([activeReport.id])}
+            style={{
+             padding:'9px 15px',
+             borderRadius:9,
+             border:'1px solid #1d4ed8',
+             background:'#eff6ff',
+             color:'#1d4ed8',
+             fontSize:12.5,
+             fontWeight:800,
+             cursor:'pointer',
+            }}
+           >
+            현재 학생 1명({activeReport.name}) 바로 발송
+           </button>
+          )}
+          <button
+           type="button"
+           disabled={!ready || exporting || kakaoTargets.length === 0}
+           onClick={() => void sendReportsToKakao()}
+           style={{
+            padding:'9px 20px',
+            borderRadius:9,
+            border:'1px solid #ca8a04',
+            background:'#fae100',
+            color:'#3c1e1e',
+            fontSize:13,
+            fontWeight:900,
+            cursor:kakaoTargets.length > 0 ? 'pointer' : 'default',
+            display:'inline-flex',
+            alignItems:'center',
+            gap:6,
+           }}
+          >
+           <Send size={14}/> 선택 {kakaoTargets.length}명 카카오톡 자동 발송 시작
+          </button>
+         </>
+        )}
        </div>
       </div>
      </div>

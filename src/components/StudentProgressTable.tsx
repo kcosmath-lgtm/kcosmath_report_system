@@ -414,8 +414,8 @@ function ProgressRow({
       </td>
       <td>
         <div className={styles.fieldStack}>
-          <input
-            type="text"
+          <textarea
+            rows={Math.min(6, Math.max(1, scope.split('\n').length))}
             className={styles.tableInput}
             disabled={locked}
             aria-label={`${student.name} 오늘 진도 범위`}
@@ -423,18 +423,6 @@ function ProgressRow({
             onChange={e => {
               setScope(e.target.value);
               setDirty(true);
-            }}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && !e.nativeEvent.isComposing && scopeSuggestion && scopeSuggestion.label !== scope) {
-                e.preventDefault();
-                setScope(scopeSuggestion.label);
-                if (book && scopeSuggestion.endPage) {
-                  const clamped = book.total_pages ? Math.min(book.total_pages, scopeSuggestion.endPage) : scopeSuggestion.endPage;
-                  const nextStates = syncUnitStatesFromPage(book.units, book.states, clamped);
-                  setDraft({ ...book, completed_page: clamped, states: nextStates });
-                }
-                setDirty(true);
-              }
             }}
             placeholder={isPrintBook(book) || !book ? '예: 기출 프린트 오답 정리 / 유인물 진도' : '예: 26~41 또는 #133~250 입력 시 자동 변환'}
           />
@@ -459,8 +447,8 @@ function ProgressRow({
       </td>
       <td>
         <div className={styles.fieldStack}>
-          <input
-            type="text"
+          <textarea
+            rows={Math.min(6, Math.max(1, homework.split('\n').length))}
             className={styles.tableInput}
             disabled={locked}
             aria-label={`${student.name} 오늘 내줄 숙제`}
@@ -468,13 +456,6 @@ function ProgressRow({
             onChange={e => {
               setHomework(e.target.value);
               setDirty(true);
-            }}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && !e.nativeEvent.isComposing && homeworkSuggestion && homeworkSuggestion.label !== homework) {
-                e.preventDefault();
-                setHomework(homeworkSuggestion.label);
-                setDirty(true);
-              }
             }}
             placeholder={isPrintBook(book) || !book ? '예: 오답 프린트 20문항 풀어오기' : '예: 26~35 또는 #133~200 입력 시 자동 변환'}
           />
@@ -493,8 +474,8 @@ function ProgressRow({
         </div>
       </td>
       <td>
-        <input
-          type="text"
+        <textarea
+          rows={Math.min(6, Math.max(1, feedback.split('\n').length))}
           className={styles.tableInput}
           disabled={locked}
           aria-label={`${student.name} 수업 피드백`}
@@ -1071,53 +1052,35 @@ export default function StudentProgressTable({
                           </div>
                         </td>
                         <td>
-                          <input
-                            type="text"
+                          <textarea
+                            rows={Math.min(6, Math.max(1, bulk.scope.split('\n').length))}
                             className={styles.tableInput}
                             aria-label={activeGroups.length === 1 ? '일괄 진행 범위' : `${group.group} 일괄 진행 범위`}
                             maxLength={2000}
                             value={bulk.scope}
                             onChange={e => patchClassBulk(group.id, { scope: e.target.value })}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                                e.preventDefault();
-                                void applyClassBulk(group);
-                              }
-                            }}
                             placeholder={`[${group.group}] 공통 진도 (예: p.42~48)`}
                           />
                         </td>
                         <td>
-                          <input
-                            type="text"
+                          <textarea
+                            rows={Math.min(6, Math.max(1, bulk.homework.split('\n').length))}
                             className={styles.tableInput}
                             aria-label={activeGroups.length === 1 ? '일괄 숙제' : `${group.group} 일괄 숙제`}
                             maxLength={2000}
                             value={bulk.homework}
                             onChange={e => patchClassBulk(group.id, { homework: e.target.value })}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                                e.preventDefault();
-                                void applyClassBulk(group);
-                              }
-                            }}
                             placeholder={`[${group.group}] 공통 과제 (예: p.20~24)`}
                           />
                         </td>
                         <td>
-                          <input
-                            type="text"
+                          <textarea
+                            rows={Math.min(6, Math.max(1, bulk.feedback.split('\n').length))}
                             className={styles.tableInput}
                             aria-label={activeGroups.length === 1 ? '일괄 오늘의 피드백' : `${group.group} 일괄 오늘의 피드백`}
                             maxLength={2000}
                             value={bulk.feedback}
                             onChange={e => patchClassBulk(group.id, { feedback: e.target.value })}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                                e.preventDefault();
-                                void applyClassBulk(group);
-                              }
-                            }}
                             placeholder={`[${group.group}] 공통 피드백`}
                           />
                         </td>

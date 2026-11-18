@@ -1857,11 +1857,11 @@ function SaebomForestSheet({
             </td>
             <td>
              <div className={styles.saebomJourneyCell}>
-              <span>{log.scope && log.scope !== '학습 범위 미기록' ? log.scope : '단원 진도 학습 진행'}</span>
+              <span style={{ whiteSpace: 'pre-line' }}>{log.scope && log.scope !== '학습 범위 미기록' ? log.scope : '단원 진도 학습 진행'}</span>
               {!log.isPrint && <b className={styles.saebomPctTag}>{log.pct}%</b>}
              </div>
             </td>
-            <td style={{ fontSize: 11, color: '#1e3a8a', fontWeight: 600 }}>
+            <td style={{ fontSize: 11, color: '#1e3a8a', fontWeight: 600, whiteSpace: 'pre-line' }}>
              {log.homework ? `${log.homework}${log.dueDate ? ` (~${shortDate(log.dueDate)})` : ''}` : '교재 복습 및 오답 정리'}
             </td>
            </tr>
@@ -1898,7 +1898,7 @@ function SaebomForestSheet({
             </td>
             <td>
              <div className={styles.saebomJourneyCell}>
-              <span>{b.journeyLabel && b.journeyLabel !== '학습 범위 미기록' ? b.journeyLabel : '단원 학습 진행'}</span>
+              <span style={{ whiteSpace: 'pre-line' }}>{b.journeyLabel && b.journeyLabel !== '학습 범위 미기록' ? b.journeyLabel : '단원 학습 진행'}</span>
               <b className={styles.saebomPctTag}>
                {b.totalPages > 0 ? `${b.donePages}/${b.totalPages}p (${b.pct}%)` : `${b.pct}%`}
               </b>

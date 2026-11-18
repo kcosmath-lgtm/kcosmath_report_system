@@ -145,6 +145,7 @@ export default function NewReportPage(){
  const [titlePosition, setTitlePosition] = useState<TitlePosition>('left');
  const [logoDataUrl, setLogoDataUrl] = useState('');
  const [logoPosition, setLogoPosition] = useState<'left'|'right'|'center'>('left');
+ const [logoSize, setLogoSize] = useState<number>(42);
  const [accentColor, setAccentColor] = useState('');
  const [footerNotice, setFooterNotice] = useState('');
  const [showCustomizer, setShowCustomizer] = useState(false);
@@ -206,6 +207,7 @@ export default function NewReportPage(){
     }
     if (typeof savedPref.logoDataUrl === 'string') setLogoDataUrl(savedPref.logoDataUrl);
     if (savedPref.logoPosition) setLogoPosition(savedPref.logoPosition);
+    if (typeof savedPref.logoSize === 'number') setLogoSize(savedPref.logoSize);
     if (typeof savedPref.accentColor === 'string') setAccentColor(savedPref.accentColor);
     if (typeof savedPref.footerNotice === 'string') setFooterNotice(savedPref.footerNotice);
    }
@@ -231,6 +233,7 @@ export default function NewReportPage(){
    titlePosition,
    logoDataUrl,
    logoPosition,
+   logoSize,
    accentColor,
    footerNotice,
    spanOverrides,
@@ -259,6 +262,7 @@ export default function NewReportPage(){
   titlePosition,
   logoDataUrl,
   logoPosition,
+  logoSize,
   accentColor,
   footerNotice,
   spanOverrides,
@@ -316,6 +320,7 @@ export default function NewReportPage(){
      titlePosition,
      logoDataUrl,
      logoPosition,
+     logoSize,
      accentColor,
      footerNotice,
     })
@@ -447,6 +452,17 @@ export default function NewReportPage(){
   setBulkFeedbackText(memo);
   setMessage(`선택한 ${targetIds.length}명의 학생 보고서에 피드백 코멘트를 일괄 적용했습니다.`);
  }, [bulkFeedbackTargets, students, persistStudentFeedback]);
+
+ useEffect(() => {
+  const onRecordsChanged = () => setRevision(v => v + 1);
+  window.addEventListener('cosmath-records-changed', onRecordsChanged);
+  const ch = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('cosmath-records') : null;
+  if (ch) ch.onmessage = onRecordsChanged;
+  return () => {
+   window.removeEventListener('cosmath-records-changed', onRecordsChanged);
+   ch?.close();
+  };
+ }, []);
 
  useEffect(()=>{
   let cancelled=false;
@@ -1010,6 +1026,20 @@ export default function NewReportPage(){
            <option value="left">로고 좌측</option>
            <option value="right">로고 우측</option>
           </select>
+          <label style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:11,fontWeight:700,color:'#475569'}}>
+           <span>로고 크기</span>
+           <input
+            type="range"
+            min={24}
+            max={96}
+            step={2}
+            value={logoSize}
+            onChange={e => setLogoSize(Number(e.target.value))}
+            aria-label="로고 크기 조절"
+            style={{width:86,padding:0,cursor:'pointer'}}
+           />
+           <span style={{minWidth:32,fontSize:11,fontWeight:800,color:'#1e40af'}}>{logoSize}px</span>
+          </label>
           <button type="button" onClick={() => setLogoDataUrl('')} style={{padding:'5px 8px',color:'#dc2626'}}>
            로고 삭제
           </button>

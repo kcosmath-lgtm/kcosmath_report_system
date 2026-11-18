@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const ts = require('typescript');
 require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText,filename);
-const { parseGradeRows } = require('../src/lib/grade-import.ts');
+const { parseGradeRows, extractDateFromTitle } = require('../src/lib/grade-import.ts');
 const header = ['학생명','반','학년','문제지명','생성일','채점완료일','점수','문항수','정/오','문제지ID'];
 const sample = ['학생 A','중3 A반','중3','Daily Test','26.10.07','26.10.08','93점','15문항','14/1','12345'];
 test('problem bank grades preserve exam date, score, counts and stable source ID; ungraded is excluded', () => {
@@ -12,6 +12,14 @@ test('problem bank grades preserve exam date, score, counts and stable source ID
  assert.equal(result.rows[0].date,'2026-10-07'); assert.equal(result.rows[0].score,93);
  assert.equal(result.rows[0].total,15); assert.equal(result.rows[0].wrong,1);
  assert.equal(result.rows[0].key,parseGradeRows([header,sample]).rows[0].key);
+});
+test('exam title leading date (e.g. 261117/ 중2/ 도형의 닮음, 피타고라스의 정리) takes precedence over creation date', () => {
+ assert.equal(extractDateFromTitle('261117/ 중2/ 도형의 닮음, 피타고라스의 정리'), '2026-11-17');
+ assert.equal(extractDateFromTitle('20261117/ 중2/ 도형의 닮음'), '2026-11-17');
+ assert.equal(extractDateFromTitle('26.11.17/ 중2/ 도형의 닮음'), '2026-11-17');
+ const rowWithTitleDate = ['학생 A','중2 A반','중2','261117/ 중2/ 도형의 닮음, 피타고라스의 정리','26.11.10','26.11.18','95점','20문항','19/1','99999'];
+ const parsed = parseGradeRows([header, rowWithTitleDate]);
+ assert.equal(parsed.rows[0].date, '2026-11-17');
 });
 test('invalid headers, missing IDs, impossible scores and dates are rejected', () => {
  assert.throws(() => parseGradeRows([['이름','결과'],sample]));

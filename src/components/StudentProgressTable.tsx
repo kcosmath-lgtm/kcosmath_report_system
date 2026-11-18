@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BookOpen, Calendar, Check, History, ListChecks, RotateCcw, Save } from 'lucide-react';
-import { loadClassBooks, loadProgress, manageClassBook, saveProgressBatch } from '../lib/report-storage';
+import { loadClassBooks, loadProgress, manageClassBook, saveProgressBatch, saveProgressBooks } from '../lib/report-storage';
 import {
   completedBookProblems,
   progressPercent,
@@ -18,11 +18,32 @@ import ProgressUnitEditor from './ProgressUnitEditor';
 import ClassBookManager from './ClassBookManager';
 import styles from './student-progress.module.css';
 
+const PRINT_BOOK_OPTION = '__print__';
+const isPrintBook = (b?: ProgressBook | null) =>
+  Boolean(b && (b.curriculum === '프린트' || b.title === '프린트 · 유인물'));
+
+function createNewPrintBook(studentId: string): ProgressBook {
+  return {
+    id: crypto.randomUUID(),
+    student_id: studentId,
+    title: '프린트 · 유인물',
+    curriculum: '프린트',
+    course: '개별·보충 프린트',
+    units: [{ id: 'print-unit-1', group: '프린트', name: '프린트 학습 및 오답' }],
+    states: { 'print-unit-1': '진행 중' },
+    total_pages: 0,
+    completed_page: 0,
+    version: 0,
+  };
+}
+
 type Saved = { book: ProgressBook; entry: ProgressEntry };
 type RowHandle = {
   dirty: boolean;
   ready: boolean;
+  studentId: string;
   book?: ProgressBook;
+  books: ProgressBook[];
   scope: string;
   homework: string;
   feedback: string;
@@ -63,8 +84,8 @@ function ProgressRow({
   const [entries, setEntries] = useState<ProgressEntry[]>([]);
   const [bookId, setBookId] = useState('');
   const [draft, setDraft] = useState<ProgressBook | null>(null);
-  const [scope, setScope] = useState('');
-  const [homework, setHomework] = useState('');
+  const [scopeDraft, setScope] = useState<string | null>(null);
+  const [homeworkDraft, setHomework] = useState<string | null>(null);
   const [feedbackDraft, setFeedback] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -119,27 +140,52 @@ function ProgressRow({
     };
   }, [student.id, revision, reload]);
 
-  const todayEntry = [...entries]
-    .filter(e => e.book_id === bookId && e.record_date === date)
-    .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+  const book = draft ?? books.find(b => b.id === bookId);
+  const pct = book ? progressPercent(book) : 0;
+  const totalProbs = book ? totalBookProblems(book) : 0;
+  const doneProbs = book ? completedBookProblems(book) : 0;
+  const activeUnitObjects = book?.units.filter(u => book.states[u.id] === '진행 중') ?? [];
+  const activeUnits = activeUnitObjects.map(u => u.name);
+  const doneUnitCount = book?.units.filter(u => book.states[u.id] === '완료').length ?? 0;
+
+  const latestBookEntry = [...entries]
+    .filter(e => e.book_id === bookId && e.memo !== '단원 상태 변경')
+    .sort((a, b) => b.record_date.localeCompare(a.record_date) || b.created_at.localeCompare(a.created_at))[0];
 
   const lastEntryWithHomework = [...entries]
-    .filter(e => e.book_id === bookId && e.homework)
+    .filter(e => e.book_id === bookId && e.homework.trim())
     .sort((a, b) => b.record_date.localeCompare(a.record_date) || b.created_at.localeCompare(a.created_at))[0];
 
   const lastEntryWithScope = [...entries]
-    .filter(e => e.book_id === bookId && e.scope)
+    .filter(e => e.book_id === bookId && e.scope.trim())
     .sort((a, b) => b.record_date.localeCompare(a.record_date) || b.created_at.localeCompare(a.created_at))[0];
 
-  const feedback = feedbackDraft ?? todayEntry?.memo ?? '';
-  const book = draft ?? books.find(b => b.id === bookId);
+  // 수업 피드백·코멘트는 교재와 무관하게 학생 단위로 가장 최근 작성된 피드백을 유지
+  const todayAnyBookFeedback = [...entries]
+    .filter(e => e.record_date === date && e.memo.trim() && e.memo.trim() !== '단원 상태 변경')
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]?.memo;
+
+  const lastAnyBookFeedback = [...entries]
+    .filter(e => e.memo.trim() && e.memo.trim() !== '단원 상태 변경')
+    .sort((a, b) => b.record_date.localeCompare(a.record_date) || b.created_at.localeCompare(a.created_at))[0]?.memo;
+
+  const scope =
+    scopeDraft ??
+    (latestBookEntry?.scope.trim() ||
+      lastEntryWithScope?.scope.trim() ||
+      (!isPrintBook(book) ? activeUnits.slice(0, 2).join(', ') : '') ||
+      '');
+  const homework = homeworkDraft ?? (latestBookEntry?.homework.trim() || lastEntryWithHomework?.homework.trim() || '');
+  const feedback = feedbackDraft ?? (todayAnyBookFeedback || lastAnyBookFeedback || '');
   const locked = saving || busy || loading || failed;
 
   useEffect(() => {
     register(student.id, {
       dirty,
       ready: !locked,
+      studentId: student.id,
       book,
+      books,
       scope,
       homework,
       feedback,
@@ -156,23 +202,55 @@ function ProgressRow({
         setDirty(true);
       },
       accept: saved => {
-        setBooks(current => current.map(b => (b.id === saved.book.id ? saved.book : b)));
+        setBooks(current => (current.some(b => b.id === saved.book.id) ? current.map(b => (b.id === saved.book.id ? saved.book : b)) : [...current, saved.book]));
+        setBookId(saved.book.id);
         setDraft(null);
-        setEntries(current => [saved.entry, ...current]);
+        setEntries(current => [
+          saved.entry,
+          ...current.filter(e => !(e.book_id === saved.entry.book_id && e.record_date === saved.entry.record_date)),
+        ]);
         setDirty(false);
-        setScope('');
-        setHomework('');
+        setScope(null);
+        setHomework(null);
         setFeedback(null);
         setMessage('');
       },
     });
     return () => register(student.id, null);
-  }, [register, student.id, dirty, locked, book, scope, homework, feedback, entries]);
+  }, [register, student.id, dirty, locked, book, books, scope, homework, feedback, entries]);
 
   async function choose(value: string) {
+    if (value === PRINT_BOOK_OPTION) {
+      const existingPrint = books.find(isPrintBook);
+      if (existingPrint) {
+        setBookId(existingPrint.id);
+        setDraft(null);
+        setScope(null);
+        setHomework(null);
+        return;
+      }
+      setBusy(true);
+      setMessage('');
+      try {
+        const created = await saveProgressBooks([createNewPrintBook(student.id)]);
+        const b = created[0].book;
+        setBooks(current => (current.some(x => x.id === b.id) ? current : [...current, b]));
+        setBookId(b.id);
+        setDraft(null);
+        setScope(null);
+        setHomework(null);
+      } catch (e) {
+        setMessage(e instanceof Error ? e.message : '프린트 항목 전환 실패');
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     if (value.startsWith('assigned:')) {
       setBookId(value.slice(9));
       setDraft(null);
+      setScope(null);
+      setHomework(null);
       return;
     }
     const template = catalog.find(b => b.id === value);
@@ -185,24 +263,14 @@ function ProgressRow({
       setBooks(current => (current.some(x => x.id === b.id) ? current : [...current, b]));
       setBookId(b.id);
       setDraft(null);
+      setScope(null);
+      setHomework(null);
     } catch (e) {
       setMessage(e instanceof Error ? e.message : '교재 연결 실패');
     } finally {
       setBusy(false);
     }
   }
-
-  const pct = book ? progressPercent(book) : 0;
-  const totalProbs = book ? totalBookProblems(book) : 0;
-  const doneProbs = book ? completedBookProblems(book) : 0;
-  const activeUnitObjects = book?.units.filter(u => book.states[u.id] === '진행 중') ?? [];
-  const activeUnits = activeUnitObjects.map(u => {
-    const meta: string[] = [];
-    if (u.start_page && u.end_page) meta.push(`p.${u.start_page}~${u.end_page}`);
-    if (u.start_problem && u.end_problem) meta.push(`#${u.start_problem}~${u.end_problem}`);
-    return meta.length > 0 ? `${u.name}(${meta.join('·')})` : u.name;
-  });
-  const doneUnitCount = book?.units.filter(u => book.states[u.id] === '완료').length ?? 0;
 
   function parseShorthand(raw: string) {
     if (!book) return null;
@@ -245,18 +313,21 @@ function ProgressRow({
         <select
           className={styles.bookSelect}
           aria-label={`${student.name} 교재`}
-          value={bookId ? `assigned:${bookId}` : ''}
+          value={isPrintBook(book) ? PRINT_BOOK_OPTION : bookId ? `assigned:${bookId}` : ''}
           disabled={locked || dirty}
           onChange={e => void choose(e.target.value)}
         >
           <option value="">[{groupName}] 교재 선택 · 연결</option>
-          {books.length > 0 && (
-            <optgroup label={`현재 연결된 교재 (${books.length}권)`}>
-              {books.map(b => (
-                <option key={b.id} value={`assigned:${b.id}`}>
-                  {b.title}
-                </option>
-              ))}
+          <option value={PRINT_BOOK_OPTION}>📄 프린트 · 유인물 (교재 외 수업)</option>
+          {books.filter(b => !isPrintBook(b)).length > 0 && (
+            <optgroup label={`현재 연결된 교재 (${books.filter(b => !isPrintBook(b)).length}권)`}>
+              {books
+                .filter(b => !isPrintBook(b))
+                .map(b => (
+                  <option key={b.id} value={`assigned:${b.id}`}>
+                    {b.title}
+                  </option>
+                ))}
             </optgroup>
           )}
           {catalog.filter(c => !books.some(b => b.library_id === c.id)).length > 0 && (
@@ -273,7 +344,13 @@ function ProgressRow({
         </select>
       </td>
       <td>
-        {book ? (
+        {isPrintBook(book) ? (
+          <div className={styles.progressCell}>
+            <span className={styles.problemProgressPill} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', fontWeight: 700 }}>
+              📄 프린트 · 유인물 수업 (교재 진도율 제외)
+            </span>
+          </div>
+        ) : book ? (
           <div className={styles.progressCell}>
             <div className={styles.progressTop}>
               <div className={styles.progressBarTrack}>
@@ -318,7 +395,7 @@ function ProgressRow({
             </div>
           </div>
         ) : (
-          <span className={styles.noBookText}>교재를 먼저 선택하세요</span>
+          <span className={styles.noBookText}>교재 또는 프린트 선택</span>
         )}
       </td>
       <td>
@@ -326,14 +403,14 @@ function ProgressRow({
           <input
             type="text"
             className={styles.tableInput}
-            disabled={locked || !book}
+            disabled={locked}
             aria-label={`${student.name} 오늘 진도 범위`}
             value={scope}
             onChange={e => {
               setScope(e.target.value);
               setDirty(true);
             }}
-            placeholder={book ? '예: 26~41 또는 #133~250 입력 시 자동 변환' : '교재 연결 필요'}
+            placeholder={isPrintBook(book) || !book ? '예: 기출 프린트 오답 정리 / 유인물 진도' : '예: 26~41 또는 #133~250 입력 시 자동 변환'}
           />
           {scopeSuggestion && scopeSuggestion.label !== scope && (
             <button
@@ -352,15 +429,6 @@ function ProgressRow({
               자동완성: {scopeSuggestion.label}
             </button>
           )}
-          {book && (
-            <small className={styles.prevHint}>
-              {activeUnits.length > 0
-                ? `진행단원: ${activeUnits.slice(0, 2).join(', ')}${activeUnits.length > 2 ? ' 외' : ''}`
-                : lastEntryWithScope
-                  ? `직전 진도: ${lastEntryWithScope.scope}`
-                  : '기록된 직전 진도 없음'}
-            </small>
-          )}
         </div>
       </td>
       <td>
@@ -368,14 +436,14 @@ function ProgressRow({
           <input
             type="text"
             className={styles.tableInput}
-            disabled={locked || !book}
+            disabled={locked}
             aria-label={`${student.name} 오늘 내줄 숙제`}
             value={homework}
             onChange={e => {
               setHomework(e.target.value);
               setDirty(true);
             }}
-            placeholder={book ? '예: 26~35 또는 #133~200 입력 시 자동 변환' : '교재 연결 필요'}
+            placeholder={isPrintBook(book) || !book ? '예: 오답 프린트 20문항 풀어오기' : '예: 26~35 또는 #133~200 입력 시 자동 변환'}
           />
           {homeworkSuggestion && homeworkSuggestion.label !== homework && (
             <button
@@ -389,25 +457,20 @@ function ProgressRow({
               자동완성: {homeworkSuggestion.label}
             </button>
           )}
-          {book && (
-            <small className={styles.prevHint}>
-              {lastEntryWithHomework ? `직전 과제: ${lastEntryWithHomework.homework}` : '기록된 직전 과제 없음'}
-            </small>
-          )}
         </div>
       </td>
       <td>
         <input
           type="text"
           className={styles.tableInput}
-          disabled={locked || !book}
+          disabled={locked}
           aria-label={`${student.name} 수업 피드백`}
           value={feedback}
           onChange={e => {
             setFeedback(e.target.value);
             setDirty(true);
           }}
-          placeholder={book ? '진도 이해도·피드백 코멘트' : '교재 연결 필요'}
+          placeholder="학생 수업 태도 · 진도 이해도 피드백 (교재 무관)"
         />
       </td>
       <td>
@@ -422,8 +485,8 @@ function ProgressRow({
               disabled={locked}
               onClick={() => {
                 setDraft(null);
-                setScope('');
-                setHomework('');
+                setScope(null);
+                setHomework(null);
                 setFeedback(null);
                 setDirty(false);
               }}
@@ -583,7 +646,32 @@ export default function StudentProgressTable({
 
     const bulk = getClassBulk(group.id);
     let assignedMap: Record<string, ProgressBook> = {};
-    if (bulk.book) {
+    if (bulk.book === PRINT_BOOK_OPTION) {
+      if (rows.some(r => r.dirty)) {
+        setMessage(`[${group.group}] 작성 중인 학생 기록을 먼저 저장하거나 취소한 뒤 일괄 전환해 주세요.`);
+        return;
+      }
+      setSaving(true);
+      setMessage('');
+      try {
+        const missingIds = idsForClass.filter(id => !handles.current[id]?.books.some(isPrintBook));
+        const created = missingIds.length > 0 ? await saveProgressBooks(missingIds.map(createNewPrintBook)) : [];
+        const createdMap = Object.fromEntries(created.map(c => [c.book.student_id, c.book]));
+        for (const id of idsForClass) {
+          const existingPrint = handles.current[id]?.books.find(isPrintBook);
+          const printBook = existingPrint ?? createdMap[id];
+          if (printBook) {
+            assignedMap[id] = printBook;
+            handles.current[id]?.patch({ book: printBook });
+          }
+        }
+      } catch (e) {
+        setMessage(e instanceof Error ? e.message : '프린트 전환 실패');
+        setSaving(false);
+        return;
+      }
+      setSaving(false);
+    } else if (bulk.book) {
       const template = catalog.find(b => b.id === bulk.book && b.class_id === group.id);
       if (!template) return;
       if (rows.some(r => r.dirty)) {
@@ -608,9 +696,23 @@ export default function StudentProgressTable({
       bulk.scope.trim() !== '' || bulk.homework.trim() !== '' || bulk.page.trim() !== '' || bulk.feedback.trim() !== '';
 
     if (hasTextOrPage) {
-      if (idsForClass.some(id => !assignedMap[id] && !handles.current[id]?.book)) {
-        setMessage(`[${group.group}] 대상 학생 모두에게 교재를 먼저 연결해 주세요.`);
-        return;
+      const noBookIds = idsForClass.filter(id => !assignedMap[id] && !handles.current[id]?.book);
+      if (noBookIds.length > 0) {
+        setSaving(true);
+        try {
+          const needCreate = noBookIds.filter(id => !handles.current[id]?.books.some(isPrintBook));
+          const created = needCreate.length > 0 ? await saveProgressBooks(needCreate.map(createNewPrintBook)) : [];
+          const createdMap = Object.fromEntries(created.map(c => [c.book.student_id, c.book]));
+          for (const id of noBookIds) {
+            const pBook = handles.current[id]?.books.find(isPrintBook) ?? createdMap[id];
+            if (pBook) assignedMap[id] = pBook;
+          }
+        } catch (e) {
+          setMessage(e instanceof Error ? e.message : '프린트 자동 연결 실패');
+          setSaving(false);
+          return;
+        }
+        setSaving(false);
       }
       if (
         bulk.page.trim() !== '' &&
@@ -672,36 +774,57 @@ export default function StudentProgressTable({
       setMessage('수정된 진도 기록이 없습니다.');
       return;
     }
-    if (rows.some(r => !r.book || !r.ready)) {
+    if (rows.some(r => !r.ready)) {
       setMessage('교재와 기록을 모두 불러온 뒤 저장해 주세요.');
       return;
     }
     setSaving(true);
     setMessage('');
     try {
+      const missingBookRows = rows.filter(r => !r.book);
+      const autoPrintBooks: Record<string, ProgressBook> = {};
+      if (missingBookRows.length > 0) {
+        const needCreate = missingBookRows.filter(r => !r.books.some(isPrintBook));
+        const created = needCreate.length > 0 ? await saveProgressBooks(needCreate.map(r => createNewPrintBook(r.studentId))) : [];
+        const createdMap = Object.fromEntries(created.map(c => [c.book.student_id, c.book]));
+        for (const r of missingBookRows) {
+          const pBook = r.books.find(isPrintBook) ?? createdMap[r.studentId];
+          if (pBook) autoPrintBooks[r.studentId] = pBook;
+        }
+      }
+
       const result = await saveProgressBatch(
         rows.map(r => {
+          const targetBook = r.book ?? autoPrintBooks[r.studentId]!;
           const existingToday = [...r.entries]
-            .filter(e => e.book_id === r.book!.id && e.record_date === date)
+            .filter(e => e.book_id === targetBook.id && e.record_date === date)
             .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
           return {
-            book: r.book!,
+            book: targetBook,
             entry: {
               id: crypto.randomUUID(),
-              book_id: r.book!.id,
+              book_id: targetBook.id,
               record_date: date,
-              unit_ids: r.book!.units.filter(u => r.book!.states[u.id] === '진행 중').map(u => u.id),
-              scope: r.scope.trim() || existingToday?.scope || '',
-              homework: r.homework.trim() || existingToday?.homework || '',
+              unit_ids: targetBook.units.filter(u => targetBook.states[u.id] === '진행 중').map(u => u.id),
+              scope: r.scope.trim(),
+              homework: r.homework.trim(),
               due_date: existingToday?.due_date ?? null,
-              memo: r.feedback,
-              states: r.book!.states,
+              memo: r.feedback.trim(),
+              states: targetBook.states,
               created_at: '',
             },
           };
         })
       );
-      result.forEach(saved => rows.find(r => r.book?.id === saved.book.id)?.accept(saved));
+      result.forEach(saved => rows.find(r => (r.book?.id ?? autoPrintBooks[r.studentId]?.id) === saved.book.id)?.accept(saved));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('cosmath-records-changed'));
+        if (typeof BroadcastChannel !== 'undefined') {
+          const ch = new BroadcastChannel('cosmath-records');
+          ch.postMessage('changed');
+          ch.close();
+        }
+      }
       setMessage(`${result.length}명의 수업 진도 기록을 저장했습니다.`);
     } catch (e) {
       setMessage(e instanceof Error ? e.message : '저장하지 못했습니다.');
@@ -873,6 +996,9 @@ export default function StudentProgressTable({
                           >
                             <option value="">
                               [{group.group}] 교재 일괄 연결 ({classCatalog.length}권)
+                            </option>
+                            <option value={PRINT_BOOK_OPTION}>
+                              📄 프린트 · 유인물 (교재 외 수업)
                             </option>
                             {classCatalog.map(c => (
                               <option key={c.id} value={c.id}>

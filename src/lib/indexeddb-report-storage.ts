@@ -8,7 +8,7 @@ export async function loadClassBooks(classId: string): Promise<ClassBook[]> {
     const ids = new Set(students.map(s => s.id));
     const catalog = await result<ClassBook[]>(store.getAll());
     for (const book of await result<ProgressBook[]>(tx.objectStore('progressBooks').getAll())) {
-      if (!ids.has(book.student_id) || book.library_id || book.archived) continue;
+      if (!ids.has(book.student_id) || book.library_id || book.archived || book.curriculum === '프린트' || book.title === '프린트 · 유인물') continue;
       let template = catalog.find(c => c.class_id === classId && c.title === book.title && JSON.stringify(c.units) === JSON.stringify(book.units));
       if (!template) {
         template = { id: crypto.randomUUID(), class_id: classId, title: book.title, curriculum: book.curriculum, course: book.course, units: book.units, total_pages: book.total_pages ?? 0, version: 1 };
@@ -88,7 +88,21 @@ async function saveProgressInTransaction(tx: IDBTransaction, book: ProgressBook,
     const log: ProgressEntry = { ...(entry ?? { id: crypto.randomUUID(), book_id: book.id, record_date, unit_ids: [], scope: '', homework: '', due_date: null, memo: '단원 상태 변경' }), states: { ...saved.states }, created_at };
     await result(old ? bs.put(saved) : bs.add(saved));
     const snapshot = { ...log, units_snapshot: saved.units, total_pages_snapshot: saved.total_pages ?? 0, completed_page: saved.completed_page ?? 0 };
-    await result(tx.objectStore('progressEntries').add(snapshot));
+    const es = tx.objectStore('progressEntries');
+    if (entry) {
+      const sameDayEntries = (await result<ProgressEntry[]>(es.getAll())).filter(
+        e => e.book_id === book.id && e.record_date === log.record_date && e.memo !== '단원 상태 변경'
+      );
+      if (sameDayEntries.length > 0) {
+        for (const dup of sameDayEntries.slice(1)) {
+          await result(es.delete(dup.id));
+        }
+        const updatedSnapshot = { ...snapshot, id: sameDayEntries[0].id };
+        await result(es.put(updatedSnapshot));
+        return { book: saved, entry: updatedSnapshot };
+      }
+    }
+    await result(es.add(snapshot));
     return { book: saved, entry: snapshot };
 }
 export async function saveProgressBatch(items: { book: ProgressBook; entry: ProgressEntry }[]) {

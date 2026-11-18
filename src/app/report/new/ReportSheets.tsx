@@ -63,23 +63,9 @@ function isWrongRecordDone(w?: WrongAnswerRecord | null): boolean {
 function mergeEntriesByBookAndDate(entries: ProgressEntry[]): ProgressEntry[] {
  const map = new Map<string, ProgressEntry>();
  for (const e of entries) {
+  if (e.memo === '단원 상태 변경' && !e.scope.trim() && !e.homework.trim()) continue;
   const key = `${e.book_id}__${e.record_date}`;
-  const prev = map.get(key);
-  if (!prev) {
-   map.set(key, { ...e });
-  } else {
-   map.set(key, {
-    ...prev,
-    ...e,
-    scope: e.scope.trim() ? e.scope : prev.scope,
-    homework: e.homework.trim() ? e.homework : prev.homework,
-    due_date: e.due_date ?? prev.due_date,
-    memo: e.memo.trim() ? e.memo : prev.memo,
-    unit_ids: e.unit_ids.length > 0 ? e.unit_ids : prev.unit_ids,
-    completed_page: e.completed_page ?? prev.completed_page,
-    total_pages_snapshot: e.total_pages_snapshot ?? prev.total_pages_snapshot,
-   });
-  }
+  map.set(key, { ...e });
  }
  return Array.from(map.values());
 }
@@ -200,33 +186,28 @@ function computeStudentData(p:Preview){
  const maxScore=exams.length>0?Math.max(...exams.map(e=>e.rate)):null;
 
  // 5. 교재별 진도 및 당일/기간 진도 히스토리
- const activeBooks=p.books.filter(b=>!b.archived);
+ const isPrintBook=(b?:ProgressBook|null)=>Boolean(b&&(b.curriculum==='프린트'||b.title==='프린트 · 유인물'));
+ const activeBooks=p.books.filter(b=>!b.archived&&!isPrintBook(b));
  const bookProgressList=activeBooks.map(b=>{
   const pct=progressPercent(b);
   const bEntries=mergedAllEntries.filter(e=>e.book_id===b.id);
   const periodBEntries=entriesInPeriod.filter(e=>e.book_id===b.id);
-  const firstInPeriod=periodBEntries[0]??bEntries[0];
-  const latest=bEntries[bEntries.length-1];
+  const latest=periodBEntries[periodBEntries.length-1]??bEntries[bEntries.length-1];
   const currentUnits=b.units.filter(u=>b.states[u.id]==='진행 중').map(u=>u.name);
   const doneUnits=b.units.filter(u=>b.states[u.id]==='완료').length;
-  const startScope=firstInPeriod?.scope?.trim()||currentUnits[0]||'첫 단원';
-  const endScope=latest?.scope?.trim()||currentUnits.slice(0,2).join(', ')||(doneUnits>0?`${doneUnits}개 단원 완료`:'진행 중');
-  const journeyLabel=
-   periodBEntries.length>=2&&startScope!==endScope
-    ? `${startScope} → ${endScope}`
-    : endScope;
+  const currentScope=latest?.scope?.trim()||currentUnits.slice(0,2).join(', ')||(doneUnits>0?`${doneUnits}개 단원 완료`:'진행 중');
   return {
    id:b.id,
    title:b.title,
    curriculum:b.curriculum,
    course:b.course,
    pct,
-   donePages:latest?.completed_page??b.completed_page??0,
-   totalPages:latest?.total_pages_snapshot??b.total_pages??0,
+   donePages:b.completed_page??latest?.completed_page??0,
+   totalPages:b.total_pages??latest?.total_pages_snapshot??0,
    doneUnits,
    totalUnits:b.units.length,
-   scope:latest?.scope?.trim()||currentUnits.slice(0,2).join(', ')||'학습 범위 미기록',
-   journeyLabel,
+   scope:currentScope,
+   journeyLabel:currentScope,
    latestHomework:latest?.homework?.trim()||'',
    latestDueDate:latest?.due_date||null,
    recordDate:latest?.record_date||null,
@@ -238,26 +219,29 @@ function computeStudentData(p:Preview){
    ? Math.round(bookProgressList.reduce((a,b)=>a+b.pct,0)/bookProgressList.length)
    : null;
 
- // 기간 내 작성된 진도 엔트리 상세 목록
+ // 기간 내 작성된 진도 엔트리 상세 목록 (교재별 현재 상태와 1:1 일치)
  const periodProgressLogs=entriesInPeriod.map(e=>{
   const book=p.books.find(b=>b.id===e.book_id);
-  const unitNames=(book?.units??[]).filter(u=>e.unit_ids.includes(u.id)).map(u=>u.name);
-  const total=e.total_pages_snapshot??book?.total_pages??0;
-  const done=e.completed_page??book?.completed_page??0;
-  const pct=total>0?Math.min(100,Math.round((done/total)*100)):book?progressPercent(book):0;
+  const isPrint=isPrintBook(book);
+  const currentUnits=(book?.units??[]).filter(u=>book?.states[u.id]==='진행 중').map(u=>u.name);
+  const unitNames=currentUnits.length>0?currentUnits:(book?.units??[]).filter(u=>e.unit_ids.includes(u.id)).map(u=>u.name);
+  const total=book?.total_pages??e.total_pages_snapshot??0;
+  const done=book?.completed_page??e.completed_page??0;
+  const pct=book?progressPercent(book):(total>0?Math.min(100,Math.round((done/total)*100)):0);
   return {
    id:e.id,
    bookId:e.book_id,
    date:e.record_date,
-   bookTitle:book?.title||'교재',
+   bookTitle:book?.title||'프린트 · 유인물',
    course:book?.course||'',
-   scope:e.scope.trim()||unitNames.join(', ')||'단원 학습 진행',
+   scope:e.scope.trim()||(isPrint?'프린트 학습 및 오답 정리':unitNames.join(', ')||'단원 학습 진행'),
    homework:e.homework.trim(),
    dueDate:e.due_date,
    memo:e.memo.trim(),
    pct,
    done,
    total,
+   isPrint,
   };
  });
 
@@ -1484,22 +1468,23 @@ function SaebomForestSheet({
   });
  }
 
- const todayLogs =
-  s.periodProgressLogs.length > 0
-   ? s.periodProgressLogs
-   : s.bookProgressList.map(b => ({
-      id: b.id,
-      bookId: b.id,
-      date: b.recordDate || p.end,
-      bookTitle: b.title,
-      course: b.course,
-      scope: b.journeyLabel,
-      homework: b.latestHomework,
-      dueDate: b.latestDueDate,
-      pct: b.pct,
-      done: b.donePages,
-      total: b.totalPages,
-     }));
+ const todayLogs = [
+  ...s.bookProgressList.map(b => ({
+   id: b.id,
+   bookId: b.id,
+   date: b.recordDate || p.end,
+   bookTitle: b.title,
+   course: b.course,
+   scope: b.scope,
+   homework: b.latestHomework,
+   dueDate: b.latestDueDate,
+   pct: b.pct,
+   done: b.donePages,
+   total: b.totalPages,
+   isPrint: false,
+  })),
+  ...s.periodProgressLogs.filter(l => l.isPrint),
+ ];
 
  const bookRowsLimit = cfg.getRowLimit('progress', 5);
 
@@ -1866,12 +1851,14 @@ function SaebomForestSheet({
              <span className={styles.saebomBookCourse}>{log.course}</span>
             </td>
             <td style={{ textAlign: 'center' }}>
-             <span className={`${styles.saebomTypePill} ${styles.saebomPillGreen}`}>당일수업</span>
+             <span className={`${styles.saebomTypePill} ${log.isPrint ? styles.saebomPillBeige : styles.saebomPillGreen}`}>
+              {log.isPrint ? '프린트·보충' : '당일수업'}
+             </span>
             </td>
             <td>
              <div className={styles.saebomJourneyCell}>
               <span>{log.scope && log.scope !== '학습 범위 미기록' ? log.scope : '단원 진도 학습 진행'}</span>
-              <b className={styles.saebomPctTag}>{log.pct}%</b>
+              {!log.isPrint && <b className={styles.saebomPctTag}>{log.pct}%</b>}
              </div>
             </td>
             <td style={{ fontSize: 11, color: '#1e3a8a', fontWeight: 600 }}>
@@ -2029,13 +2016,21 @@ function SaebomForestSheet({
   return null;
  };
 
+ const logoHeight = Math.max(20, Math.min(120, template.logoSize ?? 42));
+ const logoStyle: CSSProperties = {
+  maxHeight: logoHeight,
+  height: logoHeight,
+  maxWidth: Math.round(logoHeight * 3.8),
+  width: 'auto',
+ };
+
  return (
   <div className={styles.saebomContainer}>
    <header className={styles.saebomHeader}>
     <div className={styles.saebomHeaderTop} data-title-pos={titlePos}>
      <div className={styles.saebomBrandRow}>
       {template.logoDataUrl && template.logoPosition !== 'right' && (
-       <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg}/>
+       <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg} style={logoStyle}/>
       )}
       <div className={styles.saebomTitleBlock}>
        {(cycleBadge || subTitleText) && (
@@ -2049,7 +2044,7 @@ function SaebomForestSheet({
      </div>
      <div className={styles.saebomStudentMeta}>
       {template.logoDataUrl && template.logoPosition === 'right' && (
-       <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg}/>
+       <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg} style={logoStyle}/>
       )}
       <strong>{p.name} <small>({p.grade} · {p.group})</small></strong>
       <span>{period === 'day' ? `수업일: ${s.dateLabel}` : `기간: ${s.dateLabel}`}</span>
@@ -2079,20 +2074,24 @@ function SaebomForestSheet({
 function DayBody({p,s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
  const attOptions:('출석'|'지각'|'결석')[]=['출석','지각','결석'];
  const hwOptions:[('O'|'△'|'X'),string][]=[['O','완료'],['△','일부'],['X','미완료']];
- const todayLogs=s.periodProgressLogs.length>0?s.periodProgressLogs:s.bookProgressList.map(b=>({
-  id:b.id,
-  bookId:b.id,
-  date:b.recordDate||p.end,
-  bookTitle:b.title,
-  course:b.course,
-  scope:b.scope,
-  homework:b.latestHomework,
-  dueDate:b.latestDueDate,
-  memo:'',
-  pct:b.pct,
-  done:b.donePages,
-  total:b.totalPages,
- }));
+ const todayLogs=[
+  ...s.bookProgressList.map(b=>({
+   id:b.id,
+   bookId:b.id,
+   date:b.recordDate||p.end,
+   bookTitle:b.title,
+   course:b.course,
+   scope:b.scope,
+   homework:b.latestHomework,
+   dueDate:b.latestDueDate,
+   memo:'',
+   pct:b.pct,
+   done:b.donePages,
+   total:b.totalPages,
+   isPrint:false,
+  })),
+  ...s.periodProgressLogs.filter(l=>l.isPrint),
+ ];
 
  const showAtt = cfg.hasKind('attendance');
  const showHw = cfg.hasKind('homework');
@@ -2225,7 +2224,7 @@ function DayBody({p,s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
              {log.course&&<span className={styles.tableSubScope}>{log.course}</span>}
             </td>
             <td>{log.scope && log.scope !== '학습 범위 미기록' ? log.scope : '단원 진도 학습'}</td>
-            <td style={{textAlign:'center',fontWeight:800}}>{log.pct}%</td>
+            <td style={{textAlign:'center',fontWeight:800}}>{log.isPrint ? '프린트' : `${log.pct}%`}</td>
            </tr>
           )):(
            <tr><td colSpan={3} className={styles.emptyCell}>당일 기록된 교재 진도가 없습니다.</td></tr>
@@ -2692,6 +2691,14 @@ export default function ReportSheets({
   .filter(k => cfg.hasKind(k))
   .map(k => kindLabels[k]);
 
+ const logoHeight = Math.max(20, Math.min(120, template.logoSize ?? 42));
+ const logoStyle: CSSProperties = {
+  maxHeight: logoHeight,
+  height: logoHeight,
+  maxWidth: Math.round(logoHeight * 3.8),
+  width: 'auto',
+ };
+
  return (
   <article className={styles.sheet} data-sheet data-theme={theme} data-period={period} style={customAccentStyle}>
    <div className={styles.sheetInner}>
@@ -2701,7 +2708,7 @@ export default function ReportSheets({
       <header className={styles.miriCheckHeader} data-title-pos={titlePos}>
        <div style={{display:'flex',alignItems:'center',gap:12}}>
         {template.logoDataUrl && template.logoPosition !== 'right' && (
-         <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg}/>
+         <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg} style={logoStyle}/>
         )}
         <div>
          {(template.customBadge !== undefined ? template.customBadge.trim() : periodEng) && (
@@ -2718,7 +2725,7 @@ export default function ReportSheets({
        </div>
        <div className={styles.miriHeaderIconWrap}>
         {template.logoDataUrl && template.logoPosition === 'right' ? (
-         <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg}/>
+         <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg} style={logoStyle}/>
         ) : (
          <>
           <Sparkles size={15} className={styles.miriSparkleIcon}/>
@@ -2744,7 +2751,7 @@ export default function ReportSheets({
      <header className={styles.miriYellowHeader} data-title-pos={titlePos}>
       {template.logoDataUrl && (
        <div style={{display:'flex',justifyContent:template.logoPosition==='right'?'flex-end':template.logoPosition==='left'?'flex-start':'center',marginBottom:6}}>
-        <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg}/>
+        <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg} style={logoStyle}/>
        </div>
       )}
       {(template.customTitle !== undefined ? template.customTitle.trim() : `${titlePrefix}${periodKor} 학습 분석 리포트`) && (
@@ -2781,7 +2788,7 @@ export default function ReportSheets({
      <header className={styles.miriGraphHeader} data-title-pos={titlePos}>
       <div style={{display:'flex',alignItems:'center',gap:12}}>
        {template.logoDataUrl && template.logoPosition !== 'right' && (
-        <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg}/>
+        <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg} style={logoStyle}/>
        )}
        <div>
         {(template.customBadge !== undefined
@@ -2805,7 +2812,7 @@ export default function ReportSheets({
       <div className={styles.miriGraphMetaLines}>
        {template.logoDataUrl && template.logoPosition === 'right' && (
         <div style={{borderBottom:0,justifyContent:'flex-end'}}>
-         <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg}/>
+         <img src={template.logoDataUrl} alt={academyTitle || '학원 로고'} className={styles.customLogoImg} style={logoStyle}/>
         </div>
        )}
        <div><span>학생 이름 :</span><b>{p.name} ({p.grade})</b></div>

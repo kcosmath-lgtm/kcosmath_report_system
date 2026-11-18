@@ -63,6 +63,7 @@ export type Template = {
  titlePosition?:TitlePosition;
  logoDataUrl?:string;
  logoPosition?: 'left' | 'right' | 'center';
+ logoSize?:number;
  accentColor?:string;
  footerNotice?:string;
 };
@@ -207,6 +208,7 @@ export function buildStructuredTemplate(params:{
  titlePosition?:TitlePosition;
  logoDataUrl?:string;
  logoPosition?:'left'|'right'|'center';
+ logoSize?:number;
  accentColor?:string;
  footerNotice?:string;
  spanOverrides?:Partial<Record<Kind,BlockSpan>>;
@@ -229,6 +231,7 @@ export function buildStructuredTemplate(params:{
   titlePosition,
   logoDataUrl,
   logoPosition,
+  logoSize,
   accentColor,
   footerNotice,
   spanOverrides,
@@ -268,6 +271,7 @@ export function buildStructuredTemplate(params:{
   ...(titlePosition ? { titlePosition } : {}),
   ...(logoDataUrl ? { logoDataUrl } : {}),
   ...(logoPosition ? { logoPosition } : {}),
+  ...(typeof logoSize === 'number' ? { logoSize } : {}),
   ...(accentColor ? { accentColor } : {}),
   ...(footerNotice ? { footerNotice } : {}),
   blocks: builtBlocks,

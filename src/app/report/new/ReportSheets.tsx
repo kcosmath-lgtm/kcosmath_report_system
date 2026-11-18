@@ -246,7 +246,7 @@ function computeStudentData(p:Preview){
  });
 
  // 6. 부여된 다음 과제 (ProgressEntry.homework & due_date)
- const homeworkTasks=entriesInPeriod
+ const entryHomeworkTasks=entriesInPeriod
   .filter(e=>e.homework.trim())
   .map(e=>({
    id:e.id,
@@ -255,6 +255,16 @@ function computeStudentData(p:Preview){
    homework:e.homework.trim(),
    dueDate:e.due_date,
   }));
+ const bookFallbackHomeworkTasks=bookProgressList
+  .filter(b=>b.latestHomework && !entryHomeworkTasks.some(t=>t.bookTitle===b.title))
+  .map(b=>({
+   id:`book-hw-${b.id}`,
+   date:b.recordDate||p.end,
+   bookTitle:b.title,
+   homework:b.latestHomework,
+   dueDate:b.latestDueDate,
+  }));
+ const homeworkTasks=[...entryHomeworkTasks,...bookFallbackHomeworkTasks];
 
  // 7. 선생님 코멘트·메모 통합
  const comments:{id:string;date:string;tag:string;text:string}[]=[];
@@ -393,6 +403,119 @@ function AutoGrowFeedbackTextarea({
     </div>
    )}
   </div>
+ );
+}
+
+function AutoGrowTableTextarea({
+ value,
+ placeholder,
+ onChange,
+ style,
+ ariaLabel,
+}: {
+ value: string;
+ placeholder: string;
+ onChange: (next: string) => void;
+ style?: CSSProperties;
+ ariaLabel?: string;
+}) {
+ const ref = useRef<HTMLTextAreaElement>(null);
+ const [focused, setFocused] = useState(false);
+ const [draft, setDraft] = useState(value);
+ const displayValue = focused ? draft : value;
+ const lineCount = Math.max(1, displayValue.split('\n').length);
+
+ useEffect(() => {
+  if (!focused) setDraft(value);
+ }, [value, focused]);
+
+ useEffect(() => {
+  const el = ref.current;
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${Math.max(24, el.scrollHeight)}px`;
+ }, [displayValue]);
+
+ return (
+  <textarea
+   ref={ref}
+   aria-label={ariaLabel}
+   className={styles.inlineTextarea}
+   rows={lineCount}
+   value={displayValue}
+   placeholder={placeholder}
+   onFocus={() => {
+    setDraft(value);
+    setFocused(true);
+   }}
+   onBlur={() => setFocused(false)}
+   onKeyDown={e => e.stopPropagation()}
+   onChange={e => {
+    const nextVal = e.target.value;
+    setDraft(nextVal);
+    const el = e.currentTarget;
+    el.style.height = 'auto';
+    el.style.height = `${Math.max(24, el.scrollHeight)}px`;
+    onChange(nextVal);
+   }}
+   style={{
+    minHeight: 24,
+    padding: '2px 5px',
+    lineHeight: 1.45,
+    ...style,
+   }}
+  />
+ );
+}
+
+function InlinePageInput({
+ value,
+ totalPages,
+ ariaLabel,
+ onChange,
+}: {
+ value: number;
+ totalPages: number;
+ ariaLabel: string;
+ onChange: (nextPage: number) => void;
+}) {
+ const [focused, setFocused] = useState(false);
+ const [draft, setDraft] = useState(String(value));
+ const displayStr = focused ? draft : String(value);
+
+ useEffect(() => {
+  if (!focused) setDraft(String(value));
+ }, [value, focused]);
+
+ return (
+  <input
+   type="number"
+   min={0}
+   max={totalPages}
+   aria-label={ariaLabel}
+   className={styles.inlineNumberInput}
+   value={displayStr}
+   onFocus={e => {
+    setDraft(String(value));
+    setFocused(true);
+    e.currentTarget.select();
+   }}
+   onBlur={() => setFocused(false)}
+   onKeyDown={e => e.stopPropagation()}
+   onChange={e => {
+    const raw = e.target.value;
+    setDraft(raw);
+    if (raw.trim() === '') return;
+    const num = Number(raw);
+    if (!Number.isNaN(num)) {
+     onChange(Math.max(0, Math.min(totalPages, Math.round(num))));
+    }
+   }}
+   style={{
+    width: `${Math.max(2, displayStr.length) + 0.6}ch`,
+    minWidth: 22,
+   }}
+  />
  );
 }
 
@@ -1343,6 +1466,7 @@ function SaebomForestSheet({
  onEditFeedback,
  onBulkEditFeedback,
  bulkTargetCount,
+ onEditProgress,
 }: {
  p: Preview;
  s: StudentData;
@@ -1353,6 +1477,7 @@ function SaebomForestSheet({
  onEditFeedback?: (studentId: string, date: string, memo: string) => void;
  onBulkEditFeedback?: (date: string, memo: string) => void;
  bulkTargetCount?: number;
+ onEditProgress?: (studentId: string, bookId: string, date: string, patch: { scope?: string; homework?: string; completedPage?: number }) => void;
 }) {
  const academyTitle = template.academyName?.trim() || '';
  const titlePrefix = academyTitle ? `${academyTitle} ` : '';
@@ -1836,33 +1961,91 @@ function SaebomForestSheet({
        <table className={styles.saebomTable}>
         <thead>
          <tr>
-          <th style={{ width: '30%' }}>교재 · 과정</th>
-          <th style={{ width: '13%', textAlign: 'center' }}>구분</th>
-          <th style={{ width: '32%' }}>오늘 수업 진도 범위</th>
+          <th style={{ width: '28%' }}>교재 · 과정</th>
+          <th style={{ width: '14%', textAlign: 'center', whiteSpace: 'nowrap' }}>구분</th>
+          <th style={{ width: '31%' }}>오늘 수업 진도 범위</th>
           <th>부여된 다음 과제</th>
          </tr>
         </thead>
         <tbody>
-         {todayLogs.length > 0 ? (
-          todayLogs.slice(0, bookRowsLimit).map(log => (
+         {(todayLogs.length > 0
+          ? todayLogs.slice(0, bookRowsLimit)
+          : onEditProgress
+            ? [
+               {
+                id: p.books[0]?.id || '__print__',
+                bookId: p.books[0]?.id || '__print__',
+                date: p.end,
+                bookTitle: p.books[0]?.title || '프린트 · 유인물',
+                course: p.books[0]?.course || '개별·보충 프린트',
+                scope: '',
+                homework: '',
+                dueDate: null,
+                pct: 0,
+                done: 0,
+                total: 0,
+                isPrint: !p.books[0] || p.books[0].curriculum === '프린트' || p.books[0].title === '프린트 · 유인물',
+               },
+              ]
+            : []
+         ).length > 0 ? (
+          (todayLogs.length > 0
+           ? todayLogs.slice(0, bookRowsLimit)
+           : [
+              {
+               id: p.books[0]?.id || '__print__',
+               bookId: p.books[0]?.id || '__print__',
+               date: p.end,
+               bookTitle: p.books[0]?.title || '프린트 · 유인물',
+               course: p.books[0]?.course || '개별·보충 프린트',
+               scope: '',
+               homework: '',
+               dueDate: null,
+               pct: 0,
+               done: 0,
+               total: 0,
+               isPrint: !p.books[0] || p.books[0].curriculum === '프린트' || p.books[0].title === '프린트 · 유인물',
+              },
+             ]
+          ).map(log => (
            <tr key={log.id}>
             <td>
              <strong className={styles.saebomBookName}>{log.bookTitle}</strong>
              <span className={styles.saebomBookCourse}>{log.course}</span>
             </td>
-            <td style={{ textAlign: 'center' }}>
+            <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
              <span className={`${styles.saebomTypePill} ${log.isPrint ? styles.saebomPillBeige : styles.saebomPillGreen}`}>
               {log.isPrint ? '프린트·보충' : '당일수업'}
              </span>
             </td>
             <td>
              <div className={styles.saebomJourneyCell}>
-              <span style={{ whiteSpace: 'pre-line' }}>{log.scope && log.scope !== '학습 범위 미기록' ? log.scope : '단원 진도 학습 진행'}</span>
+              {onEditProgress ? (
+               <AutoGrowTableTextarea
+                ariaLabel={`${p.name} ${log.bookTitle} 오늘 수업 진도 범위`}
+                value={log.scope && log.scope !== '학습 범위 미기록' ? log.scope : ''}
+                placeholder="오늘 수업 진도 범위 입력"
+                onChange={val => onEditProgress(p.id, log.bookId, p.end, { scope: val })}
+                style={{ fontWeight: 700, color: '#0f172a', flex: 1 }}
+               />
+              ) : (
+               <span style={{ whiteSpace: 'pre-line' }}>{log.scope && log.scope !== '학습 범위 미기록' ? log.scope : '단원 진도 학습 진행'}</span>
+              )}
               {!log.isPrint && <b className={styles.saebomPctTag}>{log.pct}%</b>}
              </div>
             </td>
             <td style={{ fontSize: 11, color: '#1e3a8a', fontWeight: 600, whiteSpace: 'pre-line' }}>
-             {log.homework ? `${log.homework}${log.dueDate ? ` (~${shortDate(log.dueDate)})` : ''}` : '교재 복습 및 오답 정리'}
+             {onEditProgress ? (
+              <AutoGrowTableTextarea
+               ariaLabel={`${p.name} ${log.bookTitle} 부여된 다음 과제`}
+               value={log.homework || ''}
+               placeholder="교재 복습 및 오답 정리"
+               onChange={val => onEditProgress(p.id, log.bookId, p.end, { homework: val })}
+               style={{ fontSize: 11, color: '#1e3a8a', fontWeight: 600 }}
+              />
+             ) : (
+              log.homework ? `${log.homework}${log.dueDate ? ` (~${shortDate(log.dueDate)})` : ''}` : '교재 복습 및 오답 정리'
+             )}
             </td>
            </tr>
           ))
@@ -1879,7 +2062,7 @@ function SaebomForestSheet({
         <thead>
          <tr>
           <th style={{ width: '34%' }}>교재 · 강의</th>
-          <th style={{ width: '14%', textAlign: 'center' }}>종류</th>
+          <th style={{ width: '14%', textAlign: 'center', whiteSpace: 'nowrap' }}>종류</th>
           <th>진도 기록 (기간 내 학습 범위)</th>
          </tr>
         </thead>
@@ -1891,16 +2074,42 @@ function SaebomForestSheet({
              <strong className={styles.saebomBookName}>{b.title}</strong>
              <span className={styles.saebomBookCourse}>{b.course}</span>
             </td>
-            <td style={{ textAlign: 'center' }}>
+            <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
              <span className={`${styles.saebomTypePill} ${idx % 2 === 0 ? styles.saebomPillGreen : styles.saebomPillBeige}`}>
               {b.curriculum?.includes('내신') || b.title.includes('교과') ? '내신교재' : '문제집'}
              </span>
             </td>
             <td>
              <div className={styles.saebomJourneyCell}>
-              <span style={{ whiteSpace: 'pre-line' }}>{b.journeyLabel && b.journeyLabel !== '학습 범위 미기록' ? b.journeyLabel : '단원 학습 진행'}</span>
-              <b className={styles.saebomPctTag}>
-               {b.totalPages > 0 ? `${b.donePages}/${b.totalPages}p (${b.pct}%)` : `${b.pct}%`}
+              {onEditProgress ? (
+               <AutoGrowTableTextarea
+                ariaLabel={`${p.name} ${b.title} 진도 기록`}
+                value={b.journeyLabel && b.journeyLabel !== '학습 범위 미기록' ? b.journeyLabel : ''}
+                placeholder="단원 학습 진행"
+                onChange={val => onEditProgress(p.id, b.id, b.recordDate || p.end, { scope: val })}
+                style={{ fontWeight: 700, color: '#0f172a', flex: 1 }}
+               />
+              ) : (
+               <span style={{ whiteSpace: 'pre-line' }}>{b.journeyLabel && b.journeyLabel !== '학습 범위 미기록' ? b.journeyLabel : '단원 학습 진행'}</span>
+              )}
+              <b className={styles.saebomPctTag} style={{ display: 'inline-flex', alignItems: 'center' }}>
+               {b.totalPages > 0 ? (
+                onEditProgress ? (
+                 <>
+                  <InlinePageInput
+                   value={b.donePages}
+                   totalPages={b.totalPages}
+                   ariaLabel={`${p.name} ${b.title} 완료 페이지`}
+                   onChange={nextPage => onEditProgress(p.id, b.id, b.recordDate || p.end, { completedPage: nextPage })}
+                  />
+                  <span>/{b.totalPages}p ({b.pct}%)</span>
+                 </>
+                ) : (
+                 `${b.donePages}/${b.totalPages}p (${b.pct}%)`
+                )
+               ) : (
+                `${b.pct}%`
+               )}
               </b>
              </div>
             </td>
@@ -1930,8 +2139,24 @@ function SaebomForestSheet({
             style={{ width: `${Math.max(5, b.pct)}%`, background: bluePalette[idx % bluePalette.length] }}
            />
           </div>
-          <strong className={styles.saebomPastelVal}>
-           {b.totalPages > 0 ? `${b.donePages}/${b.totalPages}p · ${b.pct}%` : `${b.pct}%`}
+          <strong className={styles.saebomPastelVal} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+           {b.totalPages > 0 ? (
+            onEditProgress ? (
+             <>
+              <InlinePageInput
+               value={b.donePages}
+               totalPages={b.totalPages}
+               ariaLabel={`${p.name} ${b.title} 완료 페이지`}
+               onChange={nextPage => onEditProgress(p.id, b.id, b.recordDate || p.end, { completedPage: nextPage })}
+              />
+              <span>/{b.totalPages}p · {b.pct}%</span>
+             </>
+            ) : (
+             `${b.donePages}/${b.totalPages}p · ${b.pct}%`
+            )
+           ) : (
+            `${b.pct}%`
+           )}
           </strong>
          </div>
         ))}
@@ -2071,7 +2296,17 @@ function SaebomForestSheet({
  * - 출석(초록) / 지각(노랑) / 결석(빨강) 색상 도장
  * - 오답 완료 시 문항 수와 관계없이 '오답 완료' 표시
  * ============================================================================ */
-function DayBody({p,s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
+function DayBody({
+ p,
+ s,
+ cfg,
+ onEditProgress,
+}: {
+ p: Preview;
+ s: StudentData;
+ cfg: LayoutConfig;
+ onEditProgress?: (studentId: string, bookId: string, date: string, patch: { scope?: string; homework?: string; completedPage?: number }) => void;
+}){
  const attOptions:('출석'|'지각'|'결석')[]=['출석','지각','결석'];
  const hwOptions:[('O'|'△'|'X'),string][]=[['O','완료'],['△','일부'],['X','미완료']];
  const todayLogs=[
@@ -2223,8 +2458,19 @@ function DayBody({p,s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
              <b className={styles.tableBookTitle}>{log.bookTitle}</b>
              {log.course&&<span className={styles.tableSubScope}>{log.course}</span>}
             </td>
-            <td>{log.scope && log.scope !== '학습 범위 미기록' ? log.scope : '단원 진도 학습'}</td>
-            <td style={{textAlign:'center',fontWeight:800}}>{log.isPrint ? '프린트' : `${log.pct}%`}</td>
+            <td>
+             {onEditProgress ? (
+              <AutoGrowTableTextarea
+               ariaLabel={`${p.name} ${log.bookTitle} 오늘 진도 범위`}
+               value={log.scope && log.scope !== '학습 범위 미기록' ? log.scope : ''}
+               placeholder="단원 진도 학습"
+               onChange={val => onEditProgress(p.id, log.bookId, p.end, { scope: val })}
+              />
+             ) : (
+              <span style={{ whiteSpace: 'pre-line' }}>{log.scope && log.scope !== '학습 범위 미기록' ? log.scope : '단원 진도 학습'}</span>
+             )}
+            </td>
+            <td style={{textAlign:'center',fontWeight:800,whiteSpace:'nowrap'}}>{log.isPrint ? '프린트' : `${log.pct}%`}</td>
            </tr>
           )):(
            <tr><td colSpan={3} className={styles.emptyCell}>당일 기록된 교재 진도가 없습니다.</td></tr>
@@ -2235,9 +2481,22 @@ function DayBody({p,s,cfg}:{p:Preview;s:StudentData;cfg:LayoutConfig}){
         {cfg.showNextHw && (
          <div className={styles.nextHwCallout}>
           <div className={styles.nextHwTitle}><Clock size={13}/> 다음 수업까지 해올 숙제 안내</div>
-          {s.homeworkTasks.length>0?(
+          {onEditProgress && todayLogs.length > 0 ? (
+           todayLogs.slice(0, 3).map(log => (
+            <div key={log.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+             <span className={styles.hwBookTag} style={{ whiteSpace: 'nowrap' }}>{log.bookTitle}</span>
+             <AutoGrowTableTextarea
+              ariaLabel={`${p.name} ${log.bookTitle} 다음 수업 숙제`}
+              value={log.homework || ''}
+              placeholder="교재 복습 및 오답 노트 정리"
+              onChange={val => onEditProgress(p.id, log.bookId, p.end, { homework: val })}
+              style={{ fontWeight: 700, flex: 1 }}
+             />
+            </div>
+           ))
+          ) : s.homeworkTasks.length>0?(
            s.homeworkTasks.slice(0,3).map(t=>(
-            <p key={t.id}>
+            <p key={t.id} style={{ whiteSpace: 'pre-line' }}>
              <span className={styles.hwBookTag}>{t.bookTitle}</span>
              <b>{t.homework}</b>
              {t.dueDate&&<small> (기한: {shortDate(t.dueDate)})</small>}
@@ -2640,6 +2899,7 @@ export default function ReportSheets({
  onBulkEditFeedback,
  bulkTargetCount,
  onEditHeader,
+ onEditProgress,
 }:{
  preview:Preview;
  template?:Template;
@@ -2647,6 +2907,7 @@ export default function ReportSheets({
  onBulkEditFeedback?: (date: string, memo: string) => void;
  bulkTargetCount?: number;
  onEditHeader?: (patch: HeaderPatch) => void;
+ onEditProgress?: (studentId: string, bookId: string, date: string, patch: { scope?: string; homework?: string; completedPage?: number }) => void;
 }){
  const s=computeStudentData(p);
  const cfg=buildLayoutConfig(template, s);
@@ -2681,6 +2942,7 @@ export default function ReportSheets({
       onEditFeedback={onEditFeedback}
       onBulkEditFeedback={onBulkEditFeedback}
       bulkTargetCount={bulkTargetCount}
+      onEditProgress={onEditProgress}
      />
     </div>
    </article>
@@ -2823,7 +3085,7 @@ export default function ReportSheets({
     )}
 
     {/* 주기별 완전히 다른 본문 레이아웃 */}
-    {period==='day'&&<DayBody p={p} s={s} cfg={cfg}/>}
+    {period==='day'&&<DayBody p={p} s={s} cfg={cfg} onEditProgress={onEditProgress}/>}
     {period==='week'&&<WeekBody p={p} s={s} cfg={cfg}/>}
     {period==='month'&&<MonthBody p={p} s={s} cfg={cfg} theme={theme}/>}
 

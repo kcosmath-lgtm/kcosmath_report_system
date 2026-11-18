@@ -1241,11 +1241,15 @@
  color:#64748b;
 }
 .saebomTypePill{
- display:inline-block;
+ display:inline-flex;
+ align-items:center;
+ justify-content:center;
  padding:2px 9px;
  border-radius:999px;
  font-size:10px;
  font-weight:700;
+ white-space:nowrap;
+ word-break:keep-all;
 }
 .saebomPillGreen{
  background:#eff6ff;
@@ -1396,19 +1400,31 @@
  box-shadow:0 0 0 2px rgba(37, 99, 235, 0.15);
 }
 .inlineNumberInput{
- width:44px;
- border:1px solid #cbd5e1;
- border-radius:5px;
- background:#ffffff;
- color:#0f172a;
+ border:1px dashed transparent;
+ border-radius:4px;
+ background:transparent;
+ color:inherit;
  font:inherit;
  font-weight:800;
- text-align:center;
- padding:1px 3px;
+ text-align:right;
+ padding:0 2px;
+ appearance:textfield;
+ -moz-appearance:textfield;
+ transition:border-color 0.14s ease, background-color 0.14s ease;
+}
+.inlineNumberInput::-webkit-outer-spin-button,
+.inlineNumberInput::-webkit-inner-spin-button{
+ -webkit-appearance:none;
+ margin:0;
+}
+.inlineNumberInput:hover{
+ border-color:#93c5fd;
+ background:rgba(239, 246, 255, 0.75);
 }
 .inlineNumberInput:focus{
  outline:none;
- border-color:var(--theme-accent,#2563eb);
+ border:1px solid var(--theme-accent,#2563eb);
+ background:#ffffff;
  box-shadow:0 0 0 2px rgba(37, 99, 235, 0.18);
 }
 .inlineTextarea{

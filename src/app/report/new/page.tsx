@@ -34,9 +34,10 @@ import {
 import StudentSidebar from '../../../components/layout/Sidebar';
 import LandingMenu from '../../../components/LandingMenu';
 import {useAuth} from '../../../components/AuthProvider';
-import {loadStudentDaily,loadWrongAnswerRange,loadProgress,saveWrongAnswer} from '../../../lib/report-storage';
+import {loadStudentDaily,loadWrongAnswerRange,loadProgress,saveWrongAnswer,saveProgress} from '../../../lib/report-storage';
 import {reportMonths} from '../../../lib/wrong-answer-report';
 import type {ReportStudent} from '../../../types/report';
+import {syncUnitStatesFromPage,type ProgressBook,type ProgressEntry} from '../../../types/progress';
 import ReportSheets,{type Preview,type HeaderPatch} from './ReportSheets';
 import {
  periodStart,
@@ -487,6 +488,135 @@ export default function NewReportPage(){
   setBulkFeedbackText(memo);
   setMessage(`선택한 ${targetIds.length}명의 학생 보고서에 피드백 코멘트를 일괄 적용했습니다.`);
  }, [bulkFeedbackTargets, students, persistStudentFeedback]);
+
+ const progressSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+ const latestReportsRef = useRef<Preview[]>([]);
+ useEffect(() => {
+  latestReportsRef.current = reports;
+ }, [reports]);
+
+ const handleEditProgress = useCallback((
+  studentId: string,
+  bookId: string,
+  date: string,
+  patch: { scope?: string; homework?: string; completedPage?: number }
+ ) => {
+  setReports(prev => prev.map(r => {
+   if (r.id !== studentId) return r;
+
+   let nextBooks = [...r.books];
+   let targetBook =
+    nextBooks.find(b => b.id === bookId) ??
+    (bookId === '__print__'
+     ? nextBooks.find(b => b.curriculum === '프린트' || b.title === '프린트 · 유인물')
+     : nextBooks[0]);
+
+   if (!targetBook) {
+    const newPrintBook: ProgressBook = {
+     id: crypto.randomUUID(),
+     student_id: studentId,
+     title: '프린트 · 유인물',
+     curriculum: '프린트',
+     course: '개별·보충 프린트',
+     total_pages: 0,
+     completed_page: 0,
+     units: [{ id: crypto.randomUUID(), group: '프린트', name: '프린트 학습 및 오답 정리' }],
+     states: {},
+     version: 0,
+    };
+    nextBooks = [...nextBooks, newPrintBook];
+    targetBook = newPrintBook;
+   }
+
+   let resolvedBook = targetBook;
+   if (patch.completedPage !== undefined) {
+    const maxPage = resolvedBook.total_pages && resolvedBook.total_pages > 0 ? resolvedBook.total_pages : 9999;
+    const clampedPage = Math.max(0, Math.min(maxPage, Math.round(patch.completedPage)));
+    const nextStates = syncUnitStatesFromPage(resolvedBook.units, resolvedBook.states, clampedPage);
+    resolvedBook = {
+     ...resolvedBook,
+     completed_page: clampedPage,
+     states: nextStates,
+    };
+    nextBooks = nextBooks.map(b => (b.id === resolvedBook.id ? resolvedBook : b));
+   }
+
+   const existingIdx = [...r.entries]
+    .map((e, i) => ({ e, i }))
+    .filter(({ e }) => e.book_id === resolvedBook.id && e.record_date === date)
+    .pop()?.i ?? -1;
+
+   const latestForBook = [...r.entries]
+    .filter(e => e.book_id === resolvedBook.id)
+    .sort((a, b) => a.record_date.localeCompare(b.record_date) || a.created_at.localeCompare(b.created_at))
+    .pop();
+
+   const activeUnitNames = resolvedBook.units
+    .filter(u => resolvedBook.states[u.id] === '진행 중')
+    .map(u => u.name);
+   const defaultScope = latestForBook?.scope ?? activeUnitNames.slice(0, 2).join(', ') ?? '';
+   const defaultHw = latestForBook?.homework ?? '';
+
+   let nextEntries = [...r.entries];
+   let updatedEntry: ProgressEntry;
+
+   if (existingIdx >= 0) {
+    const cur = nextEntries[existingIdx];
+    updatedEntry = {
+     ...cur,
+     scope: patch.scope !== undefined ? patch.scope : cur.scope,
+     homework: patch.homework !== undefined ? patch.homework : cur.homework,
+     completed_page: resolvedBook.completed_page,
+     states: resolvedBook.states,
+    };
+    nextEntries[existingIdx] = updatedEntry;
+   } else {
+    updatedEntry = {
+     id: crypto.randomUUID(),
+     book_id: resolvedBook.id,
+     record_date: date,
+     unit_ids: resolvedBook.units.filter(u => resolvedBook.states[u.id] === '진행 중').map(u => u.id),
+     scope: patch.scope !== undefined ? patch.scope : defaultScope,
+     homework: patch.homework !== undefined ? patch.homework : defaultHw,
+     due_date: latestForBook?.due_date ?? null,
+     memo: latestForBook?.memo && latestForBook.memo !== '단원 상태 변경' ? latestForBook.memo : '',
+     states: resolvedBook.states,
+     completed_page: resolvedBook.completed_page,
+     created_at: new Date().toISOString(),
+    };
+    nextEntries.push(updatedEntry);
+    nextEntries = nextEntries.sort((a, b) => a.record_date.localeCompare(b.record_date) || a.created_at.localeCompare(b.created_at));
+   }
+
+   const timerKey = `${studentId}:${resolvedBook.id}:${date}`;
+   if (progressSaveTimers.current[timerKey]) clearTimeout(progressSaveTimers.current[timerKey]);
+   progressSaveTimers.current[timerKey] = setTimeout(async () => {
+    const latestReport = latestReportsRef.current.find(item => item.id === studentId);
+    const currentBook = latestReport?.books.find(b => b.id === resolvedBook.id) ?? resolvedBook;
+    const currentEntry =
+     latestReport?.entries.filter(e => e.book_id === currentBook.id && e.record_date === date).pop() ?? updatedEntry;
+    try {
+     const saved = await saveProgress(currentBook, currentEntry);
+     setReports(curr => curr.map(rep => {
+      if (rep.id !== studentId) return rep;
+      return {
+       ...rep,
+       books: rep.books.map(b => (b.id === saved.book.id ? saved.book : b)),
+      };
+     }));
+     if (typeof BroadcastChannel !== 'undefined') {
+      const ch = new BroadcastChannel('cosmath-records');
+      ch.postMessage('changed');
+      ch.close();
+     }
+    } catch {
+     // ignore transient save conflict during rapid typing
+    }
+   }, 400);
+
+   return { ...r, books: nextBooks, entries: nextEntries };
+  }));
+ }, []);
 
  useEffect(() => {
   const onRecordsChanged = () => setRevision(v => v + 1);
@@ -1498,6 +1628,7 @@ export default function NewReportPage(){
         onBulkEditFeedback={(dateStr, memoText) => handleBulkEditFeedback(dateStr, memoText)}
         bulkTargetCount={bulkFeedbackTargets.length || students.length}
         onEditHeader={handleEditHeader}
+        onEditProgress={handleEditProgress}
        />
       </div>
      ))
@@ -1593,7 +1724,7 @@ export default function NewReportPage(){
      >
       <div style={{ '--preview-scale': 1.15, width: pageWidth * 1.15 } as CSSProperties}>
        <div style={{ zoom: 1.15 } as CSSProperties}>
-        <ReportSheets preview={activeReport} template={template} onEditFeedback={handleEditFeedback} onEditHeader={handleEditHeader}/>
+        <ReportSheets preview={activeReport} template={template} onEditFeedback={handleEditFeedback} onEditHeader={handleEditHeader} onEditProgress={handleEditProgress}/>
        </div>
       </div>
      </div>

@@ -346,8 +346,22 @@ function ProgressRow({
       <td>
         {isPrintBook(book) ? (
           <div className={styles.progressCell}>
-            <span className={styles.problemProgressPill} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', fontWeight: 700 }}>
-              📄 프린트 · 유인물 수업 (교재 진도율 제외)
+            <span
+              className={styles.problemProgressPill}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                alignSelf: 'flex-start',
+                gap: 5,
+                padding: '4px 10px',
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              📄 프린트 · 유인물 수업
+            </span>
+            <span className={styles.noBookText} style={{ fontSize: 11 }}>
+              교재 진도율 산정 제외
             </span>
           </div>
         ) : book ? (

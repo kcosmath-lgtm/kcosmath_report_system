@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import dayjs from 'dayjs';
 import { Plus, Trash2, Check, Award, Calendar, Save, LayoutGrid, Table as TableIcon, MessageSquare } from 'lucide-react';
 import {
@@ -32,12 +32,14 @@ function StatusButtons({
   values,
   displayLabels,
   value,
+  allowToggleOff = false,
   onChange,
 }: {
   label: string;
   values: readonly string[];
   displayLabels?: readonly string[];
   value: string;
+  allowToggleOff?: boolean;
   onChange: (value: string) => void;
 }) {
   return (
@@ -45,15 +47,16 @@ function StatusButtons({
       {values.map((option, index) => {
         const titleText = option === 'O' ? '완료' : option === '△' ? '일부 완료' : option === 'X' ? '미완료' : option;
         const text = displayLabels?.[index] ?? option;
+        const active = value === option;
         return (
           <button
             type="button"
             key={option}
             data-state={index}
-            aria-pressed={value === option}
+            aria-pressed={active}
             aria-label={`${label} ${titleText}`}
-            title={titleText}
-            onClick={() => onChange(option)}
+            title={allowToggleOff && active ? `${titleText} (다시 누르면 기록 해제)` : titleText}
+            onClick={() => onChange(allowToggleOff && active ? '' : option)}
           >
             {text}
           </button>
@@ -153,6 +156,20 @@ export default function StudentDailyRecords({
   const [openUnitStudentId, setOpenUnitStudentId] = useState<string | null>(null);
   const [openMemoIds, setOpenMemoIds] = useState<string[]>([]);
 
+  const rowsRef = useRef<Record<string, StudentDailySave>>({});
+  const dirtyRef = useRef<string[]>([]);
+  const savingRef = useRef(false);
+  const pendingAutoSaveRef = useRef(false);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    rowsRef.current = rows;
+  }, [rows]);
+
+  useEffect(() => {
+    dirtyRef.current = dirty;
+  }, [dirty]);
+
   useEffect(() => {
     onDirtyChange?.(dirty.length > 0 || dirtyBooks.length > 0 || busy);
   }, [dirty.length, dirtyBooks.length, busy, onDirtyChange]);
@@ -172,7 +189,7 @@ export default function StudentDailyRecords({
               id: crypto.randomUUID(),
               student_id: student.id,
               record_date: date,
-              attendance: '출석',
+              attendance: '',
               reason: '',
               exams: [],
               version: 0,
@@ -184,12 +201,13 @@ export default function StudentDailyRecords({
               total_wrong: 0,
               corrected_count: 0,
               completed: false,
-              homework_status: 'O',
+              homework_status: null,
               memo: '',
               version: 0,
             },
           };
         }
+        rowsRef.current = next;
         setRows(next);
         setHistory(
           daily.map(d => ({
@@ -205,6 +223,7 @@ export default function StudentDailyRecords({
             },
           }))
         );
+        dirtyRef.current = [];
         setDirty([]);
         setDirtyBooks([]);
         setFailed(false);
@@ -253,16 +272,95 @@ export default function StudentDailyRecords({
     ? groups.flatMap(g => g.students).filter(s => studentIds.includes(s.id))
     : groups.find(g => g.id === groupId)?.students ?? [];
 
+  async function performAutoSave() {
+    if (savingRef.current) {
+      pendingAutoSaveRef.current = true;
+      return;
+    }
+    const ids = [...dirtyRef.current];
+    if (ids.length === 0) return;
+    const itemsToSave = ids.map(id => rowsRef.current[id]).filter(Boolean);
+    if (itemsToSave.length === 0) return;
+
+    savingRef.current = true;
+    dirtyRef.current = dirtyRef.current.filter(id => !ids.includes(id));
+    setDirty([...dirtyRef.current]);
+
+    try {
+      const saved = await saveStudentDaily(itemsToSave);
+      setRows(current => {
+        const next = { ...current };
+        for (const sItem of saved) {
+          const sid = sItem.daily.student_id;
+          if (dirtyRef.current.includes(sid) && next[sid]) {
+            next[sid] = {
+              daily: { ...next[sid].daily, id: sItem.daily.id, version: sItem.daily.version },
+              wrong: { ...next[sid].wrong, id: sItem.wrong.id, version: sItem.wrong.version },
+            };
+          } else {
+            next[sid] = sItem;
+          }
+        }
+        rowsRef.current = next;
+        return next;
+      });
+      setHistory(current => [
+        ...current.filter(r => !saved.some(s => s.daily.student_id === r.daily.student_id && s.daily.record_date === r.daily.record_date)),
+        ...saved,
+      ]);
+    } catch {
+      // Restore dirty state if auto-save failed so manual save can retry
+      const restored = [...new Set([...dirtyRef.current, ...ids])];
+      dirtyRef.current = restored;
+      setDirty(restored);
+    } finally {
+      savingRef.current = false;
+      if (pendingAutoSaveRef.current || dirtyRef.current.length > 0) {
+        pendingAutoSaveRef.current = false;
+        void performAutoSave();
+      }
+    }
+  }
+
+  function scheduleAutoSave() {
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      autoSaveTimerRef.current = null;
+      void performAutoSave();
+    }, 200);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+      if (dirtyRef.current.length > 0) {
+        void performAutoSave();
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function edit(id: string, change: (row: StudentDailySave) => StudentDailySave) {
     setRows(current => {
-      const next = change(current[id]);
-      if (next.wrong.total_wrong !== current[id].wrong.total_wrong || next.wrong.corrected_count !== current[id].wrong.corrected_count) {
+      const curRow = current[id];
+      if (!curRow) return current;
+      const next = change(curRow);
+      if (next.wrong.total_wrong !== curRow.wrong.total_wrong || next.wrong.corrected_count !== curRow.wrong.corrected_count) {
         next.wrong.completed = next.wrong.total_wrong > 0 && next.wrong.corrected_count === next.wrong.total_wrong;
       }
-      return { ...current, [id]: next };
+      const updated = { ...current, [id]: next };
+      rowsRef.current = updated;
+      return updated;
     });
-    setDirty(current => (current.includes(id) ? current : [...current, id]));
+    if (!dirtyRef.current.includes(id)) {
+      dirtyRef.current = [...dirtyRef.current, id];
+    }
+    setDirty([...dirtyRef.current]);
     setMessage('');
+    scheduleAutoSave();
   }
 
   function completeWrongAnswers(id: string) {
@@ -442,18 +540,22 @@ export default function StudentDailyRecords({
   }
 
   async function save() {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
     setBusy(true);
     setMessage('');
     try {
-      const ids = [
-        ...new Set([
-          ...dirty,
-          ...students.filter(s => rows[s.id]?.daily.version === 0 || rows[s.id]?.wrong.version === 0).map(s => s.id),
-        ]),
-      ];
+      const ids = [...new Set(dirtyRef.current.length > 0 ? dirtyRef.current : dirty)];
       if (ids.length > 0) {
-        const saved = await saveStudentDaily(ids.map(id => rows[id]));
-        setRows(current => ({ ...current, ...Object.fromEntries(saved.map(r => [r.daily.student_id, r])) }));
+        dirtyRef.current = [];
+        const saved = await saveStudentDaily(ids.map(id => rowsRef.current[id] ?? rows[id]).filter(Boolean));
+        setRows(current => {
+          const next = { ...current, ...Object.fromEntries(saved.map(r => [r.daily.student_id, r])) };
+          rowsRef.current = next;
+          return next;
+        });
         setHistory(current => [
           ...current.filter(r => !saved.some(s => s.daily.student_id === r.daily.student_id && s.daily.record_date === r.daily.record_date)),
           ...saved,
@@ -498,7 +600,7 @@ export default function StudentDailyRecords({
     }
   }
 
-  const unsavedDefaults = students.some(s => rows[s.id]?.daily.version === 0 || rows[s.id]?.wrong.version === 0);
+  const unsavedDefaults = false;
   const attendedCount = students.filter(s => rows[s.id]?.daily.attendance === '출석').length;
   const lateCount = students.filter(s => rows[s.id]?.daily.attendance === '지각').length;
   const absentCount = students.filter(s => rows[s.id]?.daily.attendance === '결석').length;
@@ -980,10 +1082,7 @@ export default function StudentDailyRecords({
                     if (!r) return null;
                     const isDirty = dirty.includes(s.id) || dirtyBooks.includes(s.id);
                     const att = r.daily.attendance;
-                    const attTone = att === '출석' ? 'emerald' : att === '지각' ? 'amber' : 'rose';
-                    const hw = r.wrong.homework_status ?? 'O';
-                    const hwTone = hw === 'O' ? 'blue' : hw === '△' ? 'amber' : 'rose';
-                    const hwLabel = hw === 'O' ? '숙제 완료 O' : hw === '△' ? '숙제 일부 △' : '숙제 미제출 X';
+                    const hw = r.wrong.homework_status ?? null;
 
                     const wrongTotal = r.wrong.total_wrong;
                     const wrongDone = r.wrong.corrected_count;
@@ -1028,31 +1127,82 @@ export default function StudentDailyRecords({
                             </div>
                           </div>
                           <div className={styles.capsuleGroup}>
-                            <button
-                              type="button"
-                              className={styles.capsuleBtn}
-                              data-tone={attTone}
-                              aria-label={`${s.name} 출결 상태 전환 (현재 ${att})`}
-                              onClick={() => {
-                                const nextAtt = attendance[(attendance.indexOf(att) + 1) % attendance.length];
-                                edit(s.id, cur => ({ ...cur, daily: { ...cur.daily, attendance: nextAtt } }));
-                              }}
-                            >
-                              ● {att}
-                            </button>
-                            <button
-                              type="button"
-                              className={styles.capsuleBtn}
-                              data-tone={hwTone}
-                              aria-label={`${s.name} 숙제 상태 전환 (현재 ${hw})`}
-                              onClick={() => {
-                                const order: ('O' | '△' | 'X')[] = ['O', '△', 'X'];
-                                const nextHw = order[(order.indexOf(hw) + 1) % order.length];
-                                edit(s.id, cur => ({ ...cur, wrong: { ...cur.wrong, homework_status: nextHw } }));
-                              }}
-                            >
-                              {hwLabel}
-                            </button>
+                            <div className={styles.wrongStateGroup} role="group" aria-label={`${s.name} 출결 상태`}>
+                              <button
+                                type="button"
+                                className={styles.wrongStateBtn}
+                                data-tone="slate"
+                                aria-pressed={!att}
+                                onClick={() => edit(s.id, cur => ({ ...cur, daily: { ...cur.daily, attendance: '' } }))}
+                              >
+                                출결없음
+                              </button>
+                              <button
+                                type="button"
+                                className={styles.wrongStateBtn}
+                                data-tone="emerald"
+                                aria-pressed={att === '출석'}
+                                onClick={() => edit(s.id, cur => ({ ...cur, daily: { ...cur.daily, attendance: att === '출석' ? '' : '출석' } }))}
+                              >
+                                출석
+                              </button>
+                              <button
+                                type="button"
+                                className={styles.wrongStateBtn}
+                                data-tone="amber"
+                                aria-pressed={att === '지각'}
+                                onClick={() => edit(s.id, cur => ({ ...cur, daily: { ...cur.daily, attendance: att === '지각' ? '' : '지각' } }))}
+                              >
+                                지각
+                              </button>
+                              <button
+                                type="button"
+                                className={styles.wrongStateBtn}
+                                data-tone="rose"
+                                aria-pressed={att === '결석'}
+                                onClick={() => edit(s.id, cur => ({ ...cur, daily: { ...cur.daily, attendance: att === '결석' ? '' : '결석' } }))}
+                              >
+                                결석
+                              </button>
+                            </div>
+                            <div className={styles.wrongStateGroup} role="group" aria-label={`${s.name} 숙제 상태`}>
+                              <button
+                                type="button"
+                                className={styles.wrongStateBtn}
+                                data-tone="slate"
+                                aria-pressed={!hw}
+                                onClick={() => edit(s.id, cur => ({ ...cur, wrong: { ...cur.wrong, homework_status: null } }))}
+                              >
+                                숙제없음
+                              </button>
+                              <button
+                                type="button"
+                                className={styles.wrongStateBtn}
+                                data-tone="blue"
+                                aria-pressed={hw === 'O'}
+                                onClick={() => edit(s.id, cur => ({ ...cur, wrong: { ...cur.wrong, homework_status: hw === 'O' ? null : 'O' } }))}
+                              >
+                                숙제 O
+                              </button>
+                              <button
+                                type="button"
+                                className={styles.wrongStateBtn}
+                                data-tone="amber"
+                                aria-pressed={hw === '△'}
+                                onClick={() => edit(s.id, cur => ({ ...cur, wrong: { ...cur.wrong, homework_status: hw === '△' ? null : '△' } }))}
+                              >
+                                숙제 △
+                              </button>
+                              <button
+                                type="button"
+                                className={styles.wrongStateBtn}
+                                data-tone="rose"
+                                aria-pressed={hw === 'X'}
+                                onClick={() => edit(s.id, cur => ({ ...cur, wrong: { ...cur.wrong, homework_status: hw === 'X' ? null : 'X' } }))}
+                              >
+                                숙제 X
+                              </button>
+                            </div>
                           </div>
                         </div>
 
@@ -1539,7 +1689,8 @@ export default function StudentDailyRecords({
                           values={attendance}
                           displayLabels={['출석', '지각', '결석']}
                           value={r.daily.attendance}
-                          onChange={value => edit(s.id, v => ({ ...v, daily: { ...v.daily, attendance: value as Attendance } }))}
+                          allowToggleOff
+                          onChange={value => edit(s.id, v => ({ ...v, daily: { ...v.daily, attendance: (value || '') as Attendance } }))}
                         />
                       </td>
                       <td>
@@ -1548,7 +1699,8 @@ export default function StudentDailyRecords({
                           values={['O', '△', 'X']}
                           displayLabels={['O 완료', '△ 일부', 'X 미완료']}
                           value={r.wrong.homework_status ?? ''}
-                          onChange={value => edit(s.id, v => ({ ...v, wrong: { ...v.wrong, homework_status: value as 'O' | '△' | 'X' } }))}
+                          allowToggleOff
+                          onChange={value => edit(s.id, v => ({ ...v, wrong: { ...v.wrong, homework_status: (value ? (value as 'O' | '△' | 'X') : null) } }))}
                         />
                       </td>
                       <td>

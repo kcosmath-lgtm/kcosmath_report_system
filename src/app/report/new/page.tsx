@@ -130,6 +130,28 @@ export default function NewReportPage(){
  const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul'}).format(new Date());
  const [end,setEnd]=useState(today);
  const [cycle,setCycle]=useState<ReportCycle>('day');
+
+ useEffect(() => {
+  try {
+   const savedDate = sessionStorage.getItem('cosmath-student-record-date');
+   if (savedDate && /^\d{4}-\d{2}-\d{2}$/.test(savedDate)) {
+    setEnd(savedDate);
+   }
+  } catch {
+   // ignore
+  }
+ }, []);
+
+ const updateEndDate = useCallback((nextDate: string) => {
+  setEnd(nextDate);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(nextDate)) {
+   try {
+    sessionStorage.setItem('cosmath-student-record-date', nextDate);
+   } catch {
+    // ignore
+   }
+  }
+ }, []);
  const [theme,setTheme]=useState<Theme>('saebom');
  const [orientation,setOrientation]=useState<'portrait'|'landscape'>('portrait');
 
@@ -407,6 +429,7 @@ export default function NewReportPage(){
  }, [feedbackStorageKey]);
 
  const feedbackSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+ const selfSavingCount = useRef(0);
  const handleEditFeedback = useCallback((studentId: string, date: string, memo: string) => {
   persistStudentFeedback(studentId, memo);
   setReports(prev => {
@@ -420,7 +443,7 @@ export default function NewReportPage(){
      nextWrong[idx] = targetRecord;
     } else {
      targetRecord = {
-      id: `${studentId}_${date}`,
+      id: crypto.randomUUID(),
       student_id: studentId,
       record_date: date,
       total_wrong: 0,
@@ -428,7 +451,7 @@ export default function NewReportPage(){
       completed: false,
       homework_status: null,
       memo,
-      version: 1,
+      version: 0,
      };
      nextWrong.push(targetRecord);
      nextWrong = nextWrong.sort((a, b) => a.record_date.localeCompare(b.record_date));
@@ -436,8 +459,22 @@ export default function NewReportPage(){
     const timerKey = `${studentId}:${date}`;
     if (feedbackSaveTimers.current[timerKey]) clearTimeout(feedbackSaveTimers.current[timerKey]);
     const recToSave = targetRecord;
-    feedbackSaveTimers.current[timerKey] = setTimeout(() => {
-     void saveWrongAnswer(recToSave);
+    feedbackSaveTimers.current[timerKey] = setTimeout(async () => {
+     selfSavingCount.current += 1;
+     try {
+      const saved = await saveWrongAnswer(recToSave);
+      setReports(curr => curr.map(rep => {
+       if (rep.id !== studentId) return rep;
+       return {
+        ...rep,
+        wrong: rep.wrong.map(w => (w.record_date === date ? { ...w, id: saved.id, version: saved.version } : w)),
+       };
+      }));
+     } catch {
+      // ignore transient conflict
+     } finally {
+      selfSavingCount.current = Math.max(0, selfSavingCount.current - 1);
+     }
     }, 350);
     return { ...r, wrong: nextWrong };
    });
@@ -463,7 +500,7 @@ export default function NewReportPage(){
      nextWrong[idx] = targetRecord;
     } else {
      targetRecord = {
-      id: `${r.id}_${date}`,
+      id: crypto.randomUUID(),
       student_id: r.id,
       record_date: date,
       total_wrong: 0,
@@ -471,7 +508,7 @@ export default function NewReportPage(){
       completed: false,
       homework_status: null,
       memo,
-      version: 1,
+      version: 0,
      };
      nextWrong.push(targetRecord);
      nextWrong = nextWrong.sort((a, b) => a.record_date.localeCompare(b.record_date));
@@ -479,8 +516,22 @@ export default function NewReportPage(){
     const timerKey = `${r.id}:${date}`;
     if (feedbackSaveTimers.current[timerKey]) clearTimeout(feedbackSaveTimers.current[timerKey]);
     const recToSave = targetRecord;
-    feedbackSaveTimers.current[timerKey] = setTimeout(() => {
-     void saveWrongAnswer(recToSave);
+    feedbackSaveTimers.current[timerKey] = setTimeout(async () => {
+     selfSavingCount.current += 1;
+     try {
+      const saved = await saveWrongAnswer(recToSave);
+      setReports(curr => curr.map(rep => {
+       if (rep.id !== r.id) return rep;
+       return {
+        ...rep,
+        wrong: rep.wrong.map(w => (w.record_date === date ? { ...w, id: saved.id, version: saved.version } : w)),
+       };
+      }));
+     } catch {
+      // ignore transient conflict
+     } finally {
+      selfSavingCount.current = Math.max(0, selfSavingCount.current - 1);
+     }
     }, 200);
     return { ...r, wrong: nextWrong };
    });
@@ -595,6 +646,7 @@ export default function NewReportPage(){
     const currentBook = latestReport?.books.find(b => b.id === resolvedBook.id) ?? resolvedBook;
     const currentEntry =
      latestReport?.entries.filter(e => e.book_id === currentBook.id && e.record_date === date).pop() ?? updatedEntry;
+    selfSavingCount.current += 1;
     try {
      const saved = await saveProgress(currentBook, currentEntry);
      setReports(curr => curr.map(rep => {
@@ -604,13 +656,10 @@ export default function NewReportPage(){
        books: rep.books.map(b => (b.id === saved.book.id ? saved.book : b)),
       };
      }));
-     if (typeof BroadcastChannel !== 'undefined') {
-      const ch = new BroadcastChannel('cosmath-records');
-      ch.postMessage('changed');
-      ch.close();
-     }
     } catch {
      // ignore transient save conflict during rapid typing
+    } finally {
+     selfSavingCount.current = Math.max(0, selfSavingCount.current - 1);
     }
    }, 400);
 
@@ -619,7 +668,10 @@ export default function NewReportPage(){
  }, []);
 
  useEffect(() => {
-  const onRecordsChanged = () => setRevision(v => v + 1);
+  const onRecordsChanged = () => {
+   if (selfSavingCount.current > 0) return;
+   setRevision(v => v + 1);
+  };
   window.addEventListener('cosmath-records-changed', onRecordsChanged);
   const ch = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('cosmath-records') : null;
   if (ch) ch.onmessage = onRecordsChanged;
@@ -669,7 +721,7 @@ export default function NewReportPage(){
          studentWrong[endIdx]={...studentWrong[endIdx],memo:carriedMemo};
         }else{
          studentWrong.push({
-          id:`${student.id}_${end}`,
+          id:crypto.randomUUID(),
           student_id:student.id,
           record_date:end,
           total_wrong:0,
@@ -677,7 +729,7 @@ export default function NewReportPage(){
           completed:false,
           homework_status:null,
           memo:carriedMemo,
-          version:1,
+          version:0,
          });
          studentWrong.sort((a,b)=>a.record_date.localeCompare(b.record_date));
         }
@@ -1031,7 +1083,7 @@ export default function NewReportPage(){
        </button>
       ))}
      </div>
-     <label>기준일<input type="date" value={end} disabled={exporting} onChange={e=>setEnd(e.target.value)}/></label>
+     <label>기준일<input type="date" value={end} disabled={exporting} onChange={e=>updateEndDate(e.target.value)}/></label>
      {start!==end&&<span className={styles.rangeBadge}>{start} ~ {end}</span>}
      <button disabled={loading||exporting||!students.length} onClick={()=>setRevision(v=>v+1)} title="기록 새로고침" style={{padding:'8px 10px'}}>
       <RefreshCw size={14}/> 새로고침

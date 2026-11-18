@@ -85,7 +85,7 @@ function computeStudentData(p:Preview){
  const absent=daily.filter(r=>r.attendance==='결석').length;
  const recordedAtt=daily.filter(r=>Boolean(r.attendance)).length;
  const attRate=recordedAtt>0?Math.round((attended/recordedAtt)*100):null;
- const todayDaily=daily.find(r=>r.record_date===p.end)??daily[daily.length-1];
+ const todayDaily=[...daily].reverse().find(r=>r.record_date===p.end)??daily[daily.length-1];
  const todayAtt=todayDaily?.attendance||'';
  const todayAttReason=todayDaily?.reason?.trim()||'';
 
@@ -139,7 +139,7 @@ function computeStudentData(p:Preview){
  const hwPartial=hwRecorded.filter(r=>r.homework_status==='△').length;
  const hwMiss=hwRecorded.filter(r=>r.homework_status==='X').length;
  const hwRate=hwRecorded.length>0?Math.round(((hwDone+hwPartial*0.5)/hwRecorded.length)*100):null;
- const todayWrong=wrong.find(r=>r.record_date===p.end)??wrong[wrong.length-1];
+ const todayWrong=[...wrong].reverse().find(r=>r.record_date===p.end)??wrong[wrong.length-1];
  const todayHwStatus=todayWrong?.homework_status??null;
 
  // 3. 오답 클리닉 집계 (오답 완료 버튼 또는 전체 수정 시 '오답 완료', 기록 없으면 '기록 없음'으로 표시)
@@ -171,6 +171,12 @@ function computeStudentData(p:Preview){
  const wrongSymbol=periodWrongCompleted ? '○' : wrongAnswerStatus(totalWrong,fixedWrong);
 
  // 4. 시험·테스트 성적 집계 (일간/주간/월간 모두 기준일 이전 최근 성적 히스토리 포함)
+ const exactTodayDaily=[...daily].reverse().find(r=>r.record_date===p.end);
+ const todayExams=(exactTodayDaily?.exams??[]).map(e=>({
+  ...e,
+  date:exactTodayDaily?.record_date||p.end,
+  rate:e.max_score>0?Math.round((e.score/e.max_score)*100):0,
+ }));
  const allDailyUpToEnd=[...p.daily]
   .filter(r=>r.record_date<=p.end)
   .sort((a,b)=>a.record_date.localeCompare(b.record_date));
@@ -326,6 +332,7 @@ function computeStudentData(p:Preview){
   remainWrong,
   wrongRate,
   wrongSymbol,
+  todayExams,
   exams,
   avgScore,
   maxScore,
@@ -1404,14 +1411,19 @@ function buildLayoutConfig(template: Template, s: StudentData): LayoutConfig {
  const hideEmpty = Boolean(template.hideEmpty);
 
  const hasDataFor = (k: Kind): boolean => {
-  if (!hideEmpty) return true;
   switch (k) {
-   case 'attendance': return s.recordedAtt > 0 || Boolean(s.todayAtt);
-   case 'homework': return s.hwRecorded.length > 0 || Boolean(s.todayHwStatus);
-   case 'wrong': return s.hasWrongRecord;
-   case 'grades': return s.exams.length > 0;
-   case 'progress': return s.bookProgressList.length > 0 || s.periodProgressLogs.length > 0;
-   case 'feedback': return true;
+   case 'attendance':
+    return s.single ? Boolean(s.todayAtt) : (s.recordedAtt > 0 || Boolean(s.todayAtt));
+   case 'homework':
+    return s.single ? Boolean(s.todayHwStatus) : (s.hwRecorded.length > 0 || Boolean(s.todayHwStatus));
+   case 'wrong':
+    return s.single ? s.todayHasWrongRecord : s.hasWrongRecord;
+   case 'grades':
+    return hideEmpty ? s.exams.length > 0 : true;
+   case 'progress':
+    return hideEmpty ? (s.bookProgressList.length > 0 || s.periodProgressLogs.length > 0) : true;
+   case 'feedback':
+    return true;
   }
  };
 
@@ -1506,7 +1518,7 @@ function SaebomForestSheet({
  }[] = [];
 
  if (cfg.hasKind('attendance')) {
-  const attStatus = s.todayAtt || '출석';
+  const attStatus = s.todayAtt;
   const attColor =
    attStatus === '출석' ? '#15803d' : attStatus === '지각' ? '#b45309' : attStatus === '결석' ? '#b91c1c' : '#0f172a';
   if (period === 'day') {
@@ -1514,7 +1526,15 @@ function SaebomForestSheet({
     key: 'attendance',
     label: '오늘 출결 상태',
     value: attStatus,
-    sub: s.todayAttReason || (attStatus === '출석' ? '당일 정상 등원 완료' : `${s.dateLabel} 출결 확인`),
+    sub:
+     s.todayAttReason ||
+     (attStatus === '출석'
+      ? '당일 정상 등원 완료'
+      : attStatus === '지각'
+        ? '당일 지각 등원'
+        : attStatus === '결석'
+          ? '당일 결석'
+          : `${s.dateLabel} 출결 확인`),
     toneColor: attColor,
    });
   } else if (period === 'week') {
@@ -1522,7 +1542,7 @@ function SaebomForestSheet({
     key: 'attendance',
     label: '주간 출석 일수',
     value: `${s.attended}일`,
-    sub: `이번 주 기록 ${s.recordedAtt}일 중 출석률 ${s.attRate ?? 100}%`,
+    sub: `이번 주 기록 ${s.recordedAtt}일${s.late > 0 ? ` · 지각 ${s.late}일` : ''}${s.absent > 0 ? ` · 결석 ${s.absent}일` : ''} (출석률 ${s.attRate ?? 100}%)`,
     toneColor: '#15803d',
    });
   } else {
@@ -1530,21 +1550,21 @@ function SaebomForestSheet({
     key: 'attendance',
     label: '월간 누적 출석',
     value: `${s.attended}일`,
-    sub: `${s.absent === 0 ? '월간 결석 없음' : `결석 ${s.absent}일 · 지각 ${s.late}일`} (출석률 ${s.attRate ?? 100}%)`,
+    sub: `${s.absent === 0 && s.late === 0 ? '월간 결석·지각 없음' : [s.absent > 0 ? `결석 ${s.absent}일` : '', s.late > 0 ? `지각 ${s.late}일` : ''].filter(Boolean).join(' · ')} (출석률 ${s.attRate ?? 100}%)`,
     toneColor: '#15803d',
    });
   }
  }
 
  if (cfg.hasKind('homework')) {
-  if (period === 'day') {
+  if (period === 'day' && s.todayHwStatus) {
    summaryMetrics.push({
     key: 'homework',
     label: '당일 과제 검사',
-    value: s.todayHwStatus ? `${s.hwLabels[s.todayHwStatus]} (${s.todayHwStatus})` : s.hwRate !== null ? `${s.hwRate}%` : '완료 (O)',
+    value: `${s.hwLabels[s.todayHwStatus]} (${s.todayHwStatus})`,
     sub: '당일 제출 과제 확인 완료',
    });
-  } else {
+  } else if (period !== 'day' && s.hwRecorded.length > 0) {
    summaryMetrics.push({
     key: 'homework',
     label: period === 'week' ? '주간 과제 수행률' : '월간 과제 성실도',
@@ -1555,40 +1575,41 @@ function SaebomForestSheet({
  }
 
  if (cfg.hasKind('grades')) {
-  summaryMetrics.push({
-   key: 'grades',
-   label: period === 'day' ? '당일 테스트 결과' : period === 'week' ? '주간 테스트 평균' : '월간 시험 평균',
-   value: s.avgScore !== null ? `${s.avgScore}점` : '미응시',
-   sub:
-    s.exams.length > 0
-     ? period === 'day'
-       ? `${s.exams[s.exams.length - 1].name} (${s.exams[s.exams.length - 1].score}/${s.exams[s.exams.length - 1].max_score})`
-       : `총 ${s.exams.length}회 응시 · 최고 ${s.maxScore}점`
-     : '해당 기간 시험 기록 없음',
-  });
+  if (period === 'day') {
+   const hasTodayExams = s.todayExams.length > 0;
+   const todayScoreStr = hasTodayExams
+    ? s.todayExams.length === 1
+      ? `${s.todayExams[0].max_score === 100 ? s.todayExams[0].score : s.todayExams[0].rate}점`
+      : s.todayExams.map(e => `${e.max_score === 100 ? e.score : e.rate}점`).join(' · ')
+    : '';
+   const todayExamSub = hasTodayExams
+    ? s.todayExams.map(e => `${e.name} (${e.score}/${e.max_score})`).join(' · ')
+    : '';
+   summaryMetrics.push({
+    key: 'grades',
+    label: '당일 테스트 결과',
+    value: todayScoreStr,
+    sub: todayExamSub,
+   });
+  } else {
+   summaryMetrics.push({
+    key: 'grades',
+    label: period === 'week' ? '주간 테스트 평균' : '월간 시험 평균',
+    value: s.avgScore !== null ? `${s.avgScore}점` : '',
+    sub: s.exams.length > 0 ? `총 ${s.exams.length}회 응시 · 최고 ${s.maxScore}점` : '',
+   });
+  }
  }
 
  if (cfg.hasKind('wrong')) {
-  const hasRec = period === 'day' ? s.todayHasWrongRecord : s.hasWrongRecord;
   const isWrongDone = period === 'day' ? s.todayWrongCompleted : s.periodWrongCompleted;
   summaryMetrics.push({
    key: 'wrong',
    label: period === 'day' ? '당일 오답 클리닉' : period === 'week' ? '주간 오답 클리닉' : '월간 오답 클리닉',
-   value: !hasRec ? '기록 없음' : isWrongDone ? '오답 완료' : s.wrongRate !== null ? `${s.wrongRate}%` : '미완료',
-   sub: !hasRec
-    ? (period === 'day' ? '당일 등록된 오답 클리닉 기록 없음' : '해당 기간 오답 클리닉 기록 없음')
-    : isWrongDone
-      ? (period === 'day' ? '당일 오답 클리닉 완료 확인' : '기간 내 오답 클리닉 완료 확인')
-      : `오답 ${s.totalWrong}문항 중 ${s.fixedWrong}문항 해결 진행 중`,
-   accent: hasRec,
-   toneColor: !hasRec ? '#64748b' : undefined,
-  });
- } else if (cfg.hasKind('progress')) {
-  summaryMetrics.push({
-   key: 'progress',
-   label: period === 'day' ? '진행 교재 성취도' : '교재 누적 성취도',
-   value: `${s.avgProgress ?? 0}%`,
-   sub: `진행 교재 ${s.bookProgressList.length}권 평균 진도율`,
+   value: isWrongDone ? '오답 완료' : s.wrongRate !== null ? `${s.wrongRate}%` : '미완료',
+   sub: isWrongDone
+    ? (period === 'day' ? '당일 오답 클리닉 완료 확인' : '기간 내 오답 클리닉 완료 확인')
+    : `오답 ${s.totalWrong}문항 중 ${s.fixedWrong}문항 해결 진행 중`,
    accent: true,
   });
  }
@@ -1630,118 +1651,136 @@ function SaebomForestSheet({
 
  const bluePalette = ['#2563eb', '#3b82f6', '#60a5fa', '#0284c7', '#6366f1'];
 
- const renderSaebomBlock = (kind: Kind) => {
-  if (kind === 'wrong' && cfg.hasKind('homework')) return null;
+ const renderTopSummarySection = () => {
+  if (summaryMetrics.length === 0) return null;
   const colStyle: CSSProperties = { gridColumn: 'span 12' };
+  const headTitle =
+   period === 'day'
+    ? '오늘 수업 한눈에'
+    : period === 'week'
+      ? cfg.hasKind('attendance') ? '주간 한눈에 & 요일별 출결·과제' : '주간 학습 요약'
+      : cfg.hasKind('attendance') ? '월간 한눈에 & 출결 캘린더' : '월간 학습 요약';
+  const headRight =
+   period === 'day'
+    ? `${s.dateLabel} 수업 요약`
+    : cfg.hasKind('attendance') && s.recordedAtt > 0
+      ? `${s.recordedAtt}일 중 ${s.attended}일 등원`
+      : s.dateLabel;
+  const cols = summaryMetrics.length === 1 ? 1 : summaryMetrics.length === 3 ? 3 : 2;
+  const totalRows = Math.ceil(summaryMetrics.length / cols);
 
-  if (kind === 'attendance') {
-   if (summaryMetrics.length === 0) return null;
-   const headTitle =
-    period === 'day'
-     ? '오늘 수업 한눈에'
-     : period === 'week'
-       ? '주간 한눈에 & 요일별 출결·과제'
-       : '월간 한눈에 & 출결 캘린더';
-   const headRight =
-    period === 'day'
-     ? `${s.dateLabel} 수업 요약`
-     : s.recordedAtt > 0
-       ? `${s.recordedAtt}일 중 ${s.attended}일 등원`
-       : s.dateLabel;
-
-   return (
-    <section key="saebom-attendance" className={styles.saebomSection} style={colStyle}>
-     <div className={styles.saebomSecHead}>
-      <h3><i className={styles.saebomDash}/> {headTitle}</h3>
-      <span>{headRight}</span>
-     </div>
-     <div
-      className={styles.saebomMetricsGrid}
-      style={{ gridTemplateColumns: summaryMetrics.length === 1 ? '1fr' : summaryMetrics.length === 3 ? 'repeat(3, 1fr)' : '1fr 1fr' }}
-     >
-      {summaryMetrics.map((m, idx) => (
-       <div key={idx} className={styles.saebomMetricCell}>
+  return (
+   <section key="saebom-attendance" className={styles.saebomSection} style={colStyle}>
+    <div className={styles.saebomSecHead}>
+     <h3><i className={styles.saebomDash}/> {headTitle}</h3>
+     <span>{headRight}</span>
+    </div>
+    <div
+     className={styles.saebomMetricsGrid}
+     style={{ gridTemplateColumns: cols === 1 ? '1fr' : cols === 3 ? 'repeat(3, 1fr)' : '1fr 1fr' }}
+    >
+     {summaryMetrics.map((m, idx) => {
+      const rowIdx = Math.floor(idx / cols);
+      const colIdx = idx % cols;
+      return (
+       <div
+        key={idx}
+        className={styles.saebomMetricCell}
+        style={{
+         borderRight: colIdx === cols - 1 ? 0 : '1px solid #e2e8f0',
+         borderBottom: rowIdx === totalRows - 1 ? 0 : '1px solid #e2e8f0',
+        }}
+       >
         <span className={styles.saebomMetricLabel}>{m.label}</span>
         <strong
          className={m.accent ? styles.saebomMetricAccent : styles.saebomMetricValue}
          style={m.toneColor ? { color: m.toneColor } : undefined}
         >
-         {m.value}
+         {m.value || '\u00A0'}
         </strong>
-        <span className={styles.saebomMetricSub}>{m.sub}</span>
+        <span className={styles.saebomMetricSub}>{m.sub || '\u00A0'}</span>
        </div>
-      ))}
-     </div>
+      );
+     })}
+    </div>
 
-     {/* [주간 전용] 월~일 7일 미니 출결·과제 스탬프 바 (출석=초록, 지각=노랑, 결석=빨강) */}
-     {period === 'week' && (
-      <div className={styles.saebomWeekStrip}>
-       {s.weekDays.map(wd => {
-        const badgeClass =
-         wd.attendance === '출석'
-          ? styles.saebomBadgeGood
-          : wd.attendance === '지각'
-            ? styles.saebomBadgeAmber
-            : wd.attendance === '결석'
-              ? styles.saebomBadgeRed
-              : styles.saebomBadgeSlate;
+    {/* [주간 전용] 월~일 7일 미니 출결·과제 스탬프 바 (출석=초록, 지각=노랑, 결석=빨강) */}
+    {period === 'week' && cfg.hasKind('attendance') && (
+     <div className={styles.saebomWeekStrip}>
+      {s.weekDays.map(wd => {
+       const badgeClass =
+        wd.attendance === '출석'
+         ? styles.saebomBadgeGood
+         : wd.attendance === '지각'
+           ? styles.saebomBadgeAmber
+           : wd.attendance === '결석'
+             ? styles.saebomBadgeRed
+             : styles.saebomBadgeSlate;
+       return (
+        <div key={wd.date} className={styles.saebomWeekDayBox}>
+         <b>{wd.label}요일</b>
+         <small>{wd.short}</small>
+         <span className={`${styles.saebomWeekBadge} ${badgeClass}`}>
+          {wd.attendance || '미기록'}
+         </span>
+         {cfg.hasKind('homework') && (
+          <small
+           style={{
+            fontWeight: 700,
+            padding: '1px 4px',
+            color: wd.hw === 'O' ? '#15803d' : wd.hw === 'X' ? '#b91c1c' : '#64748b',
+           }}
+          >
+           과제 {wd.hw || '-'}
+          </small>
+         )}
+        </div>
+       );
+      })}
+     </div>
+    )}
+
+    {/* [월간 전용] 월간 출결 미니 캘린더 그리드 (출석=초록, 지각=노랑, 결석=빨강) */}
+    {period === 'month' && cfg.hasKind('attendance') && (
+     <div className={styles.saebomMonthCalCard}>
+      <div className={styles.saebomDailySubHead} style={{ marginTop: 0, marginBottom: 6 }}>
+       <span><i className={styles.saebomDash}/> {s.monthLabel} 등원 및 과제 캘린더</span>
+       <small>초록=출석 · 노랑=지각 · 빨강=결석</small>
+      </div>
+      <div className={styles.saebomMonthCalGrid}>
+       {korWeekdays.map(w => (
+        <div key={w} className={styles.saebomMonthCalDow}>{w}</div>
+       ))}
+       {s.calendarCells.map((cell, idx) => {
+        if (!cell) return <div key={`empty-${idx}`} />;
+        const cellTone =
+         cell.attendance === '출석'
+          ? styles.saebomMonthCalAtt
+          : cell.attendance === '지각'
+            ? styles.saebomMonthCalWarn
+            : cell.attendance === '결석'
+              ? styles.saebomMonthCalMiss
+              : '';
         return (
-         <div key={wd.date} className={styles.saebomWeekDayBox}>
-          <b>{wd.label}요일</b>
-          <small>{wd.short}</small>
-          <span className={`${styles.saebomWeekBadge} ${badgeClass}`}>
-           {wd.attendance || '미기록'}
-          </span>
-          {cfg.hasKind('homework') && (
-           <small
-            style={{
-             fontWeight: 700,
-             padding: '1px 4px',
-             color: wd.hw === 'O' ? '#15803d' : wd.hw === 'X' ? '#b91c1c' : '#64748b',
-            }}
-           >
-            과제 {wd.hw || '-'}
-           </small>
-          )}
+         <div key={cell.date} className={`${styles.saebomMonthCalCell} ${cellTone}`}>
+          <span>{cell.day}</span>
+          {cell.attendance && <b style={{ fontSize: 8.5 }}>{cell.attendance}</b>}
          </div>
         );
        })}
       </div>
-     )}
+     </div>
+    )}
+   </section>
+  );
+ };
 
-     {/* [월간 전용] 월간 출결 미니 캘린더 그리드 (출석=초록, 지각=노랑, 결석=빨강) */}
-     {period === 'month' && (
-      <div className={styles.saebomMonthCalCard}>
-       <div className={styles.saebomDailySubHead} style={{ marginTop: 0, marginBottom: 6 }}>
-        <span><i className={styles.saebomDash}/> {s.monthLabel} 등원 및 과제 캘린더</span>
-        <small>초록=출석 · 노랑=지각 · 빨강=결석</small>
-       </div>
-       <div className={styles.saebomMonthCalGrid}>
-        {korWeekdays.map(w => (
-         <div key={w} className={styles.saebomMonthCalDow}>{w}</div>
-        ))}
-        {s.calendarCells.map((cell, idx) => {
-         if (!cell) return <div key={`empty-${idx}`} />;
-         const cellTone =
-          cell.attendance === '출석'
-           ? styles.saebomMonthCalAtt
-           : cell.attendance === '지각'
-             ? styles.saebomMonthCalWarn
-             : cell.attendance === '결석'
-               ? styles.saebomMonthCalMiss
-               : '';
-         return (
-          <div key={cell.date} className={`${styles.saebomMonthCalCell} ${cellTone}`}>
-           <span>{cell.day}</span>
-           {cell.attendance && <b style={{ fontSize: 8.5 }}>{cell.attendance}</b>}
-          </div>
-         );
-        })}
-       </div>
-      </div>
-     )}
-    </section>
-   );
+ const renderSaebomBlock = (kind: Kind) => {
+  if (kind === 'wrong' && cfg.hasKind('homework')) return null;
+  const colStyle: CSSProperties = { gridColumn: 'span 12' };
+
+  if (kind === 'attendance') {
+   return renderTopSummarySection();
   }
 
   if (kind === 'homework' || (kind === 'wrong' && !cfg.hasKind('homework'))) {
@@ -2278,6 +2317,7 @@ function SaebomForestSheet({
    </header>
 
    <div className={styles.customGrid12}>
+    {!cfg.orderedKinds.includes('attendance') && renderTopSummarySection()}
     {cfg.orderedKinds.map(k => renderSaebomBlock(k))}
    </div>
 
@@ -2346,12 +2386,12 @@ function DayBody({
      className={styles.dayStampGrid}
      style={{ gridTemplateColumns: `repeat(${stampCount}, minmax(0, 1fr))` }}
     >
-     {showAtt && (
+      {showAtt && (
       <section className={styles.moduleCard}>
        <h3 className={styles.moduleHeader}><CalendarCheck2 size={14}/> 오늘 출결 확인</h3>
        <div className={styles.stampRow}>
         {attOptions.map(opt=>{
-         const active=(s.todayAtt||'출석')===opt;
+         const active=s.todayAtt===opt;
          const activeClass=
           opt==='출석'?styles.stampAttGood:opt==='지각'?styles.stampAttWarn:styles.stampAttBad;
          const checkClass=
@@ -2365,7 +2405,7 @@ function DayBody({
         })}
        </div>
        <small className={styles.moduleCaption}>
-        {s.todayAtt?(s.todayAttReason?`비고: ${s.todayAttReason}`:`당일 ${s.todayAtt} 확인 완료`):'당일 출석 확인 완료'}
+        {s.todayAttReason?`비고: ${s.todayAttReason}`:`당일 ${s.todayAtt} 확인 완료`}
        </small>
       </section>
      )}
@@ -2375,7 +2415,7 @@ function DayBody({
        <h3 className={styles.moduleHeader}><ClipboardCheck size={14}/> 오늘 숙제 검사</h3>
        <div className={styles.stampRow}>
         {hwOptions.map(([code,label])=>{
-         const active=(s.todayHwStatus||'O')===code;
+         const active=s.todayHwStatus===code;
          const activeClass=
           code==='O'?styles.stampAttGood:code==='△'?styles.stampAttWarn:styles.stampAttBad;
          const checkClass=
@@ -2390,7 +2430,7 @@ function DayBody({
         })}
        </div>
        <small className={styles.moduleCaption}>
-        {s.todayHwStatus?`과제 수행 상태: ${s.hwLabels[s.todayHwStatus]}`:'당일 과제 제출 완료'}
+        {s.todayHwStatus?`과제 수행 상태: ${s.hwLabels[s.todayHwStatus]}`:''}
        </small>
       </section>
      )}

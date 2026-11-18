@@ -424,6 +424,18 @@ function ProgressRow({
               setScope(e.target.value);
               setDirty(true);
             }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing && scopeSuggestion && scopeSuggestion.label !== scope) {
+                e.preventDefault();
+                setScope(scopeSuggestion.label);
+                if (book && scopeSuggestion.endPage) {
+                  const clamped = book.total_pages ? Math.min(book.total_pages, scopeSuggestion.endPage) : scopeSuggestion.endPage;
+                  const nextStates = syncUnitStatesFromPage(book.units, book.states, clamped);
+                  setDraft({ ...book, completed_page: clamped, states: nextStates });
+                }
+                setDirty(true);
+              }
+            }}
             placeholder={isPrintBook(book) || !book ? '예: 기출 프린트 오답 정리 / 유인물 진도' : '예: 26~41 또는 #133~250 입력 시 자동 변환'}
           />
           {scopeSuggestion && scopeSuggestion.label !== scope && (
@@ -456,6 +468,13 @@ function ProgressRow({
             onChange={e => {
               setHomework(e.target.value);
               setDirty(true);
+            }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing && homeworkSuggestion && homeworkSuggestion.label !== homework) {
+                e.preventDefault();
+                setHomework(homeworkSuggestion.label);
+                setDirty(true);
+              }
             }}
             placeholder={isPrintBook(book) || !book ? '예: 오답 프린트 20문항 풀어오기' : '예: 26~35 또는 #133~200 입력 시 자동 변환'}
           />
@@ -1030,6 +1049,12 @@ export default function StudentProgressTable({
                                 min={0}
                                 value={bulk.page}
                                 onChange={e => patchClassBulk(group.id, { page: e.target.value })}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                                    e.preventDefault();
+                                    void applyClassBulk(group);
+                                  }
+                                }}
                                 placeholder="페이지"
                               />
                               <span>p</span>
@@ -1053,6 +1078,12 @@ export default function StudentProgressTable({
                             maxLength={2000}
                             value={bulk.scope}
                             onChange={e => patchClassBulk(group.id, { scope: e.target.value })}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                                e.preventDefault();
+                                void applyClassBulk(group);
+                              }
+                            }}
                             placeholder={`[${group.group}] 공통 진도 (예: p.42~48)`}
                           />
                         </td>
@@ -1064,6 +1095,12 @@ export default function StudentProgressTable({
                             maxLength={2000}
                             value={bulk.homework}
                             onChange={e => patchClassBulk(group.id, { homework: e.target.value })}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                                e.preventDefault();
+                                void applyClassBulk(group);
+                              }
+                            }}
                             placeholder={`[${group.group}] 공통 과제 (예: p.20~24)`}
                           />
                         </td>
@@ -1075,6 +1112,12 @@ export default function StudentProgressTable({
                             maxLength={2000}
                             value={bulk.feedback}
                             onChange={e => patchClassBulk(group.id, { feedback: e.target.value })}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                                e.preventDefault();
+                                void applyClassBulk(group);
+                              }
+                            }}
                             placeholder={`[${group.group}] 공통 피드백`}
                           />
                         </td>

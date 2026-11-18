@@ -44,14 +44,13 @@ export default function ReportPage() {
     try {
       if (selectedStudents.length === 1) {
         const blob = await captureReportImage(reportRef.current);
-        const fileName = `${reportData.grade} ${reportData.name}`;
+        const fileName = `${reportData.grade} ${reportData.name}`.trim();
         if (blob) saveAs(blob, `${fileName}.png`);
       } else {
         const zip = new JSZip();
         const firstGrade = selectedStudents[0].grade;
         const isAllSameGrade = selectedStudents.every(s => s.grade === firstGrade);
-        const targetFolder = isAllSameGrade ? zip.folder(firstGrade) : zip;
-        if (!targetFolder) throw new Error("Zip folder creation failed");
+        const usedNames = new Set<string>();
 
         for (let i = 0; i < selectedStudents.length; i++) {
           const student = selectedStudents[i];
@@ -59,7 +58,14 @@ export default function ReportPage() {
           await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
           if (!reportRef.current) throw new Error("보고서 화면을 찾지 못했습니다.");
           const blob = await captureReportImage(reportRef.current);
-          targetFolder.file(student.grade + " " + student.name + ".png", blob);
+          const baseName = `${student.grade || ""} ${student.name}`.trim();
+          let fileName = baseName;
+          let dupCount = 2;
+          while (usedNames.has(fileName)) {
+            fileName = `${baseName}_${dupCount++}`;
+          }
+          usedNames.add(fileName);
+          zip.file(`${fileName}.png`, blob);
         }
 
         const zipBlob = await zip.generateAsync({ type: "blob" });

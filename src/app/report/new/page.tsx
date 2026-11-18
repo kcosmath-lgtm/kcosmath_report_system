@@ -736,15 +736,37 @@ export default function NewReportPage(){
   if(!ready||exporting)return;setExporting(true);setMessage('이미지를 준비하고 있습니다.');
   try{
    await document.fonts.ready;
-   const {toBlob}=await import('html-to-image');const zip=new JSZip();
+   const {toBlob}=await import('html-to-image');
    const nodes=Array.from(sheets.current?.querySelectorAll<HTMLElement>('[data-report]')??[]);
    if(nodes.length!==students.length)throw new Error('Missing reports');
    let completed=0;const total=nodes.reduce((n,node)=>n+node.querySelectorAll('[data-sheet]').length,0);
-   for(const node of nodes){const report=current.find(r=>r.id===node.dataset.report);if(!report)throw new Error('Missing student');const pages=Array.from(node.querySelectorAll<HTMLElement>('[data-sheet]'));
+   if(nodes.length===1&&total===1){
+    const report=current.find(r=>r.id===nodes[0].dataset.report);if(!report)throw new Error('Missing student');
+    const page=nodes[0].querySelector<HTMLElement>('[data-sheet]');if(!page)throw new Error('Missing sheet');
+    await Promise.all(Array.from(page.querySelectorAll('img')).map(img=>img.decode()));
+    const blob=await toBlob(page,{pixelRatio:2,width:pageWidth,height:page.offsetHeight,style:{zoom:'1'},backgroundColor:'#ffffff',cacheBust:false,filter:node=>!(node instanceof HTMLElement&&node.dataset.exportHide==='true')});if(!blob)throw new Error('Image failed');
+    const fileName=`${safeName(`${report.grade||''} ${report.name}`.trim())}.png`;
+    const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=fileName;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);
+    setMessage(`${fileName} 이미지를 저장했습니다.`);
+    return;
+   }
+   const zip=new JSZip();
+   const usedNames=new Set<string>();
+   for(const node of nodes){
+    const report=current.find(r=>r.id===node.dataset.report);if(!report)throw new Error('Missing student');
+    const pages=Array.from(node.querySelectorAll<HTMLElement>('[data-sheet]'));
+    const baseName=safeName(`${report.grade||''} ${report.name}`.trim());
+    let studentPrefix=baseName;
+    let dupCount=2;
+    while(usedNames.has(studentPrefix)){
+     studentPrefix=`${baseName}_${dupCount++}`;
+    }
+    usedNames.add(studentPrefix);
     for(let index=0;index<pages.length;index++){
      await Promise.all(Array.from(pages[index].querySelectorAll('img')).map(img=>img.decode()));
      const blob=await toBlob(pages[index],{pixelRatio:2,width:pageWidth,height:pages[index].offsetHeight,style:{zoom:'1'},backgroundColor:'#ffffff',cacheBust:false,filter:node=>!(node instanceof HTMLElement&&node.dataset.exportHide==='true')});if(!blob)throw new Error('Image failed');
-     zip.file(`${safeName(report.group)}_${safeName(report.name)}_${safeName(report.id)}/${String(index+1).padStart(2,'0')}_${end}_${orientation}.png`,blob);
+     const suffix=pages.length>1?`_${index+1}`:'';
+     zip.file(`${studentPrefix}${suffix}.png`,blob);
      completed++;setMessage(`이미지 생성 중 ${completed} / ${total}`);
     }
    }

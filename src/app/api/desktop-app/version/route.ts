@@ -6,7 +6,7 @@ import { NextResponse } from 'next/server';
  * 기존에 앱을 설치한 사용자들이 앱을 켤 때 자동으로 업데이트 알림을 받고 최신 버전으로 교체됩니다.
  */
 export const DESKTOP_APP_RELEASE = {
-  version: '1.0.0',
+  version: '1.0.1',
   appName: '코스매스 리포트 · 카카오톡 통합 데스크톱 앱',
   downloadUrl: 'https://kcosmath-report-system.vercel.app/downloads/Cosmath-Desktop-App.exe',
   fallbackPath: '/downloads/Cosmath-Desktop-App.exe',

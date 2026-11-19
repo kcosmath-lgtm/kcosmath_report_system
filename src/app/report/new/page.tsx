@@ -213,6 +213,14 @@ export default function NewReportPage(){
  const [kakaoDelay, setKakaoDelay] = useState<number>(1.0);
  const [kakaoAliases, setKakaoAliases] = useState<Record<string, string>>({});
  const [kakaoBridgeAlive, setKakaoBridgeAlive] = useState<boolean>(false);
+ const [kakaoBridgeChecking, setKakaoBridgeChecking] = useState<boolean>(false);
+ const [desktopAppVersion, setDesktopAppVersion] = useState<string>('');
+ const [desktopUpdateInfo, setDesktopUpdateInfo] = useState<{
+  hasUpdate?: boolean;
+  latestVersion?: string;
+  downloadUrl?: string;
+  releaseNotes?: string;
+ } | null>(null);
  const [kakaoSending, setKakaoSending] = useState<boolean>(false);
  const [kakaoLogs, setKakaoLogs] = useState<string[]>([]);
  const [kakaoResults, setKakaoResults] = useState<{studentId:string;name:string;searchTerm:string;success:boolean;message:string}[]>([]);
@@ -850,27 +858,49 @@ export default function NewReportPage(){
  }, [kakaoAliases, duplicateStudentNames, kakaoSearchTemplate]);
 
  const checkKakaoBridge = useCallback(async () => {
+  setKakaoBridgeChecking(true);
   try {
    const res = await fetch('http://127.0.0.1:5005/health', { cache: 'no-store' });
    if (res.ok) {
+    const data = await res.json().catch(() => ({}));
     setKakaoBridgeAlive(true);
+    setDesktopAppVersion(String(data?.version || '1.0.0'));
+    setKakaoBridgeChecking(false);
+
+    // 연결된 데스크톱 앱이 최신 버전인지 비동기 체크
+    fetch('http://127.0.0.1:5005/check-update', { cache: 'no-store' })
+     .then(r => r.json())
+     .then(u => {
+      if (u?.update?.hasUpdate) {
+       setDesktopUpdateInfo(u.update);
+      } else {
+       setDesktopUpdateInfo(null);
+      }
+     })
+     .catch(() => {});
+
     return true;
    }
   } catch {
-   // try local Next.js API route fallback
-  }
-  try {
-   const res = await fetch('/api/kakao-send', { cache: 'no-store' });
-   if (res.ok) {
-    setKakaoBridgeAlive(true);
-    return true;
-   }
-  } catch {
-   // ignore
+   // 로컬 브릿지 미실행 시(일반 웹 브라우저 접속)
   }
   setKakaoBridgeAlive(false);
+  setKakaoBridgeChecking(false);
   return false;
  }, []);
+
+ const applyDesktopAppUpdate = useCallback(async () => {
+  const dlUrl = desktopUpdateInfo?.downloadUrl || '/downloads/Cosmath-Desktop-App.exe';
+  try {
+   await fetch('http://127.0.0.1:5005/apply-update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ downloadUrl: dlUrl }),
+   });
+  } catch {
+   window.location.href = dlUrl;
+  }
+ }, [desktopUpdateInfo]);
 
  const openKakaoModal = useCallback(() => {
   setKakaoTargets(prev => {
@@ -885,6 +915,14 @@ export default function NewReportPage(){
   const ids = (targetStudentIds && targetStudentIds.length > 0 ? targetStudentIds : kakaoTargets)
    .filter(id => current.some(r => r.id === id));
   if (!ready || exporting || kakaoSending || ids.length === 0) return;
+
+  const alive = await checkKakaoBridge();
+  if (!alive) {
+   setKakaoLogs([
+    '❌ 카카오톡 자동 발송은 「코스매스 PC 데스크톱 앱」을 다운로드하여 실행한 상태에서만 사용할 수 있습니다.',
+   ]);
+   return;
+  }
 
   setKakaoSending(true);
   setKakaoLogs([`총 ${ids.length}명의 리포트 고화질 이미지를 생성하고 있습니다...`]);
@@ -1861,11 +1899,15 @@ export default function NewReportPage(){
           fontWeight:800,
           padding:'3px 10px',
           borderRadius:999,
-          background:kakaoBridgeAlive ? '#15803d' : '#b45309',
+          background:kakaoBridgeAlive ? '#15803d' : '#dc2626',
           color:'#ffffff',
          }}
         >
-         {kakaoBridgeAlive ? '● 카톡 발송 엔진 연결됨' : '● 발송 시 로컬 카톡 엔진 자동 연결'}
+         {kakaoBridgeChecking
+          ? '● PC 데스크톱 앱 연결 확인 중…'
+          : kakaoBridgeAlive
+            ? `● 코스매스 데스크톱 앱 연결됨 (v${desktopAppVersion || '1.0.0'})`
+            : '● PC 전용 데스크톱 앱 필요'}
         </span>
        </div>
        <button
@@ -1892,6 +1934,131 @@ export default function NewReportPage(){
 
       {/* 본문 */}
       <div style={{padding:'18px 22px',overflowY:'auto',display:'flex',flexDirection:'column',gap:16}}>
+       {/* 새 버전 업데이트 알림 배너 (데스크톱 앱 구버전 접속 시) */}
+       {kakaoBridgeAlive && desktopUpdateInfo?.hasUpdate && (
+        <div
+         style={{
+          padding:'12px 16px',
+          background:'#eff6ff',
+          border:'1.5px solid #3b82f6',
+          borderRadius:12,
+          display:'flex',
+          alignItems:'center',
+          justifyContent:'space-between',
+          flexWrap:'wrap',
+          gap:12,
+         }}
+        >
+         <div style={{display:'flex',flexDirection:'column',gap:3}}>
+          <strong style={{fontSize:13,color:'#1e40af'}}>
+           ✨ 코스매스 데스크톱 앱 새 버전(v{desktopUpdateInfo.latestVersion})이 출시되었습니다!
+          </strong>
+          <span style={{fontSize:12,color:'#334155'}}>
+           {desktopUpdateInfo.releaseNotes || '안정성 및 카카오톡 자동 발송 기능이 개선되었습니다.'}
+          </span>
+         </div>
+         <button
+          type="button"
+          onClick={() => void applyDesktopAppUpdate()}
+          style={{
+           padding:'7px 14px',
+           borderRadius:8,
+           border:0,
+           background:'#2563eb',
+           color:'#ffffff',
+           fontSize:12,
+           fontWeight:800,
+           cursor:'pointer',
+          }}
+         >
+          지금 자동 업데이트
+         </button>
+        </div>
+       )}
+
+       {/* 일반 웹 브라우저 접속 등 데스크톱 앱이 켜져 있지 않을 때 다운로드 전용 안내 */}
+       {!kakaoBridgeAlive && (
+        <div
+         style={{
+          padding:'22px 20px',
+          background:'linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%)',
+          color:'#ffffff',
+          borderRadius:14,
+          display:'flex',
+          flexDirection:'column',
+          gap:12,
+          boxShadow:'0 12px 30px rgba(15, 23, 42, 0.18)',
+         }}
+        >
+         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
+          <span
+           style={{
+            fontSize:11,
+            fontWeight:800,
+            padding:'4px 10px',
+            borderRadius:999,
+            background:'rgba(250, 225, 0, 0.2)',
+            color:'#fae100',
+            border:'1px solid rgba(250, 225, 0, 0.4)',
+           }}
+          >
+           PC 앱 전용 기능
+          </span>
+          <span style={{fontSize:11.5,color:'#93c5fd'}}>
+           Windows 10 / 11 지원 · Supabase 클라우드 계정 자동 연동
+          </span>
+         </div>
+
+         <div style={{display:'flex',flexDirection:'column',gap:6}}>
+          <h3 style={{margin:0,fontSize:17,fontWeight:900,color:'#ffffff'}}>
+           카카오톡 원클릭 자동 발송은 「코스매스 PC 전용 앱」에서 실행됩니다
+          </h3>
+          <p style={{margin:0,fontSize:12.5,color:'#cbd5e1',lineHeight:1.6}}>
+           웹 브라우저에서는 내 PC의 카카오톡 창을 직접 제어할 수 없어 전용 데스크톱 앱이 필요합니다.<br/>
+           아래 버튼을 눌러 <b>코스매스 데스크톱 앱(.exe)</b>을 다운로드하여 실행하시면, 지금 보고 계신 학원 데이터(Supabase)가 그대로 연동되며 버튼 한 번으로 전체 학생 리포트가 카카오톡으로 자동 전송됩니다.
+          </p>
+         </div>
+
+         <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginTop:4}}>
+          <a
+           href="/downloads/Cosmath-Desktop-App.exe"
+           download="Cosmath-Desktop-App.exe"
+           style={{
+            padding:'10px 18px',
+            borderRadius:10,
+            background:'#fae100',
+            color:'#3c1e1e',
+            fontSize:13,
+            fontWeight:900,
+            textDecoration:'none',
+            display:'inline-flex',
+            alignItems:'center',
+            gap:8,
+            boxShadow:'0 4px 14px rgba(250, 225, 0, 0.3)',
+           }}
+          >
+           <Download size={15}/> 코스매스 PC 데스크톱 앱 다운로드 (.exe)
+          </a>
+          <button
+           type="button"
+           onClick={() => void checkKakaoBridge()}
+           style={{
+            padding:'10px 14px',
+            borderRadius:10,
+            border:'1px solid rgba(255,255,255,0.28)',
+            background:'rgba(255,255,255,0.1)',
+            color:'#ffffff',
+            fontSize:12,
+            fontWeight:800,
+            cursor:'pointer',
+           }}
+          >
+           {kakaoBridgeChecking ? '연결 확인 중…' : '🔄 앱을 실행했다면 연결 다시 확인'}
+          </button>
+         </div>
+        </div>
+       )}
+
        {/* 1. 카톡 검색어 규칙 & 옵션 */}
        <div
         style={{
@@ -2189,6 +2356,26 @@ export default function NewReportPage(){
          >
           발송 중단
          </button>
+        ) : !kakaoBridgeAlive ? (
+         <a
+          href="/downloads/Cosmath-Desktop-App.exe"
+          download="Cosmath-Desktop-App.exe"
+          style={{
+           padding:'9px 20px',
+           borderRadius:9,
+           border:'1px solid #1d4ed8',
+           background:'#2563eb',
+           color:'#ffffff',
+           fontSize:13,
+           fontWeight:900,
+           textDecoration:'none',
+           display:'inline-flex',
+           alignItems:'center',
+           gap:6,
+          }}
+         >
+          <Download size={14}/> PC 데스크톱 앱 다운로드 후 사용 가능
+         </a>
         ) : (
          <>
           {activeReport && (

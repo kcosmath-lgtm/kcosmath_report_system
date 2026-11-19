@@ -10,7 +10,8 @@
     "lint": "eslint",
     "test": "node --test tests/*.test.mjs tests/*.test.cjs",
     "backup:legacy": "node scripts/backup-legacy.mjs",
-    "extract:mock-exams": "node scripts/extract-mock-exam-problems.mjs"
+    "extract:mock-exams": "node scripts/extract-mock-exam-problems.mjs",
+    "build:desktop-app": "c:\\Users\\user\\auto_kakao_system\\데스크톱앱_빌드.bat"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.1",

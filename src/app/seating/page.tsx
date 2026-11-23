@@ -134,10 +134,7 @@ export default function SeatingPage() {
         if (valid.length > 0) return valid;
         return rows[0]?.students.map(s => s.id) ?? [];
       });
-      setExpandedGroups(prev => {
-        const valid = prev.filter(id => rows.some(g => g.id === id));
-        return valid.length > 0 ? valid : rows[0] ? [rows[0].id] : [];
-      });
+      setExpandedGroups(prev => prev.filter(id => rows.some(g => g.id === id)));
     } catch (e) {
       if (seq === refreshSequence.current) {
         setRosterError(e instanceof Error ? e.message : "학생 목록을 불러오지 못했습니다.");
@@ -847,9 +844,6 @@ export default function SeatingPage() {
                               ? Array.from(new Set([...curr, ...groupStudentIds]))
                               : curr.filter(id => !groupStudentIds.includes(id))
                           );
-                          if (checked && !isExpanded) {
-                            setExpandedGroups(curr => [...curr, group.id]);
-                          }
                         }}
                       />
                       <button

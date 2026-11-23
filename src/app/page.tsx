@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowUpRight, ClipboardPenLine, FileText, Sparkles, UserRoundCog } from "lucide-react";
+import { ArrowUpRight, Dices, FileText, Sparkles, UserRoundCog } from "lucide-react";
 import LandingAuthNav from "../components/LandingAuthNav";
 import CosmicHeroCanvas from "../components/CosmicHeroCanvas";
 import StickyOrbitShowcase from "../components/StickyOrbitShowcase";
@@ -120,17 +120,17 @@ export default function LandingPage() {
                 </div>
               </Link>
 
-              <Link href="/handoffs" className={`${styles.card} ${styles.cardGlowPink}`}>
+              <Link href="/seating" className={`${styles.card} ${styles.cardGlowPink}`}>
                 <div className={styles.cardTop}>
                   <span className={`${styles.cardIcon} ${styles.iconPink}`}>
-                    <ClipboardPenLine size={24} aria-hidden="true" />
+                    <Dices size={24} aria-hidden="true" />
                   </span>
-                  <span className={styles.badgeCore}>LOG</span>
+                  <span className={styles.badgeCore}>SEATING</span>
                 </div>
-                <h3>일일 메모 · 인수인계</h3>
-                <p>날짜별 수업 특이사항과 꼭 챙겨야 할 학생 전달사항 로그를 남깁니다.</p>
+                <h3>랜덤 자리 배치</h3>
+                <p>반과 학생을 선택해 학년별 인접 조건과 이전 자리 기록을 반영한 랜덤 자리 배치를 진행합니다.</p>
                 <div className={styles.cardFooter}>
-                  <span>인수인계 보드 열기</span>
+                  <span>자리 배치 스튜디오 열기</span>
                   <ArrowUpRight size={19} aria-hidden="true" />
                 </div>
               </Link>

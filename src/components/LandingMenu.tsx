@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { Building2, ClipboardPenLine, Dices, Download, FileText, LogOut, Menu, Settings, Sparkles, UserRoundCog, X } from "lucide-react";
+import { Building2, Dices, Download, FileText, LogOut, Menu, Settings, Sparkles, UserRoundCog, X } from "lucide-react";
 import styles from "./landing-menu.module.css";
 import { useAuth } from "./AuthProvider";
 
@@ -28,7 +28,6 @@ export default function LandingMenu({ profile = true }: { profile?: boolean }) {
       <Link href="/report" onClick={() => setOpen(false)}><span><FileText size={21} /></span><div><strong>보고서 작성</strong><p>수업 내용과 학생별 보고서를 작성합니다.</p></div></Link>
       <Link href="/report/new" onClick={() => setOpen(false)}><span><FileText size={21} /></span><div><strong>보고서 작성 (new)</strong><p>학습 기록과 교재 진도를 모아 성장 보고서를 만듭니다.</p></div></Link>
       <Link href="/ai-studio" onClick={() => setOpen(false)}><span><Sparkles size={21} /></span><div><strong>AI 스튜디오</strong><p>채팅으로 수학 문제를 제작·변형하고 시험지 타이핑과 도형 작도를 진행합니다.</p></div></Link>
-      <Link href="/handoffs" onClick={() => setOpen(false)}><span><ClipboardPenLine size={21} /></span><div><strong>인수인계</strong><p>날짜별 특이사항과 참고사항을 공유합니다.</p></div></Link>
       <Link href="/settings" onClick={() => setOpen(false)}><span><Settings size={21} /></span><div><strong>설정</strong><p>프로필과 워크스페이스 정보를 관리합니다.</p></div></Link>
       <a href="/downloads/Cosmath-Desktop-App.exe" download="Cosmath-Desktop-App.exe" onClick={() => setOpen(false)}><span><Download size={21} /></span><div><strong>PC 앱 다운로드 (카톡 자동발송)</strong><p>카카오톡 원클릭 자동 발송이 포함된 Windows 전용 앱을 내려받습니다.</p></div></a>
       <div className={styles.account}><div><strong>{workspace?.name}</strong><small>{user?.email}</small></div><button onClick={() => void signOut()} aria-label="로그아웃" title="로그아웃"><LogOut size={17} /></button></div>

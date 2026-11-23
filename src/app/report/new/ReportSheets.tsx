@@ -496,9 +496,9 @@ function InlinePageInput({
 
  return (
   <input
-   type="number"
-   min={0}
-   max={totalPages}
+   type="text"
+   inputMode="numeric"
+   pattern="[0-9]*"
    aria-label={ariaLabel}
    className={styles.inlineNumberInput}
    value={displayStr}
@@ -510,7 +510,7 @@ function InlinePageInput({
    onBlur={() => setFocused(false)}
    onKeyDown={e => e.stopPropagation()}
    onChange={e => {
-    const raw = e.target.value;
+    const raw = e.target.value.replace(/[^0-9]/g, '');
     setDraft(raw);
     if (raw.trim() === '') return;
     const num = Number(raw);
@@ -519,8 +519,9 @@ function InlinePageInput({
     }
    }}
    style={{
-    width: `${Math.max(2, displayStr.length) + 0.6}ch`,
-    minWidth: 22,
+    boxSizing: 'content-box',
+    width: `${Math.max(2, displayStr.length) * 0.72 + 0.55}em`,
+    minWidth: '1.8em',
    }}
   />
  );

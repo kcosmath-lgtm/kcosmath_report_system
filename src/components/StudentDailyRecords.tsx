@@ -158,9 +158,6 @@ export default function StudentDailyRecords({
 
   const rowsRef = useRef<Record<string, StudentDailySave>>({});
   const dirtyRef = useRef<string[]>([]);
-  const savingRef = useRef(false);
-  const pendingAutoSaveRef = useRef(false);
-  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     rowsRef.current = rows;
@@ -260,88 +257,18 @@ export default function StudentDailyRecords({
   }, [date, reload, rosterRevision, dateReady]);
 
   useEffect(() => {
-    if (!dirty.length) return;
+    if (!dirty.length && !dirtyBooks.length) return;
     const guard = (e: BeforeUnloadEvent) => {
       e.preventDefault();
+      e.returnValue = '';
     };
     window.addEventListener('beforeunload', guard);
     return () => window.removeEventListener('beforeunload', guard);
-  }, [dirty.length]);
+  }, [dirty.length, dirtyBooks.length]);
 
   const students = studentIds
     ? groups.flatMap(g => g.students).filter(s => studentIds.includes(s.id))
     : groups.find(g => g.id === groupId)?.students ?? [];
-
-  async function performAutoSave() {
-    if (savingRef.current) {
-      pendingAutoSaveRef.current = true;
-      return;
-    }
-    const ids = [...dirtyRef.current];
-    if (ids.length === 0) return;
-    const itemsToSave = ids.map(id => rowsRef.current[id]).filter(Boolean);
-    if (itemsToSave.length === 0) return;
-
-    savingRef.current = true;
-    dirtyRef.current = dirtyRef.current.filter(id => !ids.includes(id));
-    setDirty([...dirtyRef.current]);
-
-    try {
-      const saved = await saveStudentDaily(itemsToSave);
-      setRows(current => {
-        const next = { ...current };
-        for (const sItem of saved) {
-          const sid = sItem.daily.student_id;
-          if (dirtyRef.current.includes(sid) && next[sid]) {
-            next[sid] = {
-              daily: { ...next[sid].daily, id: sItem.daily.id, version: sItem.daily.version },
-              wrong: { ...next[sid].wrong, id: sItem.wrong.id, version: sItem.wrong.version },
-            };
-          } else {
-            next[sid] = sItem;
-          }
-        }
-        rowsRef.current = next;
-        return next;
-      });
-      setHistory(current => [
-        ...current.filter(r => !saved.some(s => s.daily.student_id === r.daily.student_id && s.daily.record_date === r.daily.record_date)),
-        ...saved,
-      ]);
-    } catch {
-      // Restore dirty state if auto-save failed so manual save can retry
-      const restored = [...new Set([...dirtyRef.current, ...ids])];
-      dirtyRef.current = restored;
-      setDirty(restored);
-    } finally {
-      savingRef.current = false;
-      if (pendingAutoSaveRef.current || dirtyRef.current.length > 0) {
-        pendingAutoSaveRef.current = false;
-        void performAutoSave();
-      }
-    }
-  }
-
-  function scheduleAutoSave() {
-    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    autoSaveTimerRef.current = setTimeout(() => {
-      autoSaveTimerRef.current = null;
-      void performAutoSave();
-    }, 200);
-  }
-
-  useEffect(() => {
-    return () => {
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current);
-        autoSaveTimerRef.current = null;
-      }
-      if (dirtyRef.current.length > 0) {
-        void performAutoSave();
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   function edit(id: string, change: (row: StudentDailySave) => StudentDailySave) {
     setRows(current => {
@@ -360,7 +287,6 @@ export default function StudentDailyRecords({
     }
     setDirty([...dirtyRef.current]);
     setMessage('');
-    scheduleAutoSave();
   }
 
   function completeWrongAnswers(id: string) {
@@ -540,10 +466,6 @@ export default function StudentDailyRecords({
   }
 
   async function save() {
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current);
-      autoSaveTimerRef.current = null;
-    }
     setBusy(true);
     setMessage('');
     try {

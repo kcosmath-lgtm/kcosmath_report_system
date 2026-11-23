@@ -3,7 +3,6 @@ import "./globals.css";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import AuthProvider from "../components/AuthProvider";
-import GlobalAiAssistant from "../components/ai/GlobalAiAssistant";
 
 export const metadata = {
   title: "유니데스크 | UNIDESK",
@@ -21,7 +20,6 @@ export default function RootLayout({
       <body className="antialiased font-sans">
         <AuthProvider>
           {children}
-          <GlobalAiAssistant />
         </AuthProvider>
         <Analytics />
         <SpeedInsights />

@@ -1287,7 +1287,7 @@
 }
 .saebomPastelRow{
  display:grid;
- grid-template-columns:168px 1fr 104px;
+ grid-template-columns:168px 1fr minmax(108px,auto);
  align-items:center;
  gap:10px;
  font-size:11px;

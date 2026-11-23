@@ -587,7 +587,10 @@ export default function StudentProgressTable({
 
   useEffect(() => {
     if (!hasDirty) return;
-    const guard = (e: BeforeUnloadEvent) => e.preventDefault();
+    const guard = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
     window.addEventListener('beforeunload', guard);
     return () => window.removeEventListener('beforeunload', guard);
   }, [hasDirty]);
@@ -902,8 +905,15 @@ export default function StudentProgressTable({
             type="date"
             aria-label="수업 기록 날짜"
             value={date}
-            disabled={saving || dirtyCount > 0}
-            onChange={e => setDate(e.target.value)}
+            disabled={saving}
+            onChange={e => {
+              if (!e.target.value || (dirtyCount > 0 && !confirm('저장하지 않은 내용을 버리고 날짜를 바꿀까요?'))) return;
+              if (dirtyCount > 0) {
+                setDirtyRows({});
+                setRevision(v => v + 1);
+              }
+              setDate(e.target.value);
+            }}
           />
         </label>
         <button type="button" className={styles.saveBtn} disabled={saving || !date || dirtyCount === 0} onClick={() => void saveAll()}>

@@ -60,14 +60,57 @@ export default function StudentManagerModal({ open, onClose, onChanged, mode = "
   // and refresh only on actual roster changes or the explicit refresh button.
   useRosterRefresh(refresh, busy || recordsDirty || !open, false);
 
+  const handleRequestClose = useCallback(() => {
+    if (busy) return;
+    if ((recordsDirty || editing) && !window.confirm("저장하지 않은 수정 내역이 있습니다. 저장하지 않고 닫으시겠습니까?")) {
+      return;
+    }
+    onClose();
+  }, [busy, recordsDirty, editing, onClose]);
+
   useEffect(() => { if (open) void refresh(); }, [open, refresh]);
   useEffect(() => {
     if (!open || mode !== "modal") return;
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape" && !busy && !recordsDirty) onClose(); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape" && !busy) handleRequestClose(); };
     window.addEventListener("keydown", escape);
     dialog.current?.focus();
     return () => window.removeEventListener("keydown", escape);
-  }, [open, busy, recordsDirty, onClose, mode]);
+  }, [open, busy, handleRequestClose, mode]);
+
+  useEffect(() => {
+    if (!open || (!recordsDirty && !editing)) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    const onLinkClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null;
+      if (!anchor || anchor.target === "_blank" || anchor.hasAttribute("download")) return;
+      if (!window.confirm("저장하지 않은 수정 내역이 있습니다. 저장하지 않고 이동하시겠습니까?")) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    document.addEventListener("click", onLinkClick, true);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      document.removeEventListener("click", onLinkClick, true);
+    };
+  }, [open, recordsDirty, editing]);
+
+  function switchRecordTab(nextTab: 'daily' | 'exams' | 'progress') {
+    if (nextTab === recordTab) return;
+    if (recordsDirty && !window.confirm("저장하지 않은 수정 내역이 있습니다. 저장하지 않고 다른 탭으로 이동할까요?")) {
+      return;
+    }
+    if (recordsDirty) {
+      setRecordsDirty(false);
+      setRecordRevision(v => v + 1);
+    }
+    setRecordTab(nextTab);
+  }
 
 
   async function mutate(action: () => Promise<void>, message: string) {
@@ -80,11 +123,11 @@ export default function StudentManagerModal({ open, onClose, onChanged, mode = "
   }
 
   if (!open) return null;
-  const content = <div className={mode === "page" ? styles.pageContainer : styles.backdrop} role="presentation" onMouseDown={event => { if (mode === "modal" && event.target === event.currentTarget && !busy && !recordsDirty) onClose(); }}>
+  const content = <div className={mode === "page" ? styles.pageContainer : styles.backdrop} role="presentation" onMouseDown={event => { if (mode === "modal" && event.target === event.currentTarget && !busy) handleRequestClose(); }}>
     <div ref={dialog} className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="student-manager-title" tabIndex={-1}>
       <header className={styles.header}>
         <div><span><Users size={18} /></span><div><h2 id="student-manager-title">학생 관리</h2><p>반과 재원생을 등록하고 관리합니다.</p></div></div>
-        {mode === "modal" && <button onClick={onClose} disabled={busy || recordsDirty} aria-label="학생 관리 닫기"><X size={20} /></button>}
+        {mode === "modal" && <button onClick={handleRequestClose} disabled={busy} aria-label="학생 관리 닫기"><X size={20} /></button>}
       </header>
 
       <div className={styles.body}>
@@ -112,7 +155,7 @@ export default function StudentManagerModal({ open, onClose, onChanged, mode = "
               <div className={styles.groupRow}><input type="checkbox" aria-label={`${group.group} 학생 전체 선택`} checked={group.students.length > 0 && group.students.every(student => selectedIds.includes(student.id))} ref={input => { if (input) input.indeterminate = group.students.some(student => selectedIds.includes(student.id)) && !group.students.every(student => selectedIds.includes(student.id)); }} onChange={event => { const ids = group.students.map(student => student.id); setSelectedIds(current => event.target.checked ? [...new Set([...current, ...ids])] : current.filter(id => !ids.includes(id))); if (event.target.checked && ids[0]) setSelectedId(ids[0]); }} /><button className={styles.groupToggle} aria-expanded={expandedGroups.includes(group.id)} onClick={() => setExpandedGroups(current => current.includes(group.id) ? current.filter(id => id !== group.id) : [...current, group.id])}><span>{group.group}</span><small>{group.students.length}</small><ChevronDown size={14} /></button><button className={styles.groupAdd} onClick={() => { setClassId(group.id); setAddingMode("student"); setAddingOpen(true); }} aria-label={`${group.group}에 학생 추가`} title="이 반에 학생 추가"><UserPlus size={14} /></button><button className={styles.groupDelete} disabled={busy} onClick={() => { if (!window.confirm(`[${group.group}] 반을 영구 삭제할까요?\n소속 학생과 수업 보고서, 오답 기록이 모두 삭제되며 복구할 수 없습니다.`)) return; void mutate(() => deleteClass(group.id), `${group.group} 반을 삭제했습니다.`); }} aria-label={`${group.group} 삭제`} title="반 영구 삭제"><Trash2 size={14} /></button></div>
               {expandedGroups.includes(group.id) && (!group.students.length ? <p>등록된 학생 없음</p> : group.students.map(student => <div key={student.id} className={`${styles.studentRow} ${selectedId === student.id ? styles.currentStudent : ""}`}><input type="checkbox" aria-label={`${student.name} 선택`} checked={selectedIds.includes(student.id)} onChange={event => { const next = event.target.checked ? [...new Set([...selectedIds, student.id])] : selectedIds.filter(id => id !== student.id); setSelectedIds(next); setSelectedId(event.target.checked ? student.id : (selectedId === student.id ? next[0] ?? "" : selectedId)); }} /><button className={selectedIds.includes(student.id) ? styles.selectedStudent : ""} aria-current={selectedId === student.id ? "true" : undefined} onClick={() => { setSelectedIds([student.id]); setSelectedId(student.id); }}><span>{student.name.slice(0, 1)}</span><div><strong>{student.name}</strong><small>{student.grade}</small></div></button><button className={styles.studentAction} disabled={busy || recordsDirty} aria-label={`${student.name} 편집`} onClick={() => { setEditing({ id: student.id, name: student.name, grade: student.grade, version: student.version }); }}><Pencil size={14} /></button><button className={styles.studentAction} disabled={busy || recordsDirty} aria-label={`${student.name} 삭제`} onClick={() => { if (window.confirm(`${student.name} 학생과 모든 기록을 영구 삭제할까요?`)) void mutate(() => deleteStudent(student.id), "학생을 삭제했습니다."); }}><Trash2 size={14} /></button></div>))}
             </div>)}</div><div className={styles.navSelection}>선택한 학생 <strong>{selectedIds.length}</strong>명</div></nav>
-            <div className={styles.recordPanel}><div className={styles.recordTabs}><button aria-pressed={recordTab === 'daily'} disabled={recordsDirty && recordTab !== 'daily'} onClick={() => setRecordTab('daily')}>출결 · 숙제 · 오답</button><button aria-pressed={recordTab === 'exams'} disabled={recordsDirty && recordTab !== 'exams'} onClick={() => setRecordTab('exams')}>시험 · 성적 관리</button><button aria-pressed={recordTab === 'progress'} disabled={recordsDirty && recordTab !== 'progress'} onClick={() => setRecordTab('progress')}>진도 관리</button>{mode === "page" && <button type="button" className={styles.addClassTabBtn} onClick={() => { setAddingMode("class"); setAddingOpen(true); }} disabled={busy || loading} aria-label="새 반 추가" title="새 반 추가"><Plus size={15} /> 반 추가</button>}</div>{recordTab === 'progress' ? <StudentProgressTable groups={groups} studentIds={selectedIds} rosterRevision={recordRevision} onDirtyChange={setRecordsDirty} /> : <StudentDailyRecords viewMode={recordTab} studentIds={selectedIds} rosterRevision={recordRevision} onDirtyChange={setRecordsDirty} />}</div>
+            <div className={styles.recordPanel}><div className={styles.recordTabs}><button aria-pressed={recordTab === 'daily'} disabled={busy} onClick={() => switchRecordTab('daily')}>출결 · 숙제 · 오답</button><button aria-pressed={recordTab === 'exams'} disabled={busy} onClick={() => switchRecordTab('exams')}>시험 · 성적 관리</button><button aria-pressed={recordTab === 'progress'} disabled={busy} onClick={() => switchRecordTab('progress')}>진도 관리</button>{mode === "page" && <button type="button" className={styles.addClassTabBtn} onClick={() => { setAddingMode("class"); setAddingOpen(true); }} disabled={busy || loading} aria-label="새 반 추가" title="새 반 추가"><Plus size={15} /> 반 추가</button>}</div>{recordTab === 'progress' ? <StudentProgressTable groups={groups} studentIds={selectedIds} rosterRevision={recordRevision} onDirtyChange={setRecordsDirty} /> : <StudentDailyRecords viewMode={recordTab} studentIds={selectedIds} rosterRevision={recordRevision} onDirtyChange={setRecordsDirty} />}</div>
           </div>}
         </section>
       </div>

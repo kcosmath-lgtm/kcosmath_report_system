@@ -320,8 +320,8 @@ const GRADE_PALETTES: GradeColorPalette[] = [
   // 0: 중1 / 1학년 (Flat Soft Rose)
   {
     bg: "#fff1f2",
-    border: "#fda4af",
-    text: "#9f1239",
+    border: "#fb7185",
+    text: "#881337",
     badgeBg: "#ffe4e6",
     badgeText: "#be123c",
     dot: "#f43f5e",
@@ -330,8 +330,8 @@ const GRADE_PALETTES: GradeColorPalette[] = [
   // 1: 중2 / 2학년 (Flat Soft Green)
   {
     bg: "#ecfdf5",
-    border: "#6ee7b7",
-    text: "#065f46",
+    border: "#34d399",
+    text: "#064e3b",
     badgeBg: "#d1fae5",
     badgeText: "#047857",
     dot: "#10b981",
@@ -340,8 +340,8 @@ const GRADE_PALETTES: GradeColorPalette[] = [
   // 2: 중3 / 3학년 (Flat Soft Blue)
   {
     bg: "#eff6ff",
-    border: "#93c5fd",
-    text: "#1e40af",
+    border: "#60a5fa",
+    text: "#1e3a8a",
     badgeBg: "#dbeafe",
     badgeText: "#1d4ed8",
     dot: "#3b82f6",
@@ -350,8 +350,8 @@ const GRADE_PALETTES: GradeColorPalette[] = [
   // 3: 초6 (Flat Soft Violet)
   {
     bg: "#f5f3ff",
-    border: "#c4b5fd",
-    text: "#5b21b6",
+    border: "#a78bfa",
+    text: "#4c1d95",
     badgeBg: "#ede9fe",
     badgeText: "#6d28d9",
     dot: "#8b5cf6",
@@ -360,8 +360,8 @@ const GRADE_PALETTES: GradeColorPalette[] = [
   // 4: 초5 (Flat Soft Teal)
   {
     bg: "#f0fdfa",
-    border: "#5eead4",
-    text: "#115e59",
+    border: "#2dd4bf",
+    text: "#134e4a",
     badgeBg: "#ccfbf1",
     badgeText: "#0f766e",
     dot: "#14b8a6",
@@ -370,8 +370,8 @@ const GRADE_PALETTES: GradeColorPalette[] = [
   // 5: 초4 / 초등 (Flat Soft Amber)
   {
     bg: "#fffbeb",
-    border: "#fcd34d",
-    text: "#92400e",
+    border: "#fbbf24",
+    text: "#78350f",
     badgeBg: "#fef3c7",
     badgeText: "#b45309",
     dot: "#f59e0b",
@@ -380,8 +380,8 @@ const GRADE_PALETTES: GradeColorPalette[] = [
   // 6: 고1 (Flat Soft Pink)
   {
     bg: "#fdf2f8",
-    border: "#f9a8d4",
-    text: "#9d174d",
+    border: "#f472b6",
+    text: "#831843",
     badgeBg: "#fce7f3",
     badgeText: "#be185d",
     dot: "#ec4899",
@@ -390,8 +390,8 @@ const GRADE_PALETTES: GradeColorPalette[] = [
   // 7: 고2 (Flat Soft Cyan)
   {
     bg: "#ecfeff",
-    border: "#67e8f9",
-    text: "#155e75",
+    border: "#22d3ee",
+    text: "#164e63",
     badgeBg: "#cffafe",
     badgeText: "#0e7490",
     dot: "#06b6d4",
@@ -400,8 +400,8 @@ const GRADE_PALETTES: GradeColorPalette[] = [
   // 8: 고3 (Flat Soft Indigo)
   {
     bg: "#eef2ff",
-    border: "#a5b4fc",
-    text: "#3730a3",
+    border: "#818cf8",
+    text: "#312e81",
     badgeBg: "#e0e7ff",
     badgeText: "#4338ca",
     dot: "#6366f1",

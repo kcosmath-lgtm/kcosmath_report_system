@@ -6,14 +6,14 @@ import { NextResponse } from 'next/server';
  * 기존에 앱을 설치한 사용자들이 앱을 켤 때 자동으로 업데이트 알림을 받고 최신 버전으로 교체됩니다.
  */
 export const DESKTOP_APP_RELEASE = {
-  version: '1.0.1',
+  version: '1.0.2',
   appName: '코스매스 리포트 · 카카오톡 통합 데스크톱 앱',
   downloadUrl: 'https://kcosmath-report-system.vercel.app/downloads/Cosmath-Desktop-App.exe',
   fallbackPath: '/downloads/Cosmath-Desktop-App.exe',
   forceUpdate: false,
-  updatedAt: '2026-11-19',
+  updatedAt: '2026-11-25',
   releaseNotes:
-    '• Vercel 클라우드(Supabase) 실시간 연동 및 카카오톡 PC 원클릭 자동 발송 엔진 통합\n• 동명이인 학년 자동 구분 및 클립보드 다이렉트 이미지 전송 지원\n• 앱 실행 시 자동 버전 체크 및 원클릭 업데이트 지원',
+    '• 연속 발송 후 백스페이스 10회 자동 초기화 매크로 적용 (다음 학생 발송 시 멈춤 현상 해결)\n• 동작 1개당 최소 대기 시간을 0.1초로 단축 지원\n• Vercel 클라우드(Supabase) 실시간 연동 및 원클릭 업데이트 지원',
 };
 
 export async function GET() {

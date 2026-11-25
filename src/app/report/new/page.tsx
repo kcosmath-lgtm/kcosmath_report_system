@@ -2130,14 +2130,14 @@ export default function NewReportPage(){
          </label>
 
          <label style={{display:'flex',flexDirection:'column',gap:4,fontSize:11.5,fontWeight:700,color:'#475569'}}>
-          동작 간격 (초 · 기본 1.0초)
+          동작 간격 (초 · 최소 0.1초)
           <input
            type="number"
-           min={0.5}
+           min={0.1}
            max={5}
            step={0.1}
            value={kakaoDelay}
-           onChange={e => setKakaoDelay(Math.max(0.5, Number(e.target.value) || 1.0))}
+           onChange={e => setKakaoDelay(Math.max(0.1, Number(e.target.value) || 0.1))}
            style={{height:34,padding:'0 10px',borderRadius:8,border:'1px solid #cbd5e1',fontSize:12.5}}
           />
          </label>

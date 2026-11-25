@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import {
   AI_PERSONA_PRESETS,
+  fetchAiPersonaFromDb,
   loadAiPersonaConfig,
   resolveActivePersonaPrompt,
   saveAiPersonaConfig,
@@ -42,6 +43,7 @@ export default function AiPersonaSettingsSection() {
 
   useEffect(() => {
     setConfig(loadAiPersonaConfig());
+    void fetchAiPersonaFromDb().then(setConfig);
   }, []);
 
   const resolved = resolveActivePersonaPrompt(config);

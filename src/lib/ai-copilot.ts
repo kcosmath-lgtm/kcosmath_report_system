@@ -19,14 +19,15 @@ import {
 import { consumeLocalQuota, notifyQuotaUpdated, type AiQuotaSnapshot } from "./ai-quota-client";
 import {
   addOrUpdateAcademyStaffMember,
+  fetchAcademyStaffFromDb,
   loadAcademyStaff,
   removeAcademyStaffMember,
   type AcademyStaffMember,
 } from "./academy-staff";
-import { loadAiPersonaConfig, resolveActivePersonaPrompt } from "./ai-personas";
+import { fetchAiPersonaFromDb, loadAiPersonaConfig, resolveActivePersonaPrompt } from "./ai-personas";
 import { renderMathGeoPngDataUrl, type MathGeoSpec } from "./math-geometry-engine";
 import { isTemplate, type Template, type Block, type Kind, type Period, type Theme } from "../app/report/new/templates";
-import { progressPercent, syncUnitStatesFromPage, type ProgressBook } from "../types/progress";
+import { unitProgressPercent, syncUnitStatesFromPage, type ProgressBook } from "../types/progress";
 import type { MockExamProblemToken } from "../types/mock-exam";
 
 export interface GeneratedMathProblem {
@@ -922,7 +923,7 @@ export async function sendAiCopilotMessage(params: {
               ? todayDaily.exams.map(e => `${e.name}:${e.score}/${e.max_score}`).join(", ")
               : "",
           bookTitle: mainBook?.title || "",
-          progressPct: mainBook ? progressPercent(mainBook) : undefined,
+          progressPct: mainBook ? unitProgressPercent(mainBook) : undefined,
           latestScope: latestEntry?.scope || "",
           latestHomework: latestEntry?.homework || "",
         };
@@ -942,9 +943,21 @@ export async function sendAiCopilotMessage(params: {
     }
   }
 
-  const personaCfg = loadAiPersonaConfig();
+  let personaCfg = loadAiPersonaConfig();
+  let staffDirectory: AcademyStaffMember[] = loadAcademyStaff();
+  if (!usesLocalStorage()) {
+    try {
+      const [remotePersona, remoteStaff] = await Promise.all([
+        fetchAiPersonaFromDb().catch(() => personaCfg),
+        staffDirectory.length === 0 ? fetchAcademyStaffFromDb().catch(() => staffDirectory) : Promise.resolve(staffDirectory),
+      ]);
+      personaCfg = remotePersona;
+      staffDirectory = remoteStaff;
+    } catch {
+      // Use local cache
+    }
+  }
   const resolvedPersona = resolveActivePersonaPrompt(personaCfg);
-  const staffDirectory: AcademyStaffMember[] = loadAcademyStaff();
 
   const res = await fetch("/api/ai/agent", {
     method: "POST",

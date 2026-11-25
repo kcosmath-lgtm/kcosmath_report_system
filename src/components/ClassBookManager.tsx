@@ -497,7 +497,7 @@ export default function ClassBookManager({
                   <strong className={styles.catalogCardTitle}>{preset.title}</strong>
                   <p className={styles.catalogCardDesc}>{preset.description}</p>
                   <div className={styles.catalogSpecPills}>
-                    <span>총 {preset.total_pages}p</span>
+                    <span>{preset.units.length}개 단원</span>
                     <span>{totalProbs.toLocaleString()}문항</span>
                     {totalTypes > 0 && <span>{totalTypes}개 유형</span>}
                     <button
@@ -513,7 +513,7 @@ export default function ClassBookManager({
                       {preset.units.map((u, idx) => (
                         <li key={idx}>
                           <span>{u.group ? `${u.group} › ` : ''}{u.name}</span>
-                          <small>p.{u.start_page}~{u.end_page} ({u.problem_count}문항)</small>
+                          <small>{u.problem_count}문항</small>
                         </li>
                       ))}
                     </ul>
@@ -577,9 +577,9 @@ export default function ClassBookManager({
                       <strong>{b.title}</strong>
                       <small>
                         {b.course ? `${b.course} · ` : ''}
-                        {b.total_pages ? `총 ${b.total_pages}페이지` : '페이지 미등록'}
+                        {b.units.length}개 단원
                         {totalProbs > 0 ? ` · 총 ${totalProbs.toLocaleString()}문항` : ''}
-                        {totalTypes > 0 ? ` · ${totalTypes}개 유형` : ''} · {b.units.length}개 단원
+                        {totalTypes > 0 ? ` · ${totalTypes}개 유형` : ''}
                       </small>
                     </div>
                     <button
@@ -603,7 +603,6 @@ export default function ClassBookManager({
                           <tr>
                             <th>대단원</th>
                             <th>중단원명</th>
-                            <th>페이지 범위</th>
                             <th>문항 번호</th>
                             <th>문항 수</th>
                             <th>유형 수</th>
@@ -617,7 +616,6 @@ export default function ClassBookManager({
                               <tr key={u.id}>
                                 <td>{u.group || '—'}</td>
                                 <td><strong>{u.name}</strong></td>
-                                <td>{u.start_page && u.end_page ? `p.${u.start_page} ~ ${u.end_page}` : '—'}</td>
                                 <td>{u.start_problem && u.end_problem ? `${u.start_problem}번 ~ ${u.end_problem}번` : '—'}</td>
                                 <td>{cnt > 0 ? `${cnt}문항` : '—'}</td>
                                 <td>{u.type_count ? `${u.type_count}유형` : '—'}</td>
@@ -646,21 +644,9 @@ export default function ClassBookManager({
         >
           <fieldset disabled={busy} className={styles.formFieldset}>
             <div className={styles.columns}>
-              <label>
+              <label style={{ gridColumn: '1 / -1' }}>
                 교재명
                 <input required maxLength={150} value={title} onChange={e => setTitle(e.target.value)} placeholder="예: 쎈 중등 수학 2-1" />
-              </label>
-              <label>
-                총 페이지 수
-                <input
-                  type="number"
-                  required
-                  min={1}
-                  max={10000}
-                  value={pages || ''}
-                  onChange={e => setPages(Number(e.target.value))}
-                  placeholder="예: 216"
-                />
               </label>
             </div>
 
@@ -725,7 +711,7 @@ export default function ClassBookManager({
                   className={editorMode === 'table' ? styles.primaryActionBtn : styles.secondaryActionBtn}
                   onClick={() => setEditorMode('table')}
                 >
-                  <Table size={13} /> 단원별 페이지·문항 표 편집
+                  <Table size={13} /> 단원 · 문항 표 편집
                 </button>
                 <button
                   type="button"
@@ -740,7 +726,7 @@ export default function ClassBookManager({
             {editorMode === 'table' && (
               <div className={styles.unitTableEditorWrap}>
                 <div className={styles.unitTableHelperBar}>
-                  <span>단원별 시작·끝 페이지와 문항 수(또는 시작~끝 문항 번호)를 입력하면 진도 관리에서 자동 계산됩니다.</span>
+                  <span>단원명을 등록하면 단원 완료 비율로 학생별 진도율(%)이 자동 계산됩니다.</span>
                   <div className={styles.unitTableHelperBtns}>
                     <button type="button" className={styles.secondaryActionBtn} onClick={recalculateSequentialProblems}>
                       1번부터 연속 문항번호 자동 채우기
@@ -755,10 +741,8 @@ export default function ClassBookManager({
                     <table className={styles.unitEditTable}>
                       <thead>
                         <tr>
-                          <th style={{ width: '150px' }}>대단원</th>
+                          <th style={{ width: '165px' }}>대단원</th>
                           <th>중단원명</th>
-                          <th style={{ width: '68px' }}>시작p</th>
-                          <th style={{ width: '68px' }}>끝p</th>
                           <th style={{ width: '74px' }}>시작번</th>
                           <th style={{ width: '74px' }}>끝번</th>
                           <th style={{ width: '74px' }}>문항수</th>
@@ -787,30 +771,6 @@ export default function ClassBookManager({
                                 onChange={e => updateUnitRow(idx, { name: e.target.value })}
                                 placeholder="예: 01. 유리수와 순환소수"
                                 aria-label={`${idx + 1}단원 중단원명`}
-                              />
-                            </td>
-                            <td>
-                              <input
-                                type="number"
-                                min={1}
-                                value={u.start_page ?? ''}
-                                onChange={e => updateUnitRow(idx, { start_page: e.target.value ? Number(e.target.value) : undefined })}
-                                placeholder="8"
-                                aria-label={`${idx + 1}단원 시작 페이지`}
-                              />
-                            </td>
-                            <td>
-                              <input
-                                type="number"
-                                min={1}
-                                value={u.end_page ?? ''}
-                                onChange={e => {
-                                  const endP = e.target.value ? Number(e.target.value) : undefined;
-                                  updateUnitRow(idx, { end_page: endP });
-                                  if (endP && endP > pages) setPages(endP);
-                                }}
-                                placeholder="25"
-                                aria-label={`${idx + 1}단원 끝 페이지`}
                               />
                             </td>
                             <td>

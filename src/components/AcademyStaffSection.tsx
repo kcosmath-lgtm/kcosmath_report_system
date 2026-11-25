@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import { Plus, Save, Sparkles, Trash2, Users } from "lucide-react";
 import {
   addOrUpdateAcademyStaffMember,
+  fetchAcademyStaffFromDb,
   loadAcademyStaff,
   removeAcademyStaffMember,
-  saveAcademyStaff,
+  syncAllAcademyStaffToDb,
   type AcademyStaffMember,
   type StaffRoleType,
 } from "../lib/academy-staff";
@@ -31,6 +32,7 @@ export default function AcademyStaffSection() {
 
   useEffect(() => {
     setStaff(loadAcademyStaff());
+    void fetchAcademyStaffFromDb().then(setStaff);
     const onChanged = () => setStaff(loadAcademyStaff());
     window.addEventListener("cosmath-staff-changed", onChanged);
     return () => window.removeEventListener("cosmath-staff-changed", onChanged);
@@ -58,7 +60,7 @@ export default function AcademyStaffSection() {
   }
 
   function handleSaveAll() {
-    saveAcademyStaff(staff);
+    void syncAllAcademyStaffToDb(staff);
     setNotice("학원 구성원 명단을 저장했습니다. AI 채팅에서 이름으로 바로 호출하실 수 있습니다.");
     setTimeout(() => setNotice(""), 3500);
   }

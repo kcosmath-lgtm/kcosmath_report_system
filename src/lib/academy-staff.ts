@@ -1,3 +1,6 @@
+import { supabase } from "./supabase";
+import { usesLocalStorage } from "./report-storage";
+
 export type StaffRoleType = "원장님" | "선생님" | "조교쌤" | "실장님";
 
 export interface AcademyStaffMember {
@@ -10,6 +13,7 @@ export interface AcademyStaffMember {
 }
 
 const LOCAL_STAFF_KEY = "cosmath:academy-staff:v1";
+let staffTableMissing = false;
 
 export function loadAcademyStaff(): AcademyStaffMember[] {
   try {
@@ -41,6 +45,36 @@ export function saveAcademyStaff(list: AcademyStaffMember[]): AcademyStaffMember
   return list;
 }
 
+export async function fetchAcademyStaffFromDb(): Promise<AcademyStaffMember[]> {
+  const local = loadAcademyStaff();
+  if (usesLocalStorage() || staffTableMissing) return local;
+  try {
+    const { data, error } = await supabase
+      .from("cosmath_academy_staff")
+      .select("id, name, role, assigned_classes, duties, created_at")
+      .order("created_at", { ascending: true });
+    if (error) {
+      staffTableMissing = true;
+      return local;
+    }
+    if (Array.isArray(data)) {
+      const remote: AcademyStaffMember[] = data.map(row => ({
+        id: String(row.id),
+        name: String(row.name || ""),
+        role: normalizeStaffRole(String(row.role || "선생님")),
+        assignedClasses: String(row.assigned_classes || ""),
+        duties: String(row.duties || ""),
+        createdAt: String(row.created_at || new Date().toISOString()),
+      }));
+      saveAcademyStaff(remote);
+      return remote;
+    }
+  } catch {
+    // Ignore network error and use local cache
+  }
+  return local;
+}
+
 export function normalizeStaffRole(rawRole?: string): StaffRoleType {
   const r = (rawRole || "").trim();
   if (/원장/.test(r)) return "원장님";
@@ -62,9 +96,12 @@ export function addOrUpdateAcademyStaffMember(input: {
   const existingIdx = current.findIndex(
     m => m.name === cleanName || (m.name.includes(cleanName) && m.role === role)
   );
+  let targetMember: AcademyStaffMember;
+  let next: AcademyStaffMember[];
+
   if (existingIdx !== -1) {
     const prev = current[existingIdx];
-    const updated: AcademyStaffMember = {
+    targetMember = {
       ...prev,
       name: cleanName,
       role: input.role ? role : prev.role,
@@ -72,24 +109,80 @@ export function addOrUpdateAcademyStaffMember(input: {
         input.assignedClasses !== undefined ? input.assignedClasses.trim() : prev.assignedClasses,
       duties: input.duties !== undefined ? input.duties.trim() : prev.duties,
     };
-    const next = [...current];
-    next[existingIdx] = updated;
-    return saveAcademyStaff(next);
+    next = [...current];
+    next[existingIdx] = targetMember;
+  } else {
+    targetMember = {
+      id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : crypto.randomUUID(),
+      name: cleanName,
+      role,
+      assignedClasses: (input.assignedClasses || "").trim(),
+      duties: (input.duties || "").trim(),
+      createdAt: new Date().toISOString(),
+    };
+    next = [...current, targetMember];
   }
-  const created: AcademyStaffMember = {
-    id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `staff-${Date.now()}`,
-    name: cleanName,
-    role,
-    assignedClasses: (input.assignedClasses || "").trim(),
-    duties: (input.duties || "").trim(),
-    createdAt: new Date().toISOString(),
-  };
-  return saveAcademyStaff([...current, created]);
+
+  saveAcademyStaff(next);
+
+  if (!usesLocalStorage() && !staffTableMissing) {
+    void supabase
+      .from("cosmath_academy_staff")
+      .upsert(
+        {
+          id: targetMember.id,
+          name: targetMember.name,
+          role: targetMember.role,
+          assigned_classes: targetMember.assignedClasses,
+          duties: targetMember.duties,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "id" }
+      )
+      .then(({ error }) => {
+        if (error) staffTableMissing = true;
+      });
+  }
+
+  return next;
+}
+
+export async function syncAllAcademyStaffToDb(list: AcademyStaffMember[]): Promise<void> {
+  saveAcademyStaff(list);
+  if (usesLocalStorage() || staffTableMissing || list.length === 0) return;
+  try {
+    const rows = list.map(m => ({
+      id: m.id,
+      name: m.name,
+      role: m.role,
+      assigned_classes: m.assignedClasses || "",
+      duties: m.duties || "",
+      updated_at: new Date().toISOString(),
+    }));
+    const { error } = await supabase.from("cosmath_academy_staff").upsert(rows, { onConflict: "id" });
+    if (error) staffTableMissing = true;
+  } catch {
+    staffTableMissing = true;
+  }
 }
 
 export function removeAcademyStaffMember(idOrName: string): AcademyStaffMember[] {
   const target = idOrName.trim();
   const current = loadAcademyStaff();
+  const removed = current.filter(m => m.id === target || m.name === target || m.name.includes(target));
   const next = current.filter(m => m.id !== target && m.name !== target && !m.name.includes(target));
-  return saveAcademyStaff(next);
+  saveAcademyStaff(next);
+
+  if (!usesLocalStorage() && !staffTableMissing && removed.length > 0) {
+    const ids = removed.map(r => r.id);
+    void supabase
+      .from("cosmath_academy_staff")
+      .delete()
+      .in("id", ids)
+      .then(({ error }) => {
+        if (error) staffTableMissing = true;
+      });
+  }
+
+  return next;
 }

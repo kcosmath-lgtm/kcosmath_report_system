@@ -4,10 +4,10 @@ import { BookOpen, Calendar, Check, History, ListChecks, RotateCcw, Save } from 
 import { loadClassBooks, loadProgress, manageClassBook, saveProgressBatch, saveProgressBooks } from '../lib/report-storage';
 import {
   completedBookProblems,
-  progressPercent,
   resolveRangeSummary,
   syncUnitStatesFromPage,
   totalBookProblems,
+  unitProgressPercent,
   type ClassBook,
   type ProgressBook,
   type ProgressEntry,
@@ -141,7 +141,7 @@ function ProgressRow({
   }, [student.id, revision, reload]);
 
   const book = draft ?? books.find(b => b.id === bookId);
-  const pct = book ? progressPercent(book) : 0;
+  const pct = book ? unitProgressPercent(book) : 0;
   const totalProbs = book ? totalBookProblems(book) : 0;
   const doneProbs = book ? completedBookProblems(book) : 0;
   const activeUnitObjects = book?.units.filter(u => book.states[u.id] === '진행 중') ?? [];
@@ -373,25 +373,6 @@ function ProgressRow({
               <strong className={styles.progressPctText}>{pct}%</strong>
             </div>
             <div className={styles.progressSubControls}>
-              {book.total_pages ? (
-                <div className={styles.inlinePageBox}>
-                  <input
-                    type="number"
-                    min={0}
-                    max={book.total_pages}
-                    disabled={locked}
-                    aria-label={`${student.name} 완료 페이지`}
-                    value={book.completed_page ?? 0}
-                    onChange={e => {
-                      const nextPage = Math.max(0, Math.min(book.total_pages!, Number(e.target.value) || 0));
-                      const nextStates = syncUnitStatesFromPage(book.units, book.states, nextPage);
-                      setDraft({ ...book, completed_page: nextPage, states: nextStates });
-                      setDirty(true);
-                    }}
-                  />
-                  <span>/{book.total_pages}p</span>
-                </div>
-              ) : null}
               <button
                 type="button"
                 className={styles.unitCheckBtn}
@@ -988,7 +969,7 @@ export default function StudentProgressTable({
                         </th>
                         <th style={{ width: '135px' }}>학생 ({group.group})</th>
                         <th style={{ width: '215px' }}>[{group.group}] 사용 교재 연결</th>
-                        <th style={{ width: '215px' }}>진도율 · 페이지 · 단원</th>
+                        <th style={{ width: '205px' }}>진도율 · 단원 체크</th>
                         <th>오늘 진도 범위</th>
                         <th>오늘 부여 과제</th>
                         <th>수업 피드백 · 코멘트</th>
@@ -1033,23 +1014,6 @@ export default function StudentProgressTable({
                         </td>
                         <td>
                           <div className={styles.progressSubControls}>
-                            <div className={styles.inlinePageBox}>
-                              <input
-                                type="number"
-                                aria-label={activeGroups.length === 1 ? '일괄 완료 페이지' : `${group.group} 일괄 완료 페이지`}
-                                min={0}
-                                value={bulk.page}
-                                onChange={e => patchClassBulk(group.id, { page: e.target.value })}
-                                onKeyDown={e => {
-                                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                                    e.preventDefault();
-                                    void applyClassBulk(group);
-                                  }
-                                }}
-                                placeholder="페이지"
-                              />
-                              <span>p</span>
-                            </div>
                             <button
                               type="button"
                               className={styles.unitCheckBtn}
@@ -1057,7 +1021,7 @@ export default function StudentProgressTable({
                               onClick={() => editUnits(targetIdsForGroup)}
                               title="이 반에서 동일 교재 사용 학생 단원 일괄 체크"
                             >
-                              <ListChecks size={12} /> 단원 일괄
+                              <ListChecks size={12} /> 단원 일괄 체크
                             </button>
                           </div>
                         </td>
@@ -1069,7 +1033,7 @@ export default function StudentProgressTable({
                             maxLength={2000}
                             value={bulk.scope}
                             onChange={e => patchClassBulk(group.id, { scope: e.target.value })}
-                            placeholder={`[${group.group}] 공통 진도 (예: p.42~48)`}
+                            placeholder={`[${group.group}] 공통 진도 단원 (예: 02. 단항식의 계산)`}
                           />
                         </td>
                         <td>
@@ -1080,7 +1044,7 @@ export default function StudentProgressTable({
                             maxLength={2000}
                             value={bulk.homework}
                             onChange={e => patchClassBulk(group.id, { homework: e.target.value })}
-                            placeholder={`[${group.group}] 공통 과제 (예: p.20~24)`}
+                            placeholder={`[${group.group}] 공통 과제 범위 (예: 02. 단항식의 계산 유형 1~10)`}
                           />
                         </td>
                         <td>
@@ -1168,11 +1132,9 @@ export default function StudentProgressTable({
                 {history.entries
                   .sort((a, b) => b.record_date.localeCompare(a.record_date) || b.created_at.localeCompare(a.created_at))
                   .map(e => {
-                    const snapPct = progressPercent({
+                    const snapPct = unitProgressPercent({
                       units: e.units_snapshot ?? history.book.units,
                       states: e.states,
-                      total_pages: e.total_pages_snapshot ?? 0,
-                      completed_page: e.completed_page ?? 0,
                     });
                     return (
                       <div key={e.id} className={styles.historyCard}>

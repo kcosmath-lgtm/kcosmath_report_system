@@ -1,3 +1,6 @@
+import { supabase } from "./supabase";
+import { usesLocalStorage } from "./report-storage";
+
 export type AiPersonaIconKey =
   | "GraduationCap"
   | "Sparkles"
@@ -98,6 +101,7 @@ export interface SavedAiPersonaConfig {
 }
 
 const LOCAL_PERSONA_KEY = "cosmath:ai-persona:v1";
+let aiSettingsTableMissing = false;
 
 export function loadAiPersonaConfig(): SavedAiPersonaConfig {
   try {
@@ -120,7 +124,7 @@ export function loadAiPersonaConfig(): SavedAiPersonaConfig {
   };
 }
 
-export function saveAiPersonaConfig(config: SavedAiPersonaConfig): SavedAiPersonaConfig {
+export function saveAiPersonaConfig(config: SavedAiPersonaConfig, syncDb = true): SavedAiPersonaConfig {
   try {
     if (typeof window !== "undefined") {
       localStorage.setItem(LOCAL_PERSONA_KEY, JSON.stringify(config));
@@ -129,7 +133,49 @@ export function saveAiPersonaConfig(config: SavedAiPersonaConfig): SavedAiPerson
   } catch {
     // Ignore
   }
+
+  if (syncDb && !usesLocalStorage() && !aiSettingsTableMissing) {
+    void supabase
+      .from("cosmath_academy_ai_settings")
+      .upsert(
+        {
+          persona_id: config.personaId,
+          custom_prompt: config.customPrompt || "",
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "academy_id" }
+      )
+      .then(({ error }) => {
+        if (error) aiSettingsTableMissing = true;
+      });
+  }
+
   return config;
+}
+
+export async function fetchAiPersonaFromDb(): Promise<SavedAiPersonaConfig> {
+  const local = loadAiPersonaConfig();
+  if (usesLocalStorage() || aiSettingsTableMissing) return local;
+  try {
+    const { data, error } = await supabase
+      .from("cosmath_academy_ai_settings")
+      .select("persona_id, custom_prompt")
+      .maybeSingle();
+    if (error) {
+      aiSettingsTableMissing = true;
+      return local;
+    }
+    if (data && typeof data.persona_id === "string") {
+      const remote: SavedAiPersonaConfig = {
+        personaId: data.persona_id,
+        customPrompt: typeof data.custom_prompt === "string" ? data.custom_prompt : "",
+      };
+      return saveAiPersonaConfig(remote, false);
+    }
+  } catch {
+    // Ignore network error
+  }
+  return local;
 }
 
 export function resolveActivePersonaPrompt(config?: Partial<SavedAiPersonaConfig>): {

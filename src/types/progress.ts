@@ -79,26 +79,6 @@ export function totalBookTypes(book: Pick<ProgressBook, 'units'> | ProgressUnit[
 export function completedBookProblems(book: Pick<ProgressBook, 'units' | 'states' | 'total_pages' | 'completed_page'>): number {
   const total = totalBookProblems(book);
   if (total <= 0) return 0;
-  const page = book.completed_page ?? 0;
-  const hasPageMeta = book.units.some(u => (u.start_page ?? 0) > 0 && (u.end_page ?? 0) >= (u.start_page ?? 0));
-  if (page > 0 && hasPageMeta) {
-    let sum = 0;
-    for (const u of book.units) {
-      const cnt = unitProblemCount(u);
-      if (cnt <= 0) continue;
-      if (book.states[u.id] === '완료') {
-        sum += cnt;
-      } else if (u.start_page && u.end_page && u.end_page >= u.start_page) {
-        if (page >= u.end_page) sum += cnt;
-        else if (page >= u.start_page) {
-          const span = u.end_page - u.start_page + 1;
-          const covered = page - u.start_page + 1;
-          sum += Math.round((cnt * covered) / span);
-        }
-      }
-    }
-    return Math.min(total, sum);
-  }
   let sum = 0;
   for (const u of book.units) {
     const cnt = unitProblemCount(u);
@@ -106,6 +86,12 @@ export function completedBookProblems(book: Pick<ProgressBook, 'units' | 'states
     else if (book.states[u.id] === '진행 중') sum += Math.round(cnt * 0.5);
   }
   return Math.min(total, sum);
+}
+
+export function unitProgressPercent(book: Pick<ProgressBook, 'units' | 'states'>): number {
+  return book.units.length
+    ? Math.round((book.units.filter(u => book.states[u.id] === '완료').length / book.units.length) * 100)
+    : 0;
 }
 
 export function syncUnitStatesFromPage(

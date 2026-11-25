@@ -25,7 +25,7 @@ import {
  AlignCenter,
  AlignRight,
 } from 'lucide-react';
-import {progressPercent,type ProgressBook,type ProgressEntry} from '../../../types/progress';
+import {unitProgressPercent,type ProgressBook,type ProgressEntry} from '../../../types/progress';
 import {wrongAnswerStatus,type StudentDailyRecord} from '../../../types/student-daily';
 import type {WrongAnswerRecord} from '../../../types/wrong-answer';
 import {presets,kinds as kindLabels,type Kind,type Template,type Theme,type BlockSpan,type BlockHeight,type TitlePosition} from './templates';
@@ -202,7 +202,7 @@ function computeStudentData(p:Preview){
  const activeBooks=p.books.filter(b=>!b.archived&&!isPrintBook(b));
  const bookProgressList=activeBooks
   .map(b=>{
-   const pct=progressPercent(b);
+   const pct=unitProgressPercent(b);
    const bEntries=mergedAllEntries.filter(e=>e.book_id===b.id);
    const periodBEntries=entriesInPeriod.filter(e=>e.book_id===b.id);
    const latest=periodBEntries[periodBEntries.length-1];
@@ -216,8 +216,8 @@ function computeStudentData(p:Preview){
     curriculum:b.curriculum,
     course:b.course,
     pct,
-    donePages:b.completed_page??latest.completed_page??0,
-    totalPages:b.total_pages??latest.total_pages_snapshot??0,
+    donePages:0,
+    totalPages:0,
     doneUnits,
     totalUnits:b.units.length,
     scope:currentScope,
@@ -240,9 +240,9 @@ function computeStudentData(p:Preview){
   const isPrint=isPrintBook(book);
   const currentUnits=(book?.units??[]).filter(u=>book?.states[u.id]==='진행 중').map(u=>u.name);
   const unitNames=currentUnits.length>0?currentUnits:(book?.units??[]).filter(u=>e.unit_ids.includes(u.id)).map(u=>u.name);
-  const total=book?.total_pages??e.total_pages_snapshot??0;
-  const done=book?.completed_page??e.completed_page??0;
-  const pct=book?progressPercent(book):(total>0?Math.min(100,Math.round((done/total)*100)):0);
+  const snapUnits=book?.units??e.units_snapshot??[];
+  const snapStates=book?.states??e.states??{};
+  const pct=unitProgressPercent({units:snapUnits,states:snapStates});
   return {
    id:e.id,
    bookId:e.book_id,
@@ -254,8 +254,8 @@ function computeStudentData(p:Preview){
    dueDate:e.due_date,
    memo:e.memo.trim(),
    pct,
-   done,
-   total,
+   done:snapUnits.filter(u=>snapStates[u.id]==='완료').length,
+   total:snapUnits.length,
    isPrint,
   };
  });
@@ -2104,23 +2104,7 @@ function SaebomForestSheet({
                <span style={{ whiteSpace: 'pre-line' }}>{b.journeyLabel && b.journeyLabel !== '학습 범위 미기록' ? b.journeyLabel : '단원 학습 진행'}</span>
               )}
               <b className={styles.saebomPctTag} style={{ display: 'inline-flex', alignItems: 'center' }}>
-               {b.totalPages > 0 ? (
-                onEditProgress ? (
-                 <>
-                  <InlinePageInput
-                   value={b.donePages}
-                   totalPages={b.totalPages}
-                   ariaLabel={`${p.name} ${b.title} 완료 페이지`}
-                   onChange={nextPage => onEditProgress(p.id, b.id, b.recordDate || p.end, { completedPage: nextPage })}
-                  />
-                  <span>/{b.totalPages}p ({b.pct}%)</span>
-                 </>
-                ) : (
-                 `${b.donePages}/${b.totalPages}p (${b.pct}%)`
-                )
-               ) : (
-                `${b.pct}%`
-               )}
+               {b.totalUnits > 0 ? `${b.doneUnits}/${b.totalUnits}단원 (${b.pct}%)` : `${b.pct}%`}
               </b>
              </div>
             </td>
@@ -2138,8 +2122,8 @@ function SaebomForestSheet({
       {s.bookProgressList.length > 0 && (
        <div className={styles.saebomPastelWrap}>
         <div className={styles.saebomDailySubHead} style={{ marginTop: 0 }}>
-         <span><i className={styles.saebomDash}/> 교재별 누적 완성도</span>
-         <small>진행 교재 {s.bookProgressList.length}권 기준</small>
+         <span><i className={styles.saebomDash}/> 교재별 단원 누적 완성도</span>
+         <small>진행 교재 {s.bookProgressList.length}권 · 단원 기준</small>
         </div>
         {s.bookProgressList.slice(0, 4).map((b, idx) => (
          <div key={b.id} className={styles.saebomPastelRow}>
@@ -2151,23 +2135,7 @@ function SaebomForestSheet({
            />
           </div>
           <strong className={styles.saebomPastelVal} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-           {b.totalPages > 0 ? (
-            onEditProgress ? (
-             <>
-              <InlinePageInput
-               value={b.donePages}
-               totalPages={b.totalPages}
-               ariaLabel={`${p.name} ${b.title} 완료 페이지`}
-               onChange={nextPage => onEditProgress(p.id, b.id, b.recordDate || p.end, { completedPage: nextPage })}
-              />
-              <span>/{b.totalPages}p · {b.pct}%</span>
-             </>
-            ) : (
-             `${b.donePages}/${b.totalPages}p · ${b.pct}%`
-            )
-           ) : (
-            `${b.pct}%`
-           )}
+           {b.totalUnits > 0 ? `${b.doneUnits}/${b.totalUnits}단원 · ${b.pct}%` : `${b.pct}%`}
           </strong>
          </div>
         ))}
@@ -2822,7 +2790,7 @@ function MonthBody({s,cfg,theme}:{p:Preview;s:StudentData;cfg:LayoutConfig;theme
              </div>
              <small>
               최근 진도 범위: {b.scope && b.scope !== '학습 범위 미기록' ? b.scope : '단원 학습 진행'}
-              {b.totalPages > 0 ? ` (${b.donePages}/${b.totalPages}p)` : ''}
+              {b.totalUnits > 0 ? ` (${b.doneUnits}/${b.totalUnits}단원 완료)` : ''}
              </small>
             </div>
            );

@@ -1394,3 +1394,60 @@
     display: none;
   }
 }
+
+.previewExamPagesWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.printOnlyExamSheet {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
+  .studioRoot,
+  .studioFullscreen {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    display: block !important;
+    background: #ffffff !important;
+  }
+
+  .sidebar,
+  .mainStage,
+  .canvasDrawer,
+  .noPrintBtn {
+    display: none !important;
+  }
+
+  .printOnlyExamSheet {
+    display: block !important;
+    width: 100% !important;
+  }
+
+  .printExamPagesWrap {
+    display: block !important;
+    width: 100% !important;
+  }
+
+  .printPageSheet {
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  .printPageSheet:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+}

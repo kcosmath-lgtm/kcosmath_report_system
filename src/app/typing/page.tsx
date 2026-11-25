@@ -17,7 +17,7 @@ import { storageError } from "../../lib/supabase-report-storage";
 import { COLUMN_HEIGHT, hasStatementChoices, formatTableCell, formatChoiceContent, choiceRowsEnabled, formatBoxContent, choiceLabels, examPages, normalizeProblems, sampleProblems, type ExamDocument, type ExamProblem, type ExamTable } from "../../lib/typing-model";
 import { cropFigure, paddedFigureBox, imageData, readSource, type SourcePage } from "../../lib/typing-upload";
 import { buildDocx, buildHwpx, downloadBlob, prepareExportDocument } from "../../lib/typing-export";
-import { type AiCopilotAction } from "../../lib/ai-copilot";
+import { sendAiCopilotMessage, type AiCopilotAction } from "../../lib/ai-copilot";
 import styles from "./typing.module.css";
 
 function PaperTitle({ text }: { text: string }) {
@@ -90,6 +90,7 @@ function TypingWorkspace() {
   const [busy, setBusy] = useState(""), [message, setMessage] = useState(""), [error, setError] = useState("");
   const [saved, setSaved] = useState<Saved[]>([]), [active, setActive] = useState<Saved | null>(null);
   const [dirty, setDirty] = useState(false), [draftReady, setDraftReady] = useState(false);
+  const [aiSolutions, setAiSolutions] = useState<Record<string, { answer: string; solution: string; modelUsed?: string }>>({});
   const measurement = useRef<HTMLDivElement>(null);
   const [heights, setHeights] = useState<Record<string, number>>({});
   const preview = useRef<HTMLDivElement>(null), stop = useRef(false), mounted = useRef(true);
@@ -338,6 +339,69 @@ function TypingWorkspace() {
   function move(index: number, direction: number) {
     change(d => { const next = [...d.problems]; const other = index + direction; if (other >= 0 && other < next.length) [next[index], next[other]] = [next[other], next[index]]; return { ...d, problems: next }; });
   }
+  async function handleAiProblemAction(problem: ExamProblem, actionMode: "solve" | "twin") {
+    if (busy) return;
+    setBusy(actionMode === "solve" ? `문항 ${problem.number}번 Gemini 4 풀이·정답 추론 중` : `문항 ${problem.number}번 웹 기출 참조 & 쌍둥이 변형 생성 중`);
+    setError("");
+    try {
+      const boxPart = problem.boxContent ? `\n[보기/조건]\n${problem.boxContent}` : "";
+      const choicePart = problem.choices.length > 0 ? `\n[선택지]\n${problem.choices.map((c, i) => `${choiceLabels[i]} ${c}`).join(" / ")}` : "";
+      const promptText =
+        actionMode === "solve"
+          ? `다음 수학 문항을 정확히 풀어서 정답과 단계별 상세 해설을 작성해 줘. (문제 변형 없이 이 문항 자체의 정확한 정답과 풀이만 추론)\n[문제]\n${problem.question}${boxPart}${choicePart}`
+          : `다음 수학 문항과 관련된 기출 유형을 웹 서핑 및 내부 시드로 참고하되, 원본을 절대 그대로 쓰지 말고 함수식·계수·조건 수치를 새롭게 바꾼 1:1 쌍둥이 변형 문제 1문항과 정답·상세 해설을 출제해 줘.\n[원본 문제]\n${problem.question}${boxPart}${choicePart}`;
+
+      const res = await sendAiCopilotMessage({
+        prompt: promptText,
+        mode: "problem_studio",
+        pathname: "/typing",
+        useWebSearch: actionMode === "twin",
+      });
+      const generated = res.createdProblems?.[0];
+      if (actionMode === "solve") {
+        setAiSolutions(prev => ({
+          ...prev,
+          [problem.id]: {
+            answer: generated?.answer || "풀이 참조",
+            solution: generated?.solution || res.reply,
+            modelUsed: res.modelUsed,
+          },
+        }));
+        setMessage(`문항 ${problem.number}번의 AI 정답 및 해설 추론이 완료되었습니다.`);
+      } else if (generated) {
+        const nextNumber = String(doc.problems.length + 1);
+        const twinExamProb = normalizeProblems([
+          {
+            number: nextNumber,
+            points: generated.points || problem.points || "4점",
+            question: generated.question,
+            boxContent: generated.boxContent || "",
+            choices: generated.choices || [],
+            boxLayout: generated.boxContent ? "box" : "none",
+            figureBox: [],
+            choiceFigureBoxes: [],
+          },
+        ])[0];
+        if (generated.figure) twinExamProb.figure = generated.figure;
+        change(d => ({ ...d, problems: [...d.problems, twinExamProb] }));
+        setAiSolutions(prev => ({
+          ...prev,
+          [twinExamProb.id]: {
+            answer: generated.answer,
+            solution: generated.solution,
+            modelUsed: res.modelUsed,
+          },
+        }));
+        setMessage(`문항 ${problem.number}번의 1:1 쌍둥이 변형 문제를 시험지 ${nextNumber}번으로 추가했습니다.`);
+      } else {
+        setMessage(res.reply);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "AI 문항 추론 중 오류가 발생했습니다.");
+    } finally {
+      setBusy("");
+    }
+  }
   return <main className={styles.app}>
     <header className={styles.header}><Link href="/" className={styles.brand}><Image src={logo} alt="UNIDESK" priority/><span>WORKSPACE</span></Link><div className={styles.headerRight}><LandingMenu/></div></header>
     <section className={styles.top}><div><p>EXAM STUDIO</p><h1>시험지 타이핑 <span>수학을 선명하게, 준비는 간편하게.</span></h1><small>PDF·이미지를 문항으로 옮기고, 편집 가능한 시험지로 완성하세요.</small></div><div className={styles.exports}>
@@ -361,7 +425,8 @@ function TypingWorkspace() {
             <p className={styles.help}>수식은 $x^2$처럼 입력하고, 독립 수식은 $$…$$로 감싸세요. 노란 수식은 문법 확인이 필요합니다.</p>
             {!doc.problems.length && <p className={styles.emptyEditor}>원본을 인식하거나 문항을 직접 추가해 주세요.</p>}
             <section className={styles.sourceBulk}><strong>문항 출처 일괄 편집</strong><div className={styles.row}><label>연도<input value={sourceYear} maxLength={20} placeholder="2026" onChange={e => setSourceYear(e.target.value)}/></label><label>학교명<input value={sourceSchool} maxLength={80} placeholder="예: ○○고 1학년" onChange={e => setSourceSchool(e.target.value)}/></label></div><button disabled={!doc.problems.length} onClick={() => { if (doc.problems.some(p => p.sourceYear || p.sourceSchool) && !confirm('모든 문항의 연도·학교명을 입력한 값으로 바꿀까요? 개별 수정한 출처도 변경됩니다.')) return; change(d => ({ ...d, problems: d.problems.map(p => ({ ...p, sourceYear: sourceYear.trim(), sourceSchool: sourceSchool.trim() })) })); }}>모든 문항에 적용</button><p>배점은 인식된 값을 유지합니다. 미리보기에서 연도·학교명·배점을 눌러 개별 수정할 수 있습니다.</p></section>
-            {doc.problems.map((p, i) => <section className={styles.editor} key={p.id}><div className={styles.editorTitle}><strong>문항 {p.number}</strong><div><button aria-label="문항 위로" disabled={i === 0} onClick={() => move(i, -1)}><ArrowUp size={14}/></button><button aria-label="문항 아래로" disabled={i === doc.problems.length - 1} onClick={() => move(i, 1)}><ArrowDown size={14}/></button><button aria-label="문항 삭제" onClick={() => { if (confirm(`${p.number}번 문항을 삭제할까요?`)) change(d => ({ ...d, problems: d.problems.filter(q => q.id !== p.id) })); }}><Trash2 size={14}/></button></div></div>
+            {doc.problems.map((p, i) => <section className={styles.editor} key={p.id}><div className={styles.editorTitle}><strong>문항 {p.number}</strong><div><button type="button" title="Gemini 4로 이 문항의 정답과 상세 해설을 추론합니다" onClick={() => void handleAiProblemAction(p, "solve")} style={{ fontSize: 11, fontWeight: 700, color: "#1d4ed8", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 6, padding: "2px 7px" }}>✨ AI 풀이</button><button type="button" title="웹 기출을 참고하여 수치·함수를 새롭게 바꾼 쌍둥이 변형 문항을 시험지에 추가합니다" onClick={() => void handleAiProblemAction(p, "twin")} style={{ fontSize: 11, fontWeight: 700, color: "#6d28d9", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 6, padding: "2px 7px" }}>🔄 쌍둥이 변형</button><button aria-label="문항 위로" disabled={i === 0} onClick={() => move(i, -1)}><ArrowUp size={14}/></button><button aria-label="문항 아래로" disabled={i === doc.problems.length - 1} onClick={() => move(i, 1)}><ArrowDown size={14}/></button><button aria-label="문항 삭제" onClick={() => { if (confirm(`${p.number}번 문항을 삭제할까요?`)) change(d => ({ ...d, problems: d.problems.filter(q => q.id !== p.id) })); }}><Trash2 size={14}/></button></div></div>
+              {aiSolutions[p.id] && <div style={{ margin: "6px 0 8px", padding: "8px 10px", borderRadius: 8, background: "#f0fdf4", border: "1px solid #bbf7d0", fontSize: 12, lineHeight: 1.55 }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}><strong style={{ color: "#15803d" }}>✦ AI 추론 정답: <TypingMath text={aiSolutions[p.id].answer}/></strong>{aiSolutions[p.id].modelUsed && <small style={{ color: "#64748b", fontSize: 10.5 }}>{aiSolutions[p.id].modelUsed}</small>}</div><div style={{ color: "#1e293b", whiteSpace: "pre-line" }}><TypingMath text={aiSolutions[p.id].solution}/></div></div>}
               {p.review && <p className={styles.review}>확인 필요: {p.review}</p>}
               <div className={styles.row}><label>번호<input value={p.number} maxLength={30} onChange={e => update(p.id, { number: e.target.value })}/></label><label>배점<input value={p.points} maxLength={30} onChange={e => update(p.id, { points: e.target.value })} placeholder="3점"/></label></div>
               <label>문제 본문<textarea value={p.question} rows={5} onChange={e => update(p.id, { question: e.target.value })}/></label>

@@ -127,7 +127,7 @@ export default function GlobalAiAssistant() {
     {
       id: "welcome",
       role: "ai",
-      text: "안녕하세요! 유니데스크 통합 AI 코파일럿입니다. 출결·성적·진도 기록부터 그래프·도형 작도 문항 출제, 시험지 편집, 보고서 템플릿 설계까지 무엇이든 말씀해 주세요.",
+      text: "안녕하세요! 유니데스크 통합 AI 코파일럿입니다. 출결·성적·진도 기록부터 그래프·도형 작도 문항 출제, 시험지 편집까지 무엇이든 말씀해 주세요.",
     },
   ]);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -176,9 +176,7 @@ export default function GlobalAiAssistant() {
           ? "problem_studio"
           : pathname.startsWith("/typing")
             ? "typing"
-            : pathname.startsWith("/report/new")
-              ? "report_template"
-              : "general";
+            : "general";
 
       const result = await sendAiCopilotMessage({
         prompt: trimmed,

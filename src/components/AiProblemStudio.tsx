@@ -13,12 +13,13 @@ import {
   FileDown,
   FileText,
   FolderOpen,
-  LayoutTemplate,
   Loader2,
   MessageSquare,
+  Palette,
   PanelLeft,
   PanelLeftClose,
   Plus,
+  Printer,
   ScanText,
   Search,
   Sparkles,
@@ -30,31 +31,25 @@ import "katex/dist/katex.min.css";
 import { useAuth } from "./AuthProvider";
 import LandingMenu from "./LandingMenu";
 import TypingMath from "./TypingMath";
-import ReportSheets, { type Preview as ReportPreview } from "../app/report/new/ReportSheets";
 import {
-  buildStructuredTemplate,
-  defaultKindsFor,
-  kinds as reportKindLabels,
-  periods as reportPeriodLabels,
-  themes as reportThemeLabels,
-  type Kind as ReportKind,
-  type Period as ReportPeriod,
-  type Template as ReportTemplate,
-  type Theme as ReportTheme,
-} from "../app/report/new/templates";
-import {
-  deleteAiReportTemplate,
+  DEFAULT_EXAM_PAPER_STYLE,
   deleteGeneratedProblem,
-  loadActiveAiReportTemplate,
-  loadAiReportTemplates,
+  loadAiExamStyle,
   loadGeneratedProblems,
-  saveActiveAiReportTemplate,
-  saveAiReportTemplate,
+  saveAiExamStyle,
   saveGeneratedProblems,
   sendAiCopilotMessage,
   type AiCopilotAction,
+  type ExamPaperStyle,
   type GeneratedMathProblem,
 } from "../lib/ai-copilot";
+import {
+  AI_PERSONA_PRESETS,
+  loadAiPersonaConfig,
+  resolveActivePersonaPrompt,
+  saveAiPersonaConfig,
+  type SavedAiPersonaConfig,
+} from "../lib/ai-personas";
 import { fetchAiQuotaStatus, type AiQuotaSnapshot } from "../lib/ai-quota-client";
 import {
   choiceLabels,
@@ -81,8 +76,8 @@ import mockProblemStoreData from "../data/mock-exam-problems.json";
 import type { MockExamCatalog, MockExamProblemStore, MockExamProblemToken } from "../types/mock-exam";
 import styles from "./AiProblemStudio.module.css";
 
-type StudioMode = "default" | "generate" | "typing" | "geometry" | "report";
-type CanvasPanel = "none" | "exam" | "geometry" | "library" | "report";
+type StudioMode = "default" | "generate" | "typing" | "geometry";
+type CanvasPanel = "none" | "exam" | "geometry" | "library";
 
 const STUDIO_MODES: Array<{
   id: StudioMode;
@@ -96,79 +91,16 @@ const STUDIO_MODES: Array<{
   { id: "geometry", label: "도형 작도", desc: "알지오매스·지오지브라형 함수·기하 작도", icon: Compass },
 ];
 
-const STUDIO_REPORT_SAMPLE_PREVIEW: ReportPreview = {
-  id: "studio-sample",
-  name: "김코스",
-  grade: "고2",
-  group: "수학I 심화반",
-  start: "2026-10-01",
-  end: "2026-10-31",
-  books: [
-    {
-      id: "sample-book",
-      student_id: "studio-sample",
-      title: "수학I 실전 개념완성",
-      curriculum: "고등",
-      course: "수학I",
-      units: [],
-      states: {},
-      version: 1,
-    },
-  ],
-  daily: [76, 84, 92, 96].map((score, i) => ({
-    id: `daily-${i}`,
-    student_id: "studio-sample",
-    record_date: `2026-10-${String(7 * (i + 1)).padStart(2, "0")}`,
-    attendance: "출석",
-    reason: "",
-    version: 1,
-    exams: [
-      {
-        id: `exam-${i}`,
-        name: `${i + 1}주차 단원 평가`,
-        score,
-        max_score: 100,
-        scope: "삼각함수와 수열",
-        memo: "",
-      },
-    ],
-  })),
-  wrong: [10, 8, 6, 4].map((total_wrong, i) => ({
-    id: `wrong-${i}`,
-    student_id: "studio-sample",
-    record_date: `2026-10-${String(7 * (i + 1)).padStart(2, "0")}`,
-    total_wrong,
-    corrected_count: total_wrong - (i === 0 ? 2 : 0),
-    homework_status: i === 0 ? "△" : "O",
-    memo: "",
-    version: 1,
-  })),
-  entries: [
-    {
-      id: "sample-entry",
-      book_id: "sample-book",
-      record_date: "2026-10-28",
-      unit_ids: [],
-      scope: "등차·등비수열의 합과 귀납법 심화",
-      homework: "워크북 64~72쪽 오답 유사문항 풀이",
-      due_date: "2026-10-31",
-      memo: "킬러 문항 접근 속도가 눈에 띄게 빨라졌습니다. 다음 주에는 수능 기출 4점 변형 문제에 도전합니다.",
-      states: {},
-      created_at: "2026-10-28",
-      total_pages_snapshot: 120,
-      completed_page: 92,
-    },
-  ],
-};
-
 interface StudioChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   mode?: StudioMode;
   problems?: GeneratedMathProblem[];
-  reportTemplate?: ReportTemplate;
+  geoSpec?: MathGeoSpec;
   attachmentNames?: string[];
+  modelUsed?: string;
+  webSearchSources?: Array<{ title: string; url: string }>;
   createdAt: string;
 }
 
@@ -214,23 +146,17 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
   const [savedProblems, setSavedProblems] = useState<GeneratedMathProblem[]>([]);
   const [examTitle, setExamTitle] = useState("2026 수학 실전 모의고사");
   const [examProblems, setExamProblems] = useState<GeneratedMathProblem[]>([]);
+  const [examStyle, setExamStyle] = useState<ExamPaperStyle>(() => DEFAULT_EXAM_PAPER_STYLE);
+  const [examStyleChatInput, setExamStyleChatInput] = useState("");
+  const [personaConfig, setPersonaConfig] = useState<SavedAiPersonaConfig>(() => ({
+    personaId: AI_PERSONA_PRESETS[0].id,
+    customPrompt: "",
+  }));
+  const [personaMenuOpen, setPersonaMenuOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [originCompareId, setOriginCompareId] = useState<string | null>(null);
   const [expandedTokenId, setExpandedTokenId] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState("");
-
-  // AI Report Template Studio state
-  const [savedReportTemplates, setSavedReportTemplates] = useState<ReportTemplate[]>([]);
-  const [activeReportTemplate, setActiveReportTemplate] = useState<ReportTemplate>(() =>
-    buildStructuredTemplate({
-      cycle: "month",
-      focus: "balanced",
-      theme: "unidesk",
-      orientation: "portrait",
-      enabledKinds: defaultKindsFor("month", "balanced"),
-    })
-  );
-  const [templateSaveMsg, setTemplateSaveMsg] = useState("");
 
   // OCR Attachments
   const [sources, setSources] = useState<SourcePage[]>([]);
@@ -256,6 +182,14 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
   const [geoRangeMax, setGeoRangeMax] = useState("5.2");
   const [geoJsonText, setGeoJsonText] = useState(() => JSON.stringify(MATH_GEO_PRESETS[0].spec, null, 2));
   const [targetProblemId, setTargetProblemId] = useState<string>("latest");
+  const [geoChatInput, setGeoChatInput] = useState("");
+  const [geoChatHistory, setGeoChatHistory] = useState<Array<{ id: string; role: "user" | "assistant"; text: string }>>([
+    {
+      id: "geo-welcome",
+      role: "assistant",
+      text: "원하시는 함수 그래프나 기하 도형을 채팅으로 말씀해 주세요! (예: '삼차함수 y=x^3-3x+1과 x=1에서의 접선 그려줘', '-1부터 2까지 적분 영역 색칠해줘', '원 O와 내접하는 삼각형 ABC 작도해줘')",
+    },
+  ]);
 
   // Mock Exam Archive & Token Library filter state
   const [mockGrade, setMockGrade] = useState<1 | 2 | 3>(3);
@@ -267,18 +201,12 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
   useEffect(() => {
     void loadGeneratedProblems().then(setSavedProblems);
     void fetchAiQuotaStatus().then(setQuota);
-    const loadedTemplates = loadAiReportTemplates();
-    setSavedReportTemplates(loadedTemplates);
-    const activeTpl = loadActiveAiReportTemplate() ?? loadedTemplates[0];
-    if (activeTpl) setActiveReportTemplate(activeTpl);
-
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get("mode") === "report") {
-        setMode("report");
-        setCanvasPanel("report");
-      }
+    const loadedStyle = loadAiExamStyle();
+    setExamStyle(loadedStyle);
+    if (loadedStyle.title) {
+      setExamTitle(loadedStyle.title);
     }
+    setPersonaConfig(loadAiPersonaConfig());
 
     try {
       const raw = localStorage.getItem(threadsKey);
@@ -292,15 +220,27 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
   }, [threadsKey]);
 
   useEffect(() => {
-    const onTemplateUpdated = (e: Event) => {
-      const built = (e as CustomEvent<ReportTemplate>).detail;
-      if (!built) return;
-      setActiveReportTemplate(built);
-      setSavedReportTemplates(loadAiReportTemplates());
-      setCanvasPanel("report");
+    const onGeoUpdated = (e: Event) => {
+      const nextSpec = (e as CustomEvent<MathGeoSpec>).detail;
+      if (!nextSpec) return;
+      syncGeoControlsFromSpec(nextSpec);
+      setCanvasPanel("geometry");
     };
-    window.addEventListener("cosmath-ai-template-updated", onTemplateUpdated);
-    return () => window.removeEventListener("cosmath-ai-template-updated", onTemplateUpdated);
+    const onExamStyleUpdated = (e: Event) => {
+      const nextStyle = (e as CustomEvent<ExamPaperStyle>).detail;
+      if (!nextStyle) return;
+      setExamStyle(nextStyle);
+      if (nextStyle.title) {
+        setExamTitle(nextStyle.title);
+      }
+      setCanvasPanel("exam");
+    };
+    window.addEventListener("cosmath-ai-geospec-updated", onGeoUpdated);
+    window.addEventListener("cosmath-ai-exam-style-updated", onExamStyleUpdated);
+    return () => {
+      window.removeEventListener("cosmath-ai-geospec-updated", onGeoUpdated);
+      window.removeEventListener("cosmath-ai-exam-style-updated", onExamStyleUpdated);
+    };
   }, []);
 
   useEffect(() => {
@@ -730,25 +670,21 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
     setMessages(nextWithUser);
     setBusy(true);
     setBusyStep(
-      activeMode === "report"
-        ? "학생 성취도·출결·오답·진도에 맞춘 보고서 템플릿을 설계하는 중..."
-        : activeMode === "geometry"
-          ? "알지오매스/지오지브라 1:1 등축 좌표계와 도형을 작도하는 중..."
-          : activeMode === "typing"
-            ? "문항 수식(LaTeX)과 레이아웃을 구성하는 중..."
-            : activeMode === "generate"
-              ? `기출 1:1 매칭 토큰 참조 및 고${grade} ${subject} (${difficulty}) 쌍둥이 변형 설계 중...`
-              : "AI가 답변을 준비하고 있습니다..."
+      activeMode === "geometry"
+        ? "알지오매스/지오지브라 1:1 등축 좌표계와 도형을 작도하는 중..."
+        : activeMode === "typing"
+          ? "문항 수식(LaTeX)과 레이아웃을 구성하는 중..."
+          : activeMode === "generate"
+            ? `기출 1:1 매칭 토큰 참조 및 고${grade} ${subject} (${difficulty}) 쌍둥이 변형 설계 중...`
+            : "AI가 답변을 준비하고 있습니다..."
     );
 
     const enrichedPrompt =
-      activeMode === "report"
-        ? `[학생 성장 보고서 템플릿 설계 요청] ${text}. 반드시 update_report_template 액션을 사용해 orientation(portrait|landscape), theme(saebom|miricheck|mirireport|mirigraph|unidesk|notebook|summary|timeline|briefing|planner|letter|clean), period(day|week|month|1month|3months), blocks 배열을 완성도 높게 구성해줘. 사용자가 특정 항목(예: 오답, 성적 등)을 빼달라고 하면 blocks에서 해당 kind를 반드시 제외해줘.`
-        : activeMode === "geometry"
-          ? `[알지오매스/지오지브라 도형 작도 및 문항 출제 요청] ${text}. 반드시 geoSpec(함수 그래프, 접선, 적분 색칠 영역, 주요 좌표점과 수선의 발 점선, 원/다각형 등)을 정교하게 포함하여 문항을 생성해줘.`
-          : activeMode === "typing"
-            ? `[시험지 타이핑 및 문항 정밀 편집 요청] ${text}. 시험지에 바로 넣을 수 있도록 깔끔한 LaTeX 수식과 5지선다를 포함해 문항을 만들어줘.`
-            : text;
+      activeMode === "geometry"
+        ? `[AI 대화형 도형 작도 요청] ${text}. 반드시 update_geo_spec 액션(문항 출제까지 요청한 경우 generate_problems 포함)을 사용해 함수 그래프, 접선, 적분 색칠 영역, 주요 좌표점과 수선의 발 점선, 원/다각형/각도 등을 정교한 MathGeoSpec으로 작도해줘.`
+        : activeMode === "typing"
+          ? `[시험지 타이핑 및 문항 정밀 편집 요청] ${text}. 시험지에 바로 넣을 수 있도록 깔끔한 LaTeX 수식과 5지선다를 포함해 문항을 만들어줘.`
+          : text;
 
     const firstSource = sources[0];
     if (sources.length > 0) setSources([]);
@@ -757,8 +693,8 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
       const response = await sendAiCopilotMessage({
         prompt: enrichedPrompt,
         mode:
-          activeMode === "report"
-            ? "report_template"
+          activeMode === "geometry"
+            ? "geometry"
             : activeMode === "typing"
               ? "typing"
               : activeMode === "default"
@@ -769,6 +705,8 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
           grade,
           subject,
           difficulty,
+          currentGeoSpec: geoSpec,
+          currentExamStyle: { ...examStyle, title: examTitle },
           ...(sourceTokenId ? { sourceTokenId } : {}),
         },
         ...(firstSource
@@ -783,22 +721,32 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
       });
 
       const createdProblems: GeneratedMathProblem[] = [];
-      let createdReportTemplate: ReportTemplate | undefined;
+      let createdGeoSpec: MathGeoSpec | undefined = response.updatedGeoSpec;
+      if (response.updatedExamStyle) {
+        setExamStyle(response.updatedExamStyle);
+        if (response.updatedExamStyle.title) {
+          setExamTitle(response.updatedExamStyle.title);
+        }
+        setCanvasPanel("exam");
+      }
       for (const action of response.actions as AiCopilotAction[]) {
-        if (action.type === "generate_problems" && action.problems?.length) {
+        if (action.type === "update_geo_spec" && action.geoSpec) {
+          createdGeoSpec = action.geoSpec;
+          syncGeoControlsFromSpec(action.geoSpec);
+          setCanvasPanel("geometry");
+        } else if (action.type === "update_exam_style" && action.style) {
+          const mergedStyle = saveAiExamStyle(action.style, Boolean(action.reset));
+          setExamStyle(mergedStyle);
+          if (mergedStyle.title) {
+            setExamTitle(mergedStyle.title);
+          }
+          setCanvasPanel("exam");
+        } else if (action.type === "generate_problems" && action.problems?.length) {
           for (const p of action.problems) {
             if (p.geoSpec) {
-              setGeoSpec(p.geoSpec);
-              setGeoJsonText(JSON.stringify(p.geoSpec, null, 2));
+              createdGeoSpec = p.geoSpec;
+              syncGeoControlsFromSpec(p.geoSpec);
             }
-          }
-        } else if (action.type === "update_report_template") {
-          const latestTpl = loadActiveAiReportTemplate() ?? loadAiReportTemplates()[0];
-          if (latestTpl) {
-            createdReportTemplate = latestTpl;
-            setActiveReportTemplate(latestTpl);
-            setSavedReportTemplates(loadAiReportTemplates());
-            setCanvasPanel("report");
           }
         }
       }
@@ -846,9 +794,18 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
         content: response.reply,
         mode: activeMode,
         problems: createdProblems.length > 0 ? createdProblems : undefined,
-        reportTemplate: createdReportTemplate,
+        geoSpec: createdGeoSpec,
+        modelUsed: response.modelUsed,
+        webSearchSources: response.webSearchSources,
         createdAt: new Date().toISOString(),
       };
+      if (activeMode === "geometry" || createdGeoSpec) {
+        setGeoChatHistory(prev => [
+          ...prev,
+          { id: `gu-${Date.now()}`, role: "user", text },
+          { id: `ga-${Date.now()}`, role: "assistant", text: response.reply },
+        ]);
+      }
 
       const finalMessages = [...nextWithUser, assistantMsg];
       setMessages(finalMessages);
@@ -867,20 +824,6 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
       setBusy(false);
       setBusyStep("");
     }
-  }
-
-  function handleSaveCurrentReportTemplate(tplToSave = activeReportTemplate) {
-    const next = saveAiReportTemplate(tplToSave);
-    saveActiveAiReportTemplate(tplToSave);
-    setSavedReportTemplates(next);
-    setTemplateSaveMsg(`'${tplToSave.name}' 템플릿을 보관함에 저장했습니다.`);
-    setTimeout(() => setTemplateSaveMsg(""), 3000);
-  }
-
-  function handleApplyTemplateToReportPage(tplToApply = activeReportTemplate) {
-    saveAiReportTemplate(tplToApply);
-    saveActiveAiReportTemplate(tplToApply);
-    router.push("/report/new?from=ai-studio");
   }
 
   function addProblemToExam(problem: GeneratedMathProblem) {
@@ -974,6 +917,39 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
     router.push("/typing");
   }
 
+  function handlePrintExam(problemsOverride?: GeneratedMathProblem[]) {
+    const listToPrint =
+      problemsOverride && problemsOverride.length > 0
+        ? problemsOverride
+        : examProblems.length > 0
+          ? examProblems
+          : savedProblems.slice(0, 4);
+    if (listToPrint.length === 0) return;
+    if (problemsOverride && problemsOverride.length > 0) {
+      setExamProblems(prev => {
+        const existingIds = new Set(prev.map(p => p.id));
+        const merged = [...prev, ...problemsOverride.filter(p => !existingIds.has(p.id))];
+        return merged.length > 0 ? merged : problemsOverride;
+      });
+    } else if (examProblems.length === 0) {
+      setExamProblems(listToPrint);
+    }
+    setCanvasPanel("exam");
+    setTimeout(() => {
+      if (typeof window !== "undefined") {
+        window.print();
+      }
+    }, 90);
+  }
+
+  function updateExamStyleField(patch: Partial<ExamPaperStyle>) {
+    const merged = saveAiExamStyle(patch, false);
+    setExamStyle(merged);
+    if (patch.title) {
+      setExamTitle(patch.title);
+    }
+  }
+
   async function handleDeleteSavedProblem(id: string) {
     await deleteGeneratedProblem(id);
     setSavedProblems(await loadGeneratedProblems());
@@ -1028,6 +1004,548 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
 
   const currentModeMeta = STUDIO_MODES.find(m => m.id === mode) || STUDIO_MODES[0];
   const CurrentModeIcon = currentModeMeta.icon;
+  const activePersonaResolved = useMemo(() => resolveActivePersonaPrompt(personaConfig), [personaConfig]);
+  const activePersona = activePersonaResolved.preset;
+
+  const renderStyledExamPaper = (problemsToRender: GeneratedMathProblem[], isPrintMode: boolean) => {
+    const st: ExamPaperStyle = { ...DEFAULT_EXAM_PAPER_STYLE, ...examStyle };
+    const cols = Math.max(1, Math.min(4, Number(st.columns) || 2));
+    const accent = st.accentColor || "#111827";
+    const bg = st.backgroundColor || "#ffffff";
+    const fg = st.textColor || "#0f172a";
+    const font = st.fontFamily || "'Noto Serif KR', 'Batang', Georgia, serif";
+    const fSize = Number(st.fontSize) || 13.5;
+    const lHeight = Number(st.lineHeight) || 1.68;
+    const gap = Number(st.problemGap) ?? 22;
+    const solSpace = Number(st.solutionSpace) ?? 40;
+    const pad = Number(st.pagePadding) ?? 24;
+    const displayTitle = (examTitle || st.title || "2026 수학 실전 모의고사").trim();
+    const displaySubtitle = st.subtitle ?? "2026학년도 대학수학능력시험 대비 수학 영역";
+    const headerLeft = st.headerLeft ?? "제 2 교시";
+    const headerRight = st.headerRight ?? "홀수형";
+    const footerText = st.footerText ?? "유니데스크 AI 수학 연구소";
+
+    if (problemsToRender.length === 0 && !isPrintMode) {
+      return (
+        <div className={styles.examPreviewPaper}>
+          <div className={styles.examEmptyState}>
+            <p>
+              채팅창에서 생성하거나 타이핑한 문항의 <strong>[+ 시험지에 담기]</strong> 버튼을 누르면 이곳에 맞춤 시험지가 구성됩니다.
+            </p>
+            {savedProblems.length > 0 && (
+              <button
+                type="button"
+                className={styles.loadRecentBtn}
+                onClick={() => setExamProblems(savedProblems.slice(0, 4))}
+              >
+                최근 보관함 문항 {Math.min(4, savedProblems.length)}개 자동 불러오기
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    const perPage = Number(st.perPage) > 0 ? Number(st.perPage) : 0;
+    const pages: Array<{ startIdx: number; items: GeneratedMathProblem[] }> = [];
+    if (perPage > 0 && problemsToRender.length > 0) {
+      for (let i = 0; i < problemsToRender.length; i += perPage) {
+        pages.push({ startIdx: i, items: problemsToRender.slice(i, i + perPage) });
+      }
+    } else {
+      pages.push({ startIdx: 0, items: problemsToRender });
+    }
+
+    const customCssObj: React.CSSProperties = {};
+    if (st.customCss && typeof st.customCss === "object") {
+      for (const [k, v] of Object.entries(st.customCss)) {
+        (customCssObj as Record<string, string | number>)[k] = v;
+      }
+    }
+
+    return (
+      <div className={isPrintMode ? styles.printExamPagesWrap : styles.previewExamPagesWrap}>
+        {pages.map((page, pageIdx) => (
+          <div
+            key={`exam-page-${pageIdx}`}
+            className={`${styles.examPreviewPaper} ${isPrintMode ? styles.printPageSheet : ""}`}
+            style={{
+              position: "relative",
+              background: bg,
+              color: fg,
+              fontFamily: font,
+              fontSize: `${fSize}px`,
+              lineHeight: lHeight,
+              padding: `${pad}px`,
+              border:
+                st.borderStyle === "box"
+                  ? `2px solid ${accent}`
+                  : st.borderStyle === "dashed"
+                    ? `1.5px dashed ${accent}`
+                    : isPrintMode
+                      ? "none"
+                      : "1px solid #e5e7eb",
+              ...customCssObj,
+            }}
+          >
+            {st.watermark && (
+              <div
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  pointerEvents: "none",
+                  zIndex: 0,
+                  overflow: "hidden",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: isPrintMode ? 54 : 34,
+                    fontWeight: 900,
+                    color: accent,
+                    opacity: 0.06,
+                    transform: "rotate(-28deg)",
+                    whiteSpace: "nowrap",
+                    userSelect: "none",
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  {st.watermark}
+                </span>
+              </div>
+            )}
+
+            {/* Header Section */}
+            {st.headerStyle !== "none" && (
+              <header
+                style={{
+                  position: "relative",
+                  zIndex: 1,
+                  marginBottom: 18,
+                  paddingBottom: 12,
+                  borderBottom:
+                    st.headerStyle === "banner" || st.borderStyle === "none"
+                      ? "none"
+                      : st.borderStyle === "double" || st.headerStyle === "suneung"
+                        ? `3px double ${accent}`
+                        : st.borderStyle === "dashed"
+                          ? `1.5px dashed ${accent}`
+                          : `2px solid ${accent}`,
+                  ...(st.headerStyle === "banner"
+                    ? {
+                        background: accent,
+                        color: "#ffffff",
+                        padding: "16px 20px",
+                        borderRadius: 10,
+                      }
+                    : st.headerStyle === "modern"
+                      ? {
+                          borderLeft: `5px solid ${accent}`,
+                          paddingLeft: 14,
+                        }
+                      : {}),
+                }}
+              >
+                {displaySubtitle && (
+                  <div
+                    style={{
+                      textAlign: st.headerStyle === "modern" ? "left" : "center",
+                      fontSize: Math.max(11, fSize - 2),
+                      fontWeight: 600,
+                      opacity: st.headerStyle === "banner" ? 0.9 : 0.78,
+                      marginBottom: 4,
+                    }}
+                  >
+                    {displaySubtitle}
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  {headerLeft ? (
+                    <span
+                      style={{
+                        padding: "3px 10px",
+                        borderRadius: st.headerStyle === "suneung" ? 999 : 6,
+                        border:
+                          st.headerStyle === "banner"
+                            ? "1px solid rgba(255,255,255,0.5)"
+                            : `1.5px solid ${accent}`,
+                        fontSize: Math.max(11, fSize - 1.5),
+                        fontWeight: 700,
+                      }}
+                    >
+                      {headerLeft}
+                    </span>
+                  ) : (
+                    <span />
+                  )}
+
+                  <strong
+                    style={{
+                      fontSize: Math.round(fSize * 1.48),
+                      fontWeight: 900,
+                      letterSpacing: "-0.02em",
+                      color: st.headerStyle === "banner" ? "#ffffff" : accent,
+                      textAlign: "center",
+                      flex: 1,
+                    }}
+                  >
+                    {displayTitle}
+                  </strong>
+
+                  {headerRight ? (
+                    <span
+                      style={{
+                        padding: "3px 10px",
+                        borderRadius: 6,
+                        border:
+                          st.headerStyle === "banner"
+                            ? "1px solid rgba(255,255,255,0.5)"
+                            : `1.5px solid ${accent}`,
+                        fontSize: Math.max(11, fSize - 1.5),
+                        fontWeight: 700,
+                      }}
+                    >
+                      {headerRight}
+                    </span>
+                  ) : (
+                    <span />
+                  )}
+                </div>
+
+                {st.showStudentInfoBox && pageIdx === 0 && (
+                  <div
+                    style={{
+                      marginTop: 10,
+                      display: "grid",
+                      gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                      gap: 6,
+                      fontSize: Math.max(10.5, fSize - 2),
+                      padding: "6px 10px",
+                      borderRadius: 6,
+                      border:
+                        st.headerStyle === "banner"
+                          ? "1px solid rgba(255,255,255,0.35)"
+                          : "1px solid #cbd5e1",
+                      background:
+                        st.headerStyle === "banner" ? "rgba(255,255,255,0.12)" : "rgba(248,250,252,0.8)",
+                    }}
+                  >
+                    <div>학교/반: _____________</div>
+                    <div>학년: _______</div>
+                    <div>성명: _____________</div>
+                    <div>점수: _____ / 100</div>
+                  </div>
+                )}
+
+                {st.customNote && pageIdx === 0 && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      padding: "6px 10px",
+                      borderRadius: 6,
+                      background: "#f8fafc",
+                      border: "1px dashed #94a3b8",
+                      fontSize: Math.max(11, fSize - 2),
+                      color: "#334155",
+                    }}
+                  >
+                    {st.customNote}
+                  </div>
+                )}
+              </header>
+            )}
+
+            {/* Problems Multi-Column Layout */}
+            <div
+              style={{
+                position: "relative",
+                zIndex: 1,
+                display: "grid",
+                gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+                columnGap: cols > 1 ? 26 : 0,
+                rowGap: `${gap}px`,
+                alignItems: "start",
+              }}
+            >
+              {cols === 2 && st.showColumnDivider && (
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    bottom: 0,
+                    left: "50%",
+                    width: 1,
+                    background: "#cbd5e1",
+                    pointerEvents: "none",
+                  }}
+                />
+              )}
+              {page.items.map((p, idx) => {
+                const probNum = page.startIdx + idx + 1;
+                const pts = p.points || (p.difficulty === "킬러" || p.difficulty === "상" ? "4점" : "3점");
+                const choiceCols =
+                  st.choiceColumns && st.choiceColumns > 0
+                    ? st.choiceColumns
+                    : p.choices?.every(c => c.length <= 12)
+                      ? 5
+                      : p.choices?.every(c => c.length <= 24)
+                        ? 3
+                        : 1;
+                return (
+                  <article
+                    key={`${p.id}-${probNum}`}
+                    className={styles.examProblemItem}
+                    style={{
+                      background: "transparent",
+                      border: isPrintMode ? "none" : "1px solid rgba(226,232,240,0.8)",
+                      padding: isPrintMode ? "4px 2px" : "10px",
+                      paddingBottom: `${Math.max(8, solSpace)}px`,
+                      breakInside: "avoid",
+                      pageBreakInside: "avoid",
+                    }}
+                  >
+                    <div className={styles.examProblemTop} style={{ marginBottom: 4 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                        <strong style={{ fontSize: `${fSize + 1}px`, color: accent }}>{probNum}.</strong>
+                        {st.showPoints !== false && (
+                          <span style={{ fontSize: `${Math.max(10.5, fSize - 2)}px`, color: "#475569", fontWeight: 700 }}>
+                            [{pts}]
+                          </span>
+                        )}
+                        {st.showDifficulty && (
+                          <span
+                            style={{
+                              fontSize: `${Math.max(10, fSize - 2.5)}px`,
+                              padding: "1px 6px",
+                              borderRadius: 999,
+                              background: "#eff6ff",
+                              color: accent,
+                              fontWeight: 700,
+                            }}
+                          >
+                            {p.difficulty}
+                          </span>
+                        )}
+                        {st.showSource && p.sourceLabel && (
+                          <span style={{ fontSize: `${Math.max(10, fSize - 2.5)}px`, color: "#64748b" }}>
+                            ({p.sourceLabel})
+                          </span>
+                        )}
+                      </div>
+                      {!isPrintMode && (
+                        <button
+                          type="button"
+                          className={styles.noPrintBtn}
+                          onClick={() => removeProblemFromExam(p.id)}
+                          aria-label="시험지에서 제거"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
+
+                    <div className={styles.examProblemText} style={{ fontSize: `${fSize}px`, lineHeight: lHeight }}>
+                      <TypingMath text={p.question} />
+                    </div>
+
+                    {p.figure && (
+                      <div style={{ display: "flex", justifyContent: "center", margin: "8px 0" }}>
+                        <img
+                          src={p.figure}
+                          alt={`${probNum}번 도형`}
+                          className={styles.examProblemThumb}
+                          style={{ maxWidth: cols >= 2 ? 190 : 250 }}
+                        />
+                      </div>
+                    )}
+
+                    {p.boxContent && (
+                      <div
+                        style={{
+                          margin: "8px 0",
+                          padding: "8px 11px",
+                          borderRadius: 6,
+                          border: "1px solid #94a3b8",
+                          background: "rgba(248,250,252,0.65)",
+                          fontSize: `${Math.max(11, fSize - 1)}px`,
+                        }}
+                      >
+                        <div style={{ textAlign: "center", fontWeight: 700, marginBottom: 4 }}>〈보 기〉</div>
+                        {formatBoxContent(p.boxContent)
+                          .split("\n")
+                          .map((line, bIdx) => (
+                            <div key={bIdx}>
+                              <TypingMath text={line} />
+                            </div>
+                          ))}
+                      </div>
+                    )}
+
+                    {p.choices && p.choices.length > 0 && (
+                      <div
+                        style={{
+                          marginTop: 8,
+                          display: "grid",
+                          gridTemplateColumns: `repeat(${choiceCols}, minmax(0, 1fr))`,
+                          gap: "6px 10px",
+                          fontSize: `${Math.max(11.5, fSize - 0.5)}px`,
+                        }}
+                      >
+                        {p.choices.map((c, cIdx) => (
+                          <div key={cIdx} style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+                            <span>{choiceLabels[cIdx] || `(${cIdx + 1})`}</span>
+                            <TypingMath text={formatChoiceContent(c)} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+
+            {/* Footer */}
+            <footer
+              style={{
+                position: "relative",
+                zIndex: 1,
+                marginTop: 22,
+                paddingTop: 10,
+                borderTop: `1px solid ${st.borderStyle === "none" ? "#e2e8f0" : accent}`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                fontSize: Math.max(10.5, fSize - 2.5),
+                color: "#64748b",
+              }}
+            >
+              <span>{footerText}</span>
+              <strong>
+                {pageIdx + 1} / {pages.length}
+              </strong>
+            </footer>
+          </div>
+        ))}
+
+        {/* Answer Key & Detailed Solutions Sheet */}
+        {(st.showAnswerKey || st.showSolutions) && problemsToRender.length > 0 && (
+          <div
+            className={`${styles.examPreviewPaper} ${isPrintMode ? styles.printPageSheet : ""}`}
+            style={{
+              background: bg,
+              color: fg,
+              fontFamily: font,
+              fontSize: `${Math.max(11.5, fSize - 1)}px`,
+              lineHeight: lHeight,
+              padding: `${pad}px`,
+              marginTop: isPrintMode ? 0 : 14,
+              pageBreakBefore: "always",
+              breakBefore: "page",
+            }}
+          >
+            <header
+              style={{
+                borderBottom: `2px solid ${accent}`,
+                paddingBottom: 10,
+                marginBottom: 14,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <strong style={{ fontSize: `${Math.round(fSize * 1.25)}px`, color: accent }}>
+                {displayTitle} — 정답 및 해설지
+              </strong>
+              <span style={{ fontSize: 11.5, color: "#64748b" }}>총 {problemsToRender.length}문항</span>
+            </header>
+
+            {st.showAnswerKey && (
+              <div
+                style={{
+                  marginBottom: 16,
+                  padding: "10px 12px",
+                  borderRadius: 8,
+                  border: "1px solid #cbd5e1",
+                  background: "rgba(248,250,252,0.8)",
+                }}
+              >
+                <div style={{ fontWeight: 800, marginBottom: 6, color: accent, fontSize: 12.5 }}>[빠른 정답표]</div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(95px, 1fr))",
+                    gap: 6,
+                  }}
+                >
+                  {problemsToRender.map((p, idx) => (
+                    <div
+                      key={`ans-${p.id}-${idx}`}
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        background: "#ffffff",
+                        border: "1px solid #e2e8f0",
+                        fontSize: 12,
+                      }}
+                    >
+                      <strong>{idx + 1}번:</strong> <TypingMath text={p.answer || "-"} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {st.showSolutions && (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: cols >= 2 ? "repeat(2, minmax(0, 1fr))" : "1fr",
+                  gap: 14,
+                }}
+              >
+                {problemsToRender.map((p, idx) => (
+                  <div
+                    key={`sol-${p.id}-${idx}`}
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      border: "1px solid #e2e8f0",
+                      breakInside: "avoid",
+                      pageBreakInside: "avoid",
+                    }}
+                  >
+                    <div style={{ fontWeight: 800, color: accent, marginBottom: 4 }}>
+                      {idx + 1}번 해설{" "}
+                      <span style={{ fontWeight: 700, color: "#15803d" }}>
+                        (정답: <TypingMath text={p.answer || "-"} />)
+                      </span>
+                    </div>
+                    <div style={{ whiteSpace: "pre-wrap", fontSize: `${Math.max(11, fSize - 1.5)}px` }}>
+                      <TypingMath text={p.solution || "해설이 등록되지 않았습니다."} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const renderComposer = (isCentered: boolean) => (
     <div className={`${styles.composerContainer} ${isCentered ? styles.composerCentered : styles.composerDocked}`}>
@@ -1099,15 +1617,13 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
             }
           }}
           placeholder={
-            mode === "report"
-              ? "원하는 보고서 템플릿 구성(예: 성적 그래프와 오답 분석표 중심의 가로형 월간 리포트)을 입력하세요..."
-              : mode === "typing"
-                ? "시험지 PDF·이미지를 + 버튼으로 첨부하거나 타이핑할 수식/문항을 입력하세요..."
-                : mode === "geometry"
-                  ? "작도할 함수 그래프(예: 삼차함수와 접선의 넓이)나 기하 도형을 입력하세요..."
-                  : mode === "generate"
-                    ? "제작하거나 변형할 수학 문제 조건을 입력하세요..."
-                    : "무엇이든 물어보세요..."
+            mode === "typing"
+              ? "시험지 PDF·이미지를 + 버튼으로 첨부하거나 타이핑할 수식/문항을 입력하세요..."
+              : mode === "geometry"
+                ? "작도할 함수 그래프(예: 삼차함수와 접선의 넓이)나 기하 도형을 입력하세요..."
+                : mode === "generate"
+                  ? "제작하거나 변형할 수학 문제 조건을 입력하세요..."
+                  : "무엇이든 물어보세요..."
           }
           disabled={busy}
         />
@@ -1142,8 +1658,6 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                       setModeMenuOpen(false);
                       if (item.id === "geometry") {
                         setCanvasPanel("geometry");
-                      } else if (item.id === "report") {
-                        setCanvasPanel("report");
                       }
                     }}
                   >
@@ -1266,17 +1780,6 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
               <FileText size={17} />
               <span>시험지 캔버스 ({examProblems.length})</span>
             </button>
-            <button
-              type="button"
-              className={`${styles.navItem} ${canvasPanel === "report" || mode === "report" ? styles.navItemActive : ""}`}
-              onClick={() => {
-                setMode("report");
-                setCanvasPanel(c => (c === "report" ? "none" : "report"));
-              }}
-            >
-              <LayoutTemplate size={17} />
-              <span>보고서 템플릿 ({savedReportTemplates.length})</span>
-            </button>
           </nav>
 
           <div className={styles.recentSection}>
@@ -1357,6 +1860,156 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
           </div>
 
           <div className={styles.topHeaderRight}>
+            <div style={{ position: "relative" }}>
+              <button
+                type="button"
+                className={`${styles.headerCanvasBtn} ${personaMenuOpen ? styles.headerCanvasBtnActive : ""}`}
+                onClick={() => setPersonaMenuOpen(v => !v)}
+                title="AI 캐릭터(인격·말투 프롬프트) 변경"
+              >
+                <span>{activePersona.emoji}</span>
+                <span>{activePersona.name}</span>
+                <ChevronDown size={13} />
+              </button>
+
+              {personaMenuOpen && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 8px)",
+                    right: 0,
+                    width: 380,
+                    maxWidth: "92vw",
+                    background: "#ffffff",
+                    border: "1px solid #cbd5e1",
+                    borderRadius: 16,
+                    boxShadow: "0 16px 38px rgba(15, 23, 42, 0.16)",
+                    padding: 14,
+                    zIndex: 60,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 10,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <strong style={{ fontSize: 13.5, color: "#0f172a" }}>🎭 AI 캐릭터 (인격 · 페르소나) 설정</strong>
+                    <button
+                      type="button"
+                      className={styles.iconBtn}
+                      onClick={() => setPersonaMenuOpen(false)}
+                      aria-label="닫기"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 11.5, color: "#64748b", lineHeight: 1.45 }}>
+                    선택한 캐릭터의 인격과 말투 프롬프트가 기본 모드 및 모든 AI 대화에 즉시 적용됩니다.
+                  </p>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 250, overflowY: "auto" }}>
+                    {AI_PERSONA_PRESETS.map(preset => {
+                      const isSelected = personaConfig.personaId === preset.id;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => {
+                            const next = saveAiPersonaConfig({
+                              ...personaConfig,
+                              personaId: preset.id,
+                            });
+                            setPersonaConfig(next);
+                          }}
+                          style={{
+                            display: "flex",
+                            alignItems: "flex-start",
+                            gap: 10,
+                            padding: "9px 11px",
+                            borderRadius: 11,
+                            border: isSelected ? "1.5px solid #2563eb" : "1px solid #e2e8f0",
+                            background: isSelected ? "#eff6ff" : "#ffffff",
+                            textAlign: "left",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <span style={{ fontSize: 19, lineHeight: 1.1 }}>{preset.emoji}</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+                              <strong style={{ fontSize: 12.5, color: isSelected ? "#1d4ed8" : "#0f172a" }}>
+                                {preset.name}
+                              </strong>
+                              {isSelected && <Check size={14} color="#2563eb" />}
+                            </div>
+                            <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 2 }}>{preset.tagline}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 5,
+                      paddingTop: 8,
+                      borderTop: "1px solid #e2e8f0",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <label style={{ fontSize: 11.5, fontWeight: 700, color: "#334155" }}>
+                        ✍️ 적용 중인 성격 프롬프트 (직접 추가·수정 가능)
+                      </label>
+                      {personaConfig.customPrompt && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = saveAiPersonaConfig({
+                              ...personaConfig,
+                              customPrompt: "",
+                            });
+                            setPersonaConfig(next);
+                          }}
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            color: "#2563eb",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                          }}
+                        >
+                          기본값 복원
+                        </button>
+                      )}
+                    </div>
+                    <textarea
+                      rows={4}
+                      value={personaConfig.customPrompt || activePersona.systemPrompt}
+                      onChange={e => {
+                        const next = saveAiPersonaConfig({
+                          ...personaConfig,
+                          customPrompt: e.target.value,
+                        });
+                        setPersonaConfig(next);
+                      }}
+                      placeholder="원하시는 AI의 성격, 말투, 호칭(예: 원장님/선생님), 유머 스타일 등을 자유롭게 적어주세요..."
+                      style={{
+                        width: "100%",
+                        padding: "8px 10px",
+                        borderRadius: 8,
+                        border: "1px solid #cbd5e1",
+                        fontSize: 11.5,
+                        lineHeight: 1.5,
+                        resize: "vertical",
+                        background: "#f8fafc",
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
             <span className={styles.quotaPill}>
               ✦ 학원 한도 오늘 <strong>{quota?.dailyPct ?? 0}%</strong>
             </span>
@@ -1372,16 +2025,6 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
             </button>
             <button
               type="button"
-              className={`${styles.headerCanvasBtn} ${canvasPanel === "report" ? styles.headerCanvasBtnActive : ""}`}
-              onClick={() => {
-                setMode("report");
-                setCanvasPanel(c => (c === "report" ? "none" : "report"));
-              }}
-            >
-              <LayoutTemplate size={14} /> 보고서 템플릿 ({savedReportTemplates.length})
-            </button>
-            <button
-              type="button"
               className={`${styles.headerCanvasBtn} ${canvasPanel === "exam" ? styles.headerCanvasBtnActive : ""}`}
               onClick={() => setCanvasPanel(c => (c === "exam" ? "none" : "exam"))}
             >
@@ -1393,6 +2036,27 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
 
         {messages.length === 0 ? (
           <div className={styles.emptyStage}>
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "5px 12px",
+                borderRadius: 999,
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                fontSize: 12.5,
+                color: "#334155",
+                marginBottom: 8,
+                cursor: "pointer",
+              }}
+              onClick={() => setPersonaMenuOpen(true)}
+              title="클릭하여 AI 캐릭터 변경"
+            >
+              <span>{activePersona.emoji}</span>
+              <strong>{activePersona.name}</strong>
+              <span style={{ color: "#64748b" }}>· {activePersona.tagline}</span>
+            </div>
             <h1 className={styles.emptyHeading}>오늘은 무엇을 해볼까요?</h1>
             {renderComposer(true)}
           </div>
@@ -1419,12 +2083,109 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                     ) : (
                       <div className={styles.assistantBlock}>
                         <div className={styles.assistantHeader}>
-                          <span className={styles.assistantBadge}>✦ AI 스튜디오</span>
+                          <span className={styles.assistantBadge}>
+                            {activePersona.emoji} {activePersona.name}
+                          </span>
+                          {msg.modelUsed && (
+                            <span
+                              style={{
+                                marginLeft: 6,
+                                fontSize: 11,
+                                fontWeight: 700,
+                                padding: "2px 8px",
+                                borderRadius: 999,
+                                background: msg.modelUsed.includes("gemini-4") ? "#ede9fe" : "#e0f2fe",
+                                color: msg.modelUsed.includes("gemini-4") ? "#6d28d9" : "#0369a1",
+                              }}
+                            >
+                              {msg.modelUsed.includes("gemini-4")
+                                ? `🧠 ${msg.modelUsed} (추론·창작)`
+                                : `⚡ ${msg.modelUsed} (고속)`}
+                            </span>
+                          )}
                         </div>
                         <p className={styles.assistantText}>{msg.content}</p>
+                        {msg.webSearchSources && msg.webSearchSources.length > 0 && (
+                          <div
+                            style={{
+                              display: "flex",
+                              flexWrap: "wrap",
+                              alignItems: "center",
+                              gap: 6,
+                              marginTop: 6,
+                              marginBottom: 8,
+                              fontSize: 11.5,
+                              color: "#475569",
+                            }}
+                          >
+                            <span style={{ fontWeight: 700, color: "#1d4ed8" }}>🌐 웹 기출 탐색 참조 (원본 변형 출제됨):</span>
+                            {msg.webSearchSources.slice(0, 4).map((src, sIdx) => (
+                              <a
+                                key={sIdx}
+                                href={src.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{
+                                  padding: "2px 8px",
+                                  borderRadius: 6,
+                                  background: "#f1f5f9",
+                                  border: "1px solid #cbd5e1",
+                                  color: "#2563eb",
+                                  textDecoration: "none",
+                                  maxWidth: 220,
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {src.title} ↗
+                              </a>
+                            ))}
+                          </div>
+                        )}
 
                         {msg.problems && msg.problems.length > 0 && (
                           <div className={styles.problemCardStack}>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                flexWrap: "wrap",
+                                gap: 8,
+                                padding: "8px 12px",
+                                borderRadius: 12,
+                                background: "#f8fafc",
+                                border: "1px solid #dbeafe",
+                              }}
+                            >
+                              <span style={{ fontSize: 12.5, fontWeight: 700, color: "#1e40af" }}>
+                                📄 생성된 시험지 문항 ({msg.problems.length}문항)
+                              </span>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                <button
+                                  type="button"
+                                  className={styles.cardSmallBtn}
+                                  onClick={() => {
+                                    setExamProblems(prev => {
+                                      const existingIds = new Set(prev.map(p => p.id));
+                                      return [...prev, ...(msg.problems || []).filter(p => !existingIds.has(p.id))];
+                                    });
+                                    setCanvasPanel("exam");
+                                  }}
+                                >
+                                  <Palette size={13} /> 시험지 스타일·미리보기 열기
+                                </button>
+                                <button
+                                  type="button"
+                                  className={styles.cardPrimaryBtn}
+                                  style={{ background: "#2563eb" }}
+                                  onClick={() => handlePrintExam(msg.problems)}
+                                >
+                                  <Printer size={13} /> 바로 프린트 / PDF 인쇄
+                                </button>
+                              </div>
+                            </div>
                             {msg.problems.map((prob, pIdx) => {
                               const inExam = examProblems.some(item => item.id === prob.id);
                               const origin =
@@ -1466,6 +2227,19 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                                             : `원본 기출(${origin.number}번) 1:1 비교 ▼`}
                                         </button>
                                       )}
+                                      <button
+                                        type="button"
+                                        className={styles.cardSmallBtn}
+                                        onClick={() =>
+                                          void handleSend(
+                                            `다음 문제를 참고하되 절대 그대로 쓰지 말고 수치·함수를 새롭게 바꾼 1:1 쌍둥이 변형 문제와 상세 해설을 만들어줘: ${prob.question}`,
+                                            "generate",
+                                            prob.sourceTokenId
+                                          )
+                                        }
+                                      >
+                                        <Sparkles size={13} /> 쌍둥이 변형
+                                      </button>
                                       <button
                                         type="button"
                                         className={styles.cardSmallBtn}
@@ -1712,60 +2486,42 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                           </div>
                         )}
 
-                        {msg.reportTemplate && (
+                        {msg.geoSpec && (!msg.problems || msg.problems.length === 0) && (
                           <div className={styles.problemCardStack}>
                             <article className={styles.problemCard}>
                               <div className={styles.problemCardTop}>
                                 <div className={styles.problemMeta}>
-                                  <span className={styles.metaBadge}>
-                                    {msg.reportTemplate.orientation === "landscape" ? "가로형" : "세로형"} ·{" "}
-                                    {reportPeriodLabels[msg.reportTemplate.period] || msg.reportTemplate.period}
-                                  </span>
-                                  <span className={styles.metaPoints}>
-                                    {reportThemeLabels[msg.reportTemplate.theme || "unidesk"] || msg.reportTemplate.theme}
-                                  </span>
-                                  <span className={styles.metaSource}>{msg.reportTemplate.name}</span>
+                                  <span className={styles.metaBadge}>📐 AI 작도 도형</span>
+                                  <span className={styles.metaSource}>{msg.geoSpec.title || "맞춤 수학 도형·함수 그래프"}</span>
                                 </div>
                                 <div className={styles.problemCardBtns}>
                                   <button
                                     type="button"
                                     className={styles.cardSmallBtn}
                                     onClick={() => {
-                                      setActiveReportTemplate(msg.reportTemplate!);
-                                      setCanvasPanel("report");
+                                      syncGeoControlsFromSpec(msg.geoSpec!);
+                                      setCanvasPanel("geometry");
                                     }}
                                   >
-                                    <LayoutTemplate size={13} /> 캔버스에서 미리보기·편집
+                                    <Compass size={13} /> 작도 캔버스에서 대화로 수정
                                   </button>
                                   <button
                                     type="button"
                                     className={styles.cardPrimaryBtn}
-                                    onClick={() => handleApplyTemplateToReportPage(msg.reportTemplate!)}
+                                    onClick={() => {
+                                      syncGeoControlsFromSpec(msg.geoSpec!);
+                                      void attachCurrentGraphToProblem();
+                                    }}
                                   >
-                                    <Check size={13} /> 보고서 페이지에 바로 적용 ↗
+                                    <Plus size={13} /> 이 도형으로 문항 생성 / 삽입
                                   </button>
                                 </div>
                               </div>
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-                                {msg.reportTemplate.blocks.map((b, idx) => (
-                                  <span
-                                    key={b.id || idx}
-                                    style={{
-                                      fontSize: 12,
-                                      padding: "4px 10px",
-                                      borderRadius: 999,
-                                      background: b.emphasis ? "#eff6ff" : "#f8fafc",
-                                      border: b.emphasis ? "1px solid #93c5fd" : "1px solid #e2e8f0",
-                                      color: b.emphasis ? "#1d4ed8" : "#334155",
-                                      fontWeight: b.emphasis ? 700 : 500,
-                                    }}
-                                  >
-                                    {idx + 1}. {reportKindLabels[b.kind] || b.kind} (
-                                    {b.view === "chart" ? "그래프/강조" : b.view === "table" ? "상세 표" : "카드"}
-                                    {b.wide ? " · 전체너비" : ""})
-                                  </span>
-                                ))}
-                              </div>
+                              <div
+                                className={styles.geoSvgStage}
+                                style={{ marginTop: 10 }}
+                                dangerouslySetInnerHTML={{ __html: renderMathGeoSvg(msg.geoSpec) }}
+                              />
                             </article>
                           </div>
                         )}
@@ -1810,16 +2566,6 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
               </button>
               <button
                 type="button"
-                className={canvasPanel === "report" ? styles.canvasTabActive : ""}
-                onClick={() => {
-                  setMode("report");
-                  setCanvasPanel("report");
-                }}
-              >
-                <LayoutTemplate size={14} /> 보고서 템플릿
-              </button>
-              <button
-                type="button"
                 className={canvasPanel === "library" ? styles.canvasTabActive : ""}
                 onClick={() => setCanvasPanel("library")}
               >
@@ -1843,11 +2589,22 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                   type="text"
                   className={styles.examTitleInput}
                   value={examTitle}
-                  onChange={e => setExamTitle(e.target.value)}
+                  onChange={e => {
+                    setExamTitle(e.target.value);
+                    updateExamStyleField({ title: e.target.value });
+                  }}
                   placeholder="시험지 제목 입력"
                   aria-label="시험지 제목"
                 />
                 <div className={styles.examExportRow}>
+                  <button
+                    type="button"
+                    className={styles.exportPrimaryBtn}
+                    disabled={examProblems.length === 0 && savedProblems.length === 0}
+                    onClick={() => handlePrintExam()}
+                  >
+                    <Printer size={14} /> 바로 인쇄 / PDF
+                  </button>
                   <button
                     type="button"
                     className={styles.exportBtn}
@@ -1866,80 +2623,226 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                   </button>
                   <button
                     type="button"
-                    className={styles.exportPrimaryBtn}
+                    className={styles.exportBtn}
                     disabled={examProblems.length === 0 && savedProblems.length === 0}
                     onClick={() =>
                       handleOpenInFullTypingEditor(examProblems.length > 0 ? examProblems : savedProblems.slice(0, 4))
                     }
                   >
-                    A4 2단 편집기 열기
+                    타이핑 편집기 이동
                   </button>
                 </div>
               </div>
 
-              <div className={styles.examPreviewPaper}>
-                <div className={styles.examPaperHeader}>
-                  <span>2026학년도 수학 영역</span>
-                  <strong>{examTitle}</strong>
-                  <span>제1교시</span>
+              {/* AI 시험지 스타일 무제한 대화형 커스터마이징 패널 */}
+              <div
+                style={{
+                  background: "#f8fafc",
+                  border: "1.5px solid #bfdbfe",
+                  borderRadius: 12,
+                  padding: "11px 13px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, flexWrap: "wrap" }}>
+                  <strong style={{ fontSize: 12.5, color: "#1e40af", display: "inline-flex", alignItems: "center", gap: 5 }}>
+                    <Palette size={14} /> 🎨 AI 채팅으로 시험지 스타일 무제한 변경
+                  </strong>
+                  <span style={{ fontSize: 11, color: "#64748b" }}>
+                    현재: {examStyle.columns || 2}단 · {examStyle.headerStyle || "suneung"} · 여백 {examStyle.solutionSpace ?? 40}px
+                  </span>
                 </div>
-                {examProblems.length === 0 ? (
-                  <div className={styles.examEmptyState}>
-                    <p>채팅창에서 생성하거나 타이핑한 문항의 <strong>[+ 시험지에 담기]</strong> 버튼을 누르면 이곳에 A4 시험지가 구성됩니다.</p>
-                    {savedProblems.length > 0 && (
-                      <button
-                        type="button"
-                        className={styles.loadRecentBtn}
-                        onClick={() => setExamProblems(savedProblems.slice(0, 4))}
-                      >
-                        최근 보관함 문항 {Math.min(4, savedProblems.length)}개 자동 불러오기
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <div className={styles.examProblemsList}>
-                    {examProblems.map((p, idx) => (
-                      <div key={p.id} className={styles.examProblemItem}>
-                        <div className={styles.examProblemTop}>
-                          <strong>{idx + 1}번</strong>
-                          <span>[{p.difficulty}]</span>
-                          <button
-                            type="button"
-                            onClick={() => removeProblemFromExam(p.id)}
-                            aria-label="시험지에서 제거"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                        <div className={styles.examProblemText}>
-                          <TypingMath text={p.question} />
-                        </div>
-                        {p.figure && (
-                          <img src={p.figure} alt={`${idx + 1}번 도형`} className={styles.examProblemThumb} />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                  {[
+                    { label: "수능·평가원 2단", prompt: "시험지 스타일을 수능 평가원 2단 명조체 양식으로 바꿔줘" },
+                    { label: "워크북 1단 (풀이여백 넓게)", prompt: "시험지를 1단 학원 클리닉 워크북 스타일로 바꾸고 풀이 여백을 140px로 넓게 줘" },
+                    { label: "3단 콤팩트 배치", prompt: "시험지를 3단 레이아웃으로 바꾸고 풀이 여백을 20px로 줄여줘" },
+                    { label: "모던 블루 + 고딕체", prompt: "시험지 디자인을 모던 네이비 블루 테마와 고딕체로 바꿔줘" },
+                    { label: "에메랄드 그린 테마", prompt: "시험지 포인트 색상을 에메랄드 초록색으로 바꿔줘" },
+                    { label: "아이보리 미색 배경", prompt: "시험지 배경을 눈이 편한 아이보리 미색 배경으로 바꿔줘" },
+                    { label: "정답·해설지 함께 인쇄", prompt: "시험지 뒤에 빠른 정답표랑 상세 해설지도 같이 인쇄되게 포함해줘" },
+                    { label: "문제지만 단독 인쇄", prompt: "정답이랑 해설지는 빼고 문제지만 단독 인쇄되게 설정해줘" },
+                    { label: "기본 스타일 초기화", prompt: "시험지 스타일 기본 원래대로 초기화해줘" },
+                  ].map(chip => (
+                    <button
+                      key={chip.label}
+                      type="button"
+                      className={styles.geoPresetChip}
+                      disabled={busy}
+                      onClick={() => void handleSend(chip.prompt)}
+                    >
+                      ✦ {chip.label}
+                    </button>
+                  ))}
+                </div>
+
+                <form
+                  onSubmit={e => {
+                    e.preventDefault();
+                    if (!examStyleChatInput.trim() || busy) return;
+                    const text = examStyleChatInput.trim();
+                    setExamStyleChatInput("");
+                    void handleSend(text);
+                  }}
+                  style={{ display: "flex", gap: 6 }}
+                >
+                  <input
+                    type="text"
+                    value={examStyleChatInput}
+                    onChange={e => setExamStyleChatInput(e.target.value)}
+                    placeholder="예: 1단으로 바꾸고 글씨 크기 15px, 풀이 여백 160px, 워터마크 '코스매스' 넣어줘..."
+                    disabled={busy}
+                    style={{
+                      flex: 1,
+                      padding: "7px 10px",
+                      borderRadius: 8,
+                      border: "1px solid #93c5fd",
+                      fontSize: 12,
+                      background: "#ffffff",
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    className={styles.exportPrimaryBtn}
+                    disabled={busy || !examStyleChatInput.trim()}
+                    style={{ padding: "7px 11px", fontSize: 12 }}
+                  >
+                    {busy ? <Loader2 size={13} className={styles.spin} /> : <ArrowUp size={14} />}
+                    스타일 적용
+                  </button>
+                </form>
               </div>
+
+              {renderStyledExamPaper(
+                examProblems.length > 0 ? examProblems : savedProblems.slice(0, 4),
+                false
+              )}
             </div>
           )}
 
           {canvasPanel === "geometry" && (
             <div className={styles.canvasBody}>
-              <div className={styles.geoPresetBar}>
-                {MATH_GEO_PRESETS.map((item, idx) => (
+              {/* 1. AI 대화형 도형 작도 채팅 패널 */}
+              <div
+                style={{
+                  background: "#f8fafc",
+                  border: "1.5px solid #bfdbfe",
+                  borderRadius: 12,
+                  padding: "12px 14px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <strong style={{ fontSize: 13, color: "#1e40af", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <Compass size={15} /> 💬 AI 채팅으로 도형 작도 · 수정하기
+                  </strong>
+                  <span style={{ fontSize: 11, color: "#64748b" }}>자연어로 말하면 AI가 즉시 작도합니다</span>
+                </div>
+
+                {/* 빠른 채팅 작도 프롬프트 칩 */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {[
+                    "삼차함수 y=x^3-3x+1과 x=1에서의 접선 그려줘",
+                    "이차함수 y=x^2-2x-3과 직선 y=x+1의 교점 및 둘러싸인 넓이 색칠해줘",
+                    "원 O에 내접하는 삼각형 ABC와 외접원 작도해줘",
+                    "중심각이 60도인 부채꼴 AOB 그려줘",
+                    "평행한 두 직선 l, m과 동위각·엇각 표시해줘",
+                    "현재 그래프에서 -1부터 2까지 적분 영역 색칠해줘",
+                  ].map(chip => (
+                    <button
+                      key={chip}
+                      type="button"
+                      className={styles.geoPresetChip}
+                      disabled={busy}
+                      onClick={() => {
+                        setMode("geometry");
+                        void handleSend(chip, "geometry");
+                      }}
+                    >
+                      ✦ {chip}
+                    </button>
+                  ))}
+                </div>
+
+                {/* 작도 대화 히스토리 */}
+                <div
+                  style={{
+                    maxHeight: 135,
+                    overflowY: "auto",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 6,
+                    padding: "6px 8px",
+                    background: "#ffffff",
+                    borderRadius: 8,
+                    border: "1px solid #e2e8f0",
+                    fontSize: 12,
+                  }}
+                >
+                  {geoChatHistory.slice(-6).map(item => (
+                    <div
+                      key={item.id}
+                      style={{
+                        alignSelf: item.role === "user" ? "flex-end" : "flex-start",
+                        background: item.role === "user" ? "#2563eb" : "#f1f5f9",
+                        color: item.role === "user" ? "#ffffff" : "#1e293b",
+                        padding: "6px 10px",
+                        borderRadius: 8,
+                        maxWidth: "90%",
+                        lineHeight: 1.45,
+                      }}
+                    >
+                      {item.text}
+                    </div>
+                  ))}
+                </div>
+
+                {/* 채팅 입력창 */}
+                <form
+                  onSubmit={e => {
+                    e.preventDefault();
+                    const text = geoChatInput.trim();
+                    if (!text || busy) return;
+                    setGeoChatInput("");
+                    setMode("geometry");
+                    void handleSend(text, "geometry");
+                  }}
+                  style={{ display: "flex", gap: 6 }}
+                >
+                  <input
+                    type="text"
+                    value={geoChatInput}
+                    disabled={busy}
+                    onChange={e => setGeoChatInput(e.target.value)}
+                    placeholder="예: 'x=2에서의 접선 추가해줘', '직각삼각형 ABC 그려줘', '색칠 영역 빼줘'..."
+                    aria-label="AI 도형 작도 채팅 요청"
+                    style={{
+                      flex: 1,
+                      height: 36,
+                      padding: "0 12px",
+                      borderRadius: 8,
+                      border: "1px solid #93c5fd",
+                      fontSize: 12.5,
+                      background: "#ffffff",
+                    }}
+                  />
                   <button
-                    key={item.name}
-                    type="button"
-                    className={`${styles.geoPresetChip} ${geoPresetIdx === idx ? styles.geoPresetChipActive : ""}`}
-                    onClick={() => selectGeoPreset(idx)}
+                    type="submit"
+                    disabled={busy || !geoChatInput.trim()}
+                    className={styles.exportPrimaryBtn}
+                    style={{ height: 36, padding: "0 14px", whiteSpace: "nowrap" }}
                   >
-                    {item.name}
+                    {busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />} AI 작도
                   </button>
-                ))}
+                </form>
               </div>
 
+              {/* 2. 실시간 렌더링된 도형 스테이지 */}
               <div
                 className={styles.geoSvgStage}
                 dangerouslySetInnerHTML={{ __html: renderedGeoSvg }}
@@ -1955,67 +2858,85 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                 </button>
               </div>
 
-              <div className={styles.geoFormGrid}>
-                <label>
-                  <span>함수 $f(x)$ 수식 (LaTeX/절댓값 지원)</span>
-                  <input value={geoFn1} onChange={e => setGeoFn1(e.target.value)} placeholder="x^3 - 3x + 1 또는 |x^2 - 2|" />
-                </label>
-                <label>
-                  <span>보조함수 $g(x)$ 수식</span>
-                  <input value={geoFn2} onChange={e => setGeoFn2(e.target.value)} placeholder="0.5x + 0.5" />
-                </label>
-                <label>
-                  <span>접선 자동 작도 ($x = a$에서의 접선)</span>
-                  <input
-                    value={geoTangentX}
-                    onChange={e => setGeoTangentX(e.target.value)}
-                    placeholder="예: 1 (비우면 표시 안 함)"
-                  />
-                </label>
-                <label>
-                  <span>적분 색칠 구간 $[a, b]$</span>
-                  <div className={styles.inlineInputs}>
-                    <input
-                      type="checkbox"
-                      checked={geoShadeEnabled}
-                      onChange={e => setGeoShadeEnabled(e.target.checked)}
-                    />
-                    <input value={geoShadeFrom} onChange={e => setGeoShadeFrom(e.target.value)} />
-                    <span>~</span>
-                    <input value={geoShadeTo} onChange={e => setGeoShadeTo(e.target.value)} />
+              {/* 3. 기본 프리셋 및 수동 미세조정 (접기 가능) */}
+              <details className={styles.geoJsonDetails}>
+                <summary>빠른 도형 프리셋 & 수식 직접 미세조정 열기</summary>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+                  <div className={styles.geoPresetBar}>
+                    {MATH_GEO_PRESETS.map((item, idx) => (
+                      <button
+                        key={item.name}
+                        type="button"
+                        className={`${styles.geoPresetChip} ${geoPresetIdx === idx ? styles.geoPresetChipActive : ""}`}
+                        onClick={() => selectGeoPreset(idx)}
+                      >
+                        {item.name}
+                      </button>
+                    ))}
                   </div>
-                </label>
-                <label>
-                  <span>좌표축 범위 ($x, y$)</span>
-                  <div className={styles.inlineInputs}>
-                    <input value={geoDomainMin} onChange={e => setGeoDomainMin(e.target.value)} />
-                    <input value={geoDomainMax} onChange={e => setGeoDomainMax(e.target.value)} />
-                    <input value={geoRangeMin} onChange={e => setGeoRangeMin(e.target.value)} />
-                    <input value={geoRangeMax} onChange={e => setGeoRangeMax(e.target.value)} />
+                  <div className={styles.geoFormGrid}>
+                    <label>
+                      <span>함수 $f(x)$ 수식 (LaTeX/절댓값 지원)</span>
+                      <input value={geoFn1} onChange={e => setGeoFn1(e.target.value)} placeholder="x^3 - 3x + 1 또는 |x^2 - 2|" />
+                    </label>
+                    <label>
+                      <span>보조함수 $g(x)$ 수식</span>
+                      <input value={geoFn2} onChange={e => setGeoFn2(e.target.value)} placeholder="0.5x + 0.5" />
+                    </label>
+                    <label>
+                      <span>접선 자동 작도 ($x = a$에서의 접선)</span>
+                      <input
+                        value={geoTangentX}
+                        onChange={e => setGeoTangentX(e.target.value)}
+                        placeholder="예: 1 (비우면 표시 안 함)"
+                      />
+                    </label>
+                    <label>
+                      <span>적분 색칠 구간 $[a, b]$</span>
+                      <div className={styles.inlineInputs}>
+                        <input
+                          type="checkbox"
+                          checked={geoShadeEnabled}
+                          onChange={e => setGeoShadeEnabled(e.target.checked)}
+                        />
+                        <input value={geoShadeFrom} onChange={e => setGeoShadeFrom(e.target.value)} />
+                        <span>~</span>
+                        <input value={geoShadeTo} onChange={e => setGeoShadeTo(e.target.value)} />
+                      </div>
+                    </label>
+                    <label>
+                      <span>좌표축 범위 ($x, y$)</span>
+                      <div className={styles.inlineInputs}>
+                        <input value={geoDomainMin} onChange={e => setGeoDomainMin(e.target.value)} />
+                        <input value={geoDomainMax} onChange={e => setGeoDomainMax(e.target.value)} />
+                        <input value={geoRangeMin} onChange={e => setGeoRangeMin(e.target.value)} />
+                        <input value={geoRangeMax} onChange={e => setGeoRangeMax(e.target.value)} />
+                      </div>
+                    </label>
+                    <div style={{ display: "flex", gap: 12, fontSize: 12, color: "#334155", alignItems: "center" }}>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 4, flexDirection: "row" }}>
+                        <input
+                          type="checkbox"
+                          checked={geoEqualAspect}
+                          onChange={e => setGeoEqualAspect(e.target.checked)}
+                        />
+                        <span>1:1 등축 비율 (원·직교 유지)</span>
+                      </label>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 4, flexDirection: "row" }}>
+                        <input
+                          type="checkbox"
+                          checked={geoAutoIntersections}
+                          onChange={e => setGeoAutoIntersections(e.target.checked)}
+                        />
+                        <span>교점 자동 탐색·표시</span>
+                      </label>
+                    </div>
+                    <button type="button" className={styles.exportBtn} onClick={applyQuickFormulaSpec}>
+                      수식·작도 그래프 즉시 갱신
+                    </button>
                   </div>
-                </label>
-                <div style={{ display: "flex", gap: 12, fontSize: 12, color: "#334155", alignItems: "center" }}>
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4, flexDirection: "row" }}>
-                    <input
-                      type="checkbox"
-                      checked={geoEqualAspect}
-                      onChange={e => setGeoEqualAspect(e.target.checked)}
-                    />
-                    <span>1:1 등축 비율 (원·직교 유지)</span>
-                  </label>
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4, flexDirection: "row" }}>
-                    <input
-                      type="checkbox"
-                      checked={geoAutoIntersections}
-                      onChange={e => setGeoAutoIntersections(e.target.checked)}
-                    />
-                    <span>교점 자동 탐색·표시</span>
-                  </label>
                 </div>
-                <button type="button" className={styles.exportBtn} onClick={applyQuickFormulaSpec}>
-                  수식·작도 그래프 즉시 갱신
-                </button>
-              </div>
+              </details>
 
               <details className={styles.geoJsonDetails}>
                 <summary>고급 도형 JSON 스펙 (원·다각형·접선·직각기호·점근선)</summary>
@@ -2308,205 +3229,16 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
               )}
             </div>
           )}
-
-          {canvasPanel === "report" && (
-            <div className={styles.canvasBody}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {[
-                    "성적 향상 그래프가 돋보이는 월간 성취도 리포트 템플릿 짜줘",
-                    "일일 출결·숙제·오답 중심 하늘색 체크리스트 템플릿 만들어줘",
-                    "오답 분석표와 단원 진도율 중심 가로형 주간 인포그래픽 템플릿으로 설계해줘",
-                  ].map(preset => (
-                    <button
-                      key={preset}
-                      type="button"
-                      className={styles.geoPresetChip}
-                      disabled={busy}
-                      onClick={() => {
-                        setMode("report");
-                        void handleSend(preset, "report");
-                      }}
-                    >
-                      ✦ {preset}
-                    </button>
-                  ))}
-                </div>
-
-                <div className={styles.geoFormGrid}>
-                  <label>
-                    <span>템플릿 이름</span>
-                    <input
-                      value={activeReportTemplate.name}
-                      maxLength={40}
-                      onChange={e =>
-                        setActiveReportTemplate(prev => ({
-                          ...prev,
-                          name: e.target.value,
-                        }))
-                      }
-                      placeholder="예: 고2 심화반 월간 리포트"
-                    />
-                  </label>
-                  <label>
-                    <span>방향 / 기본 주기</span>
-                    <div className={styles.inlineInputs}>
-                      <select
-                        value={activeReportTemplate.orientation}
-                        onChange={e =>
-                          setActiveReportTemplate(prev => ({
-                            ...prev,
-                            orientation: e.target.value as "portrait" | "landscape",
-                          }))
-                        }
-                        style={{ flex: 1, height: 32, borderRadius: 8, border: "1px solid #cbd5e1", padding: "0 8px", fontSize: 12.5 }}
-                      >
-                        <option value="portrait">세로형 (A4)</option>
-                        <option value="landscape">가로형 (와이드)</option>
-                      </select>
-                      <select
-                        value={activeReportTemplate.period}
-                        onChange={e =>
-                          setActiveReportTemplate(prev => ({
-                            ...prev,
-                            period: e.target.value as ReportPeriod,
-                          }))
-                        }
-                        style={{ flex: 1, height: 32, borderRadius: 8, border: "1px solid #cbd5e1", padding: "0 8px", fontSize: 12.5 }}
-                      >
-                        {Object.entries(reportPeriodLabels).map(([k, label]) => (
-                          <option key={k} value={k}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </label>
-                  <label>
-                    <span>디자인 테마</span>
-                    <select
-                      value={activeReportTemplate.theme ?? "unidesk"}
-                      onChange={e =>
-                        setActiveReportTemplate(prev => ({
-                          ...prev,
-                          theme: e.target.value as ReportTheme,
-                        }))
-                      }
-                      style={{ height: 32, borderRadius: 8, border: "1px solid #cbd5e1", padding: "0 8px", fontSize: 12.5 }}
-                    >
-                      {Object.entries(reportThemeLabels).map(([k, label]) => (
-                        <option key={k} value={k}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                <div className={styles.examExportRow}>
-                  <button
-                    type="button"
-                    className={styles.exportBtn}
-                    onClick={() => handleSaveCurrentReportTemplate()}
-                  >
-                    <Check size={14} /> 내 템플릿 보관함에 저장
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.exportPrimaryBtn}
-                    onClick={() => handleApplyTemplateToReportPage()}
-                  >
-                    보고서 페이지에서 바로 열기 ↗
-                  </button>
-                </div>
-
-                {templateSaveMsg && (
-                  <small style={{ color: "#059669", fontWeight: 700, fontSize: 12 }}>✓ {templateSaveMsg}</small>
-                )}
-
-                {/* Live Scaled Report Preview */}
-                <div
-                  style={{
-                    background: "#f1f5f9",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: 12,
-                    padding: 12,
-                    overflow: "auto",
-                    maxHeight: 420,
-                    display: "flex",
-                    justifyContent: "center",
-                  }}
-                >
-                  <div
-                    data-active="true"
-                    data-orientation={activeReportTemplate.orientation}
-                    style={
-                      {
-                        "--report-width": `${activeReportTemplate.orientation === "landscape" ? 1123 : 794}px`,
-                        "--report-height": `${activeReportTemplate.orientation === "landscape" ? 794 : 1123}px`,
-                        "--preview-scale": activeReportTemplate.orientation === "landscape" ? 0.34 : 0.44,
-                        width: (activeReportTemplate.orientation === "landscape" ? 1123 : 794) * (activeReportTemplate.orientation === "landscape" ? 0.34 : 0.44),
-                      } as React.CSSProperties
-                    }
-                  >
-                    <ReportSheets preview={STUDIO_REPORT_SAMPLE_PREVIEW} template={activeReportTemplate} />
-                  </div>
-                </div>
-
-                {/* Saved AI Templates */}
-                <div style={{ marginTop: 6 }}>
-                  <strong style={{ fontSize: 12.5, color: "#334155", display: "block", marginBottom: 6 }}>
-                    저장된 AI 보고서 템플릿 ({savedReportTemplates.length})
-                  </strong>
-                  {savedReportTemplates.length === 0 ? (
-                    <p style={{ fontSize: 12, color: "#64748b", margin: 0 }}>
-                      채팅창에서 원하는 보고서 구성을 지시하면 AI가 템플릿을 설계해 이곳에 보관합니다.
-                    </p>
-                  ) : (
-                    <div className={styles.vaultList}>
-                      {savedReportTemplates.map(tpl => (
-                        <div key={tpl.id} className={styles.vaultCard}>
-                          <div className={styles.vaultCardHeader}>
-                            <span>
-                              {tpl.orientation === "landscape" ? "가로형" : "세로형"} ·{" "}
-                              {reportThemeLabels[tpl.theme || "unidesk"] || tpl.theme}
-                            </span>
-                            <div className={styles.vaultCardActions}>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setActiveReportTemplate(tpl);
-                                  saveActiveAiReportTemplate(tpl);
-                                }}
-                              >
-                                미리보기
-                              </button>
-                              <button type="button" onClick={() => handleApplyTemplateToReportPage(tpl)}>
-                                적용 ↗
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setSavedReportTemplates(deleteAiReportTemplate(tpl.id))}
-                                aria-label="템플릿 삭제"
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            </div>
-                          </div>
-                          <strong style={{ fontSize: 13, color: "#0f172a" }}>{tpl.name}</strong>
-                          <small style={{ fontSize: 11.5, color: "#64748b", display: "block", marginTop: 2 }}>
-                            {tpl.blocks.map(b => reportKindLabels[b.kind as ReportKind] || b.kind).join(" · ")}
-                          </small>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
         </aside>
       )}
+
+      {/* 4. Dedicated A4 Print Container (Visible only during window.print() / PDF Export) */}
+      <div className={styles.printOnlyExamSheet} aria-hidden="true">
+        {renderStyledExamPaper(
+          examProblems.length > 0 ? examProblems : savedProblems.slice(0, 4),
+          true
+        )}
+      </div>
     </section>
   );
 }

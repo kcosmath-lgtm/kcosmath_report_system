@@ -3,6 +3,8 @@
 import { useRef, useState, type PointerEvent } from "react";
 import { cropFigure, imageData, readSource, type SourcePage } from "../lib/typing-upload";
 import type { ExamProblem, FigureBox } from "../lib/typing-model";
+import { sendAiCopilotMessage } from "../lib/ai-copilot";
+import { inferMathGeoSpecFromProblem, renderMathGeoPngDataUrl, type MathGeoSpec } from "../lib/math-geometry-engine";
 import styles from "./TypingFigureEditor.module.css";
 
 export default function TypingFigureEditor({ problem, sources, onSources, onChange, onError }: {
@@ -13,8 +15,46 @@ export default function TypingFigureEditor({ problem, sources, onSources, onChan
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false);
   const [sourceId, setSourceId] = useState("");
   const [box, setBox] = useState<FigureBox>(problem.figureBox ?? [200, 100, 600, 900]);
+  const [chatPrompt, setChatPrompt] = useState("");
+  const [currentSpec, setCurrentSpec] = useState<MathGeoSpec | null>(null);
+  const [chatReply, setChatReply] = useState("");
   const start = useRef<[number, number] | null>(null);
   const source = sources.find(s => s.id === (sourceId || problem.figureSourceId)) ?? sources[(problem.sourcePage ?? 1) - 1] ?? sources[0];
+
+  async function handleAiGeoChat(customInstruction?: string) {
+    const instruction = (customInstruction ?? chatPrompt).trim();
+    if (!instruction || busy) return;
+    setBusy(true);
+    try {
+      const res = await sendAiCopilotMessage({
+        prompt: instruction,
+        mode: "geometry",
+        pathname: "/typing",
+        useWebSearch: false,
+        contextData: {
+          currentGeoSpec: currentSpec,
+          problemQuestion: problem.question,
+        },
+      });
+      const spec =
+        res.updatedGeoSpec ??
+        inferMathGeoSpecFromProblem(instruction, problem.boxContent, problem.choices, currentSpec);
+      setCurrentSpec(spec);
+      const pngUrl = await renderMathGeoPngDataUrl(spec);
+      onChange({
+        figureDiagram: undefined,
+        figure: pngUrl,
+        figureBox: undefined,
+        figureSourceId: undefined,
+      });
+      setChatReply(res.reply);
+      if (!customInstruction) setChatPrompt("");
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "AI 도형 작도에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
   const point = (e: PointerEvent<HTMLDivElement>): [number, number] => {
     const rect = e.currentTarget.getBoundingClientRect();
     return [Math.max(0, Math.min(1000, Math.round((e.clientY - rect.top) / rect.height * 1000))), Math.max(0, Math.min(1000, Math.round((e.clientX - rect.left) / rect.width * 1000)))];
@@ -33,6 +73,45 @@ export default function TypingFigureEditor({ problem, sources, onSources, onChan
   }
   return <div className={styles.editor}>
     {problem.figureDiagram && <p>이전에 저장한 AI 그림입니다. 아래에서 원본을 올리고 그림 영역을 다시 선택하면 원본 그림으로 교체됩니다.</p>}
+    <div style={{ padding: "8px 10px", borderRadius: 8, background: "#f8fafc", border: "1px solid #bfdbfe", display: "flex", flexDirection: "column", gap: 6, marginBottom: 6 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <strong style={{ fontSize: 12, color: "#1e40af" }}>💬 AI 채팅으로 도형·함수 그래프 작도</strong>
+        <button
+          type="button"
+          disabled={busy || !problem.question.trim()}
+          onClick={() => void handleAiGeoChat(`이 문항 본문에 맞는 수학 도형·함수 그래프를 작도해줘: ${problem.question} ${problem.boxContent || ""}`)}
+          style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 6, background: "#eff6ff", color: "#1d4ed8", border: "1px solid #93c5fd" }}
+        >
+          ✦ 문항 본문으로 자동 작도
+        </button>
+      </div>
+      <div style={{ display: "flex", gap: 5 }}>
+        <input
+          type="text"
+          value={chatPrompt}
+          disabled={busy}
+          onChange={e => setChatPrompt(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void handleAiGeoChat();
+            }
+          }}
+          placeholder="예: '삼차함수 y=x^3-3x+1과 x=1에서의 접선 그려줘', '적분 구간 색칠해줘'"
+          aria-label={`문항 ${problem.number} AI 도형 작도 요청`}
+          style={{ flex: 1, fontSize: 12, padding: "4px 8px", borderRadius: 6, border: "1px solid #cbd5e1" }}
+        />
+        <button
+          type="button"
+          disabled={busy || !chatPrompt.trim()}
+          onClick={() => void handleAiGeoChat()}
+          style={{ fontSize: 11.5, fontWeight: 700, padding: "4px 10px", borderRadius: 6, background: "#2563eb", color: "#ffffff", border: 0, whiteSpace: "nowrap" }}
+        >
+          {busy ? "작도 중…" : "AI 작도"}
+        </button>
+      </div>
+      {chatReply && <small style={{ fontSize: 11, color: "#0369a1", lineHeight: 1.4 }}>{chatReply}</small>}
+    </div>
     <label className={styles.upload}><strong>{problem.figure ? "그림 교체" : "그림 별도 첨부"}</strong><span>다른 도형·그래프 이미지로 교체할 수 있습니다.</span>
       <input type="file" disabled={busy} accept="image/png,image/jpeg,image/webp" onChange={async e => {
         const file = e.target.files?.[0]; e.target.value = ""; if (!file) return;

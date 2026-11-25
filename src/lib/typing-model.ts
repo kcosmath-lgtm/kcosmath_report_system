@@ -1,5 +1,19 @@
 import type { FigureDiagram } from "./typing-diagram";
 export const OCR_MODEL = "gemini-3.1-flash-lite";
+export const FLASH_AGENT_MODELS = [
+  "gemini-3.8-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite",
+] as const;
+export const REASONING_AGENT_MODELS = [
+  "gemini-4-carbon",
+  "gemini-4-neon",
+  "gemini-4-hydrogen",
+  "gemini-3.1-pro-preview",
+  "gemini-2.5-pro",
+  "gemini-3.8-flash",
+  "gemini-3.1-flash-lite",
+] as const;
 export type FigureBox = [number, number, number, number];
 export type ExamTable = { caption: string; rows: string[][] };
 export type ChoiceFigure = { figureDiagram?: FigureDiagram; figure?: string; figureBox?: FigureBox; figureSourceId?: string };

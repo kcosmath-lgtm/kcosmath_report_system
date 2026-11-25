@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { OCR_MODEL } from "../../../../lib/typing-model";
-import type { AiCopilotAction } from "../../../../lib/ai-copilot";
-import { buildMathGeoSpecFromPrompt, type MathGeoSpec } from "../../../../lib/math-geometry-engine";
+import { OCR_MODEL, FLASH_AGENT_MODELS, REASONING_AGENT_MODELS } from "../../../../lib/typing-model";
+import { DEFAULT_EXAM_PAPER_STYLE, type AiCopilotAction, type ExamPaperStyle } from "../../../../lib/ai-copilot";
+import type { AcademyStaffMember } from "../../../../lib/academy-staff";
+import { AI_PERSONA_PRESETS, resolveActivePersonaPrompt } from "../../../../lib/ai-personas";
+import {
+  buildMathGeoSpecFromPrompt,
+  inferMathGeoSpecFromProblem,
+  type MathGeoSpec,
+} from "../../../../lib/math-geometry-engine";
 import type { MockExamProblemStore, MockExamProblemToken } from "../../../../types/mock-exam";
 import mockProblemStoreData from "../../../../data/mock-exam-problems.json";
 
@@ -647,111 +653,401 @@ function buildTwinProblemFromSeedToken(
   };
 }
 
+function isExamStylePrompt(prompt: string): boolean {
+  return /(시험지|용지|레이아웃|스타일|디자인|헤더|머리말|꼬리말|제목|부제목|1단|2단|3단|다단|단\s*나누기|수능형|평가원형|모의고사형|워크북|클리닉|내신형|미니멀|배너형|풀이\s*여백|여백|문항\s*간격|글씨\s*크기|폰트|글꼴|명조|바탕|고딕|테마|배경색|포인트\s*색|구분선|세로선|테두리|워터마크|이름\s*칸|점수\s*칸|정답표|해설지\s*포함|해설\s*포함|해설\s*빼|문제만\s*인쇄|페이지당)/.test(
+    prompt
+  ) && /(스타일|디자인|레이아웃|바꿔|변경|적용|설정|해줘|만들어|넣어|빼줘|숨겨|보여|늘려|줄여|넓게|좁게|크게|작게|1단|2단|3단|수능|워크북|클리닉|여백|폰트|명조|고딕|테마|색|구분선|워터마크|해설|정답표|제목)/.test(prompt);
+}
+
+function buildExamStyleFromPrompt(
+  prompt: string,
+  currentStyle?: ExamPaperStyle
+): { style: ExamPaperStyle; reset: boolean; summaryParts: string[] } {
+  const reset = /초기화|기본\s*스타일|원래대로|리셋/.test(prompt);
+  const base: ExamPaperStyle = reset
+    ? { ...DEFAULT_EXAM_PAPER_STYLE }
+    : { ...DEFAULT_EXAM_PAPER_STYLE, ...(currentStyle || {}) };
+  const next: ExamPaperStyle = { ...base, customCss: { ...(base.customCss || {}) } };
+  const summaryParts: string[] = [];
+
+  if (reset) {
+    summaryParts.push("기본 수능형 2단 스타일로 초기화");
+  }
+
+  // 1) 프리셋 / 헤더 스타일
+  if (/수능|평가원/.test(prompt)) {
+    next.headerStyle = "suneung";
+    next.columns = 2;
+    next.borderStyle = "double";
+    next.showColumnDivider = true;
+    next.fontFamily = "'Noto Serif KR', 'Batang', Georgia, serif";
+    summaryParts.push("수능·평가원 2단 레이아웃");
+  } else if (/워크북|클리닉|서술형|노트/.test(prompt)) {
+    next.headerStyle = "academy";
+    next.columns = 1;
+    next.solutionSpace = Math.max(next.solutionSpace || 0, 120);
+    next.showStudentInfoBox = true;
+    summaryParts.push("학원 클리닉·워크북 1단 레이아웃(풀이 여백 확장)");
+  } else if (/모던|현대|카드|깔끔/.test(prompt)) {
+    next.headerStyle = "modern";
+    next.fontFamily = "'Pretendard', 'Malgun Gothic', sans-serif";
+    next.accentColor = "#1d4ed8";
+    summaryParts.push("모던 학원 스타일");
+  } else if (/배너|강조\s*헤더/.test(prompt)) {
+    next.headerStyle = "banner";
+    summaryParts.push("상단 컬러 배너 헤더");
+  } else if (/미니멀|심플|헤더\s*간단/.test(prompt)) {
+    next.headerStyle = "minimal";
+    next.borderStyle = "solid";
+    summaryParts.push("미니멀 심플 헤더");
+  } else if (/헤더\s*(?:없애|숨겨|제거|빼)/.test(prompt)) {
+    next.headerStyle = "none";
+    summaryParts.push("상단 헤더 숨김");
+  }
+
+  // 2) 단 수 (1단, 2단, 3단, 4단 등 무제한)
+  const colMatch = prompt.match(/([1-4])\s*단/);
+  if (colMatch) {
+    next.columns = Number(colMatch[1]);
+    if (next.columns === 1) {
+      next.showColumnDivider = false;
+    } else if (next.showColumnDivider === undefined) {
+      next.showColumnDivider = true;
+    }
+    summaryParts.push(`${next.columns}단 다단 배열`);
+  }
+
+  // 3) 페이지당 문항 수
+  if (/한\s*페이지에\s*모두|페이지\s*제한\s*없이|연속\s*배치/.test(prompt)) {
+    next.perPage = 0;
+    summaryParts.push("페이지당 문항 수 제한 해제(연속 자동 배치)");
+  } else {
+    const perPageMatch = prompt.match(/(?:페이지당|쪽당|한\s*장에|한\s*페이지에)\s*(\d{1,2})\s*(?:문항|문제|개)/);
+    if (perPageMatch) {
+      next.perPage = Number(perPageMatch[1]);
+      summaryParts.push(`페이지당 ${next.perPage}문항 배치`);
+    }
+  }
+
+  // 4) 풀이 여백 & 문항 간격
+  const solPxMatch = prompt.match(/(?:풀이\s*)?(?:여백|공간)\s*(\d{1,3})\s*(?:px|픽셀)?/);
+  if (solPxMatch) {
+    next.solutionSpace = Number(solPxMatch[1]);
+    summaryParts.push(`풀이 여백 ${next.solutionSpace}px`);
+  } else if (/(?:풀이\s*)?(?:여백|공간).*(?:아주\s*넓|최대|많이|대폭)/.test(prompt)) {
+    next.solutionSpace = 180;
+    summaryParts.push("풀이 여백 대폭 확대(180px)");
+  } else if (/(?:풀이\s*)?(?:여백|공간).*(?:넓게|늘려|추가|확보|키워)/.test(prompt)) {
+    next.solutionSpace = Math.min(360, (next.solutionSpace || 40) + 70);
+    summaryParts.push(`풀이 여백 확대(${next.solutionSpace}px)`);
+  } else if (/(?:풀이\s*)?(?:여백|공간).*(?:없애|제거|최소|0|빼|줄여|좁게)/.test(prompt)) {
+    next.solutionSpace = /없애|제거|0|최소|빼/.test(prompt) ? 8 : Math.max(8, (next.solutionSpace || 40) - 30);
+    summaryParts.push(`풀이 여백 축소(${next.solutionSpace}px)`);
+  }
+
+  if (/문항\s*간격.*(?:넓게|늘려|띄워)/.test(prompt)) {
+    next.problemGap = Math.min(80, (next.problemGap || 22) + 14);
+    summaryParts.push(`문항 간격 확대(${next.problemGap}px)`);
+  } else if (/문항\s*간격.*(?:좁게|줄여|촘촘)/.test(prompt)) {
+    next.problemGap = Math.max(8, (next.problemGap || 22) - 10);
+    summaryParts.push(`문항 간격 축소(${next.problemGap}px)`);
+  }
+
+  // 5) 글꼴(폰트) 및 글자 크기
+  if (/고딕|프리텐다드|산세리프|돋움/.test(prompt)) {
+    next.fontFamily = "'Pretendard', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif";
+    summaryParts.push("고딕(Pretendard) 서체");
+  } else if (/명조|바탕|세리프|수능\s*글꼴/.test(prompt)) {
+    next.fontFamily = "'Noto Serif KR', 'Batang', Georgia, serif";
+    summaryParts.push("수능 명조(바탕) 서체");
+  } else if (/손글씨|필기체|궁서/.test(prompt)) {
+    next.fontFamily = "'Gungsuh', 'Nanum Pen Script', cursive, serif";
+    summaryParts.push("필기/궁서 서체");
+  }
+
+  const fontPxMatch = prompt.match(/(?:글씨|글자|폰트)\s*(?:크기)?\s*(\d{2}(?:\.\d)?)\s*(?:px|pt|포인트)?/);
+  if (fontPxMatch) {
+    next.fontSize = Math.min(28, Math.max(9, Number(fontPxMatch[1])));
+    summaryParts.push(`글자 크기 ${next.fontSize}px`);
+  } else if (/(?:글씨|글자|폰트).*(?:크게|키워|확대)/.test(prompt)) {
+    next.fontSize = Math.min(24, Number(((next.fontSize || 13.5) + 1.5).toFixed(1)));
+    summaryParts.push(`글자 크기 확대(${next.fontSize}px)`);
+  } else if (/(?:글씨|글자|폰트).*(?:작게|줄여|축소)/.test(prompt)) {
+    next.fontSize = Math.max(10, Number(((next.fontSize || 13.5) - 1.5).toFixed(1)));
+    summaryParts.push(`글자 크기 축소(${next.fontSize}px)`);
+  }
+
+  // 6) 테마 색상 & 배경색
+  if (/네이비|파란|블루|남색/.test(prompt)) {
+    next.accentColor = "#1e40af";
+    summaryParts.push("네이비 블루 포인트 컬러");
+  } else if (/초록|그린|에메랄드|민트/.test(prompt)) {
+    next.accentColor = "#047857";
+    summaryParts.push("에메랄드 그린 포인트 컬러");
+  } else if (/보라|퍼플|바이올렛/.test(prompt)) {
+    next.accentColor = "#6d28d9";
+    summaryParts.push("로얄 퍼플 포인트 컬러");
+  } else if (/빨간|레드|와인|버건디/.test(prompt)) {
+    next.accentColor = "#b91c1c";
+    summaryParts.push("와인 레드 포인트 컬러");
+  } else if (/골드|갈색|브라운|황토/.test(prompt)) {
+    next.accentColor = "#92400e";
+    summaryParts.push("클래식 골드·브라운 컬러");
+  } else if (/블랙|검정|흑백|모노/.test(prompt)) {
+    next.accentColor = "#111827";
+    next.backgroundColor = "#ffffff";
+    summaryParts.push("정통 블랙&화이트 테마");
+  }
+
+  if (/미색|베이지|크림|눈이\s*편한|아이보리/.test(prompt)) {
+    next.backgroundColor = "#fffdf6";
+    summaryParts.push("아이보리 미색 시험지 배경");
+  } else if (/흰색\s*배경|백색\s*배경/.test(prompt)) {
+    next.backgroundColor = "#ffffff";
+    summaryParts.push("순백색 시험지 배경");
+  }
+
+  // 7) 구분선 / 테두리 / 학생 정보란 / 배점 / 출처 / 정답·해설
+  if (/구분선|세로선|중앙선/.test(prompt)) {
+    next.showColumnDivider = !/빼|없애|제거|숨겨|끄/.test(prompt);
+    summaryParts.push(next.showColumnDivider ? "다단 중앙 구분선 표시" : "중앙 구분선 숨김");
+  }
+  if (/테두리|외곽선|박스\s*테두리/.test(prompt)) {
+    next.borderStyle = /빼|없애|제거|숨겨/.test(prompt)
+      ? "none"
+      : /점선/.test(prompt)
+        ? "dashed"
+        : /이중선|두줄/.test(prompt)
+          ? "double"
+          : "box";
+    summaryParts.push(`테두리 스타일(${next.borderStyle})`);
+  }
+  if (/이름\s*칸|학생\s*정보|점수\s*칸|성명/.test(prompt)) {
+    next.showStudentInfoBox = !/빼|없애|제거|숨겨/.test(prompt);
+    summaryParts.push(next.showStudentInfoBox ? "학교·학년·이름·점수 기입란 표시" : "학생 기입란 숨김");
+  }
+  if (/배점/.test(prompt)) {
+    next.showPoints = !/빼|없애|제거|숨겨/.test(prompt);
+    summaryParts.push(next.showPoints ? "문항별 배점 표시" : "문항별 배점 숨김");
+  }
+  if (/출처/.test(prompt)) {
+    next.showSource = !/빼|없애|제거|숨겨/.test(prompt);
+    summaryParts.push(next.showSource ? "문항별 기출 출처 표시" : "문항별 출처 숨김");
+  }
+  if (/난이도\s*(?:뱃지|표시|보여|숨겨|빼)/.test(prompt)) {
+    next.showDifficulty = !/빼|없애|제거|숨겨/.test(prompt);
+    summaryParts.push(next.showDifficulty ? "난이도 표시" : "난이도 숨김");
+  }
+  if (/문제만\s*인쇄|해설\s*(?:빼|제거|숨겨|제외)|정답\s*(?:빼|제거|숨겨|제외)/.test(prompt)) {
+    next.showAnswerKey = false;
+    next.showSolutions = false;
+    summaryParts.push("문제지만 단독 인쇄(정답·해설 제외)");
+  } else if (/해설지|해설\s*포함|풀이\s*포함|정답.*해설.*포함|정답.*같이/.test(prompt)) {
+    next.showAnswerKey = true;
+    next.showSolutions = true;
+    summaryParts.push("빠른 정답표 + 상세 해설지 동시 인쇄 포함");
+  } else if (/정답표만|빠른\s*정답만/.test(prompt)) {
+    next.showAnswerKey = true;
+    next.showSolutions = false;
+    summaryParts.push("빠른 정답표만 포함(상세 해설 제외)");
+  }
+
+  // 8) 선지 배열 열 수
+  if (/선지.*1\s*열|선지.*세로/.test(prompt)) {
+    next.choiceColumns = 1;
+    summaryParts.push("객관식 선지 1열(세로) 정렬");
+  } else if (/선지.*5\s*열|선지.*가로|선지.*한\s*줄/.test(prompt)) {
+    next.choiceColumns = 5;
+    summaryParts.push("객관식 선지 5열(한 줄 가로) 정렬");
+  }
+
+  // 9) 제목 / 부제목 / 꼬리말 / 워터마크 추출
+  const titleMatch = prompt.match(/제목(?:을|은)?\s*['"“”‘’]([^'"“”‘’]{1,50})['"“”‘’]/);
+  if (titleMatch) {
+    next.title = titleMatch[1].trim();
+    summaryParts.push(`제목 '${next.title}'`);
+  }
+  const subtitleMatch = prompt.match(/부제목(?:을|은)?\s*['"“”‘’]([^'"“”‘’]{1,60})['"“”‘’]/);
+  if (subtitleMatch) {
+    next.subtitle = subtitleMatch[1].trim();
+    summaryParts.push(`부제목 '${next.subtitle}'`);
+  }
+  const footerMatch = prompt.match(/(?:꼬리말|하단\s*문구|학원명)(?:을|은|로)?\s*['"“”‘’]([^'"“”‘’]{1,50})['"“”‘’]/);
+  if (footerMatch) {
+    next.footerText = footerMatch[1].trim();
+    summaryParts.push(`하단 문구 '${next.footerText}'`);
+  }
+  const wmMatch = prompt.match(/워터마크(?:를|은|로)?\s*['"“”‘’]([^'"“”‘’]{1,40})['"“”‘’]/);
+  if (wmMatch) {
+    next.watermark = wmMatch[1].trim();
+    summaryParts.push(`워터마크 '${next.watermark}'`);
+  } else if (/워터마크.*(?:빼|없애|제거|삭제)/.test(prompt)) {
+    next.watermark = "";
+    summaryParts.push("워터마크 제거");
+  }
+
+  if (summaryParts.length === 0) {
+    summaryParts.push("요청하신 맞춤 시험지 디자인 스타일 적용");
+  }
+
+  return { style: next, reset, summaryParts };
+}
+
 function buildSmartFallbackResponse(body: {
   prompt: string;
   mode: string;
-  roster?: Array<{ group: string; students: Array<{ name: string; grade: string }> }>;
+  roster?: Array<{
+    group: string;
+    students: Array<{
+      id?: string;
+      name: string;
+      grade: string;
+      attendance?: string;
+      homework?: string | null;
+      wrongSummary?: string;
+      examsSummary?: string;
+      bookTitle?: string;
+      progressPct?: number;
+      latestScope?: string;
+      latestHomework?: string;
+    }>;
+  }>;
+  staff?: AcademyStaffMember[];
   contextData?: Record<string, unknown>;
 }): { reply: string; actions: AiCopilotAction[] } {
   const prompt = (body.prompt || "").trim();
   const mode = body.mode || "general";
   const actions: AiCopilotAction[] = [];
-
-  if (
-    mode === "report_template" ||
-    /보고서\s*템플릿|템플릿.*(만들|설계|짜|구성|디자인)|리포트\s*(템플릿|양식|디자인)/i.test(prompt)
-  ) {
-    const studentName = String(body.contextData?.studentName || "유니데스크");
-    const isLandscape = /가로|와이드/.test(prompt);
-    const theme = /새봄|포레스트|면학관|초록|그린|saebom/.test(prompt)
-      ? "saebom"
-      : /체크리스트|하늘|miricheck/.test(prompt)
-        ? "miricheck"
-        : /노랑|인포그래픽|mirireport/.test(prompt)
-          ? "mirireport"
-          : /파스텔|성취도|mirigraph/.test(prompt)
-            ? "mirigraph"
-            : /노트|notebook/.test(prompt)
-              ? "notebook"
-              : /편지|letter/.test(prompt)
-                ? "letter"
-                : /브리핑|briefing/.test(prompt)
-                  ? "briefing"
-                  : /타임라인|timeline/.test(prompt)
-                    ? "timeline"
-                    : /플래너|planner/.test(prompt)
-                      ? "planner"
-                      : /요약|summary/.test(prompt)
-                        ? "summary"
-                        : /기본|clean/.test(prompt)
-                          ? "clean"
-                          : "saebom";
-
-    const period = /일일|하루|데일리/.test(prompt)
-      ? "day"
-      : /주간|1주/.test(prompt)
-        ? "week"
-        : /3개월/.test(prompt)
-          ? "3months"
-          : "month";
-
-    const isCoaching = /코칭|피드백|상담|편지/.test(prompt);
-    const isExamFocused = /성적|시험|오답|분석/.test(prompt);
-
-    const excludeWrong = /오답\s*(?:클리닉)?\s*(?:빼|제외|없이|말고|안\s*하|안\s*넣|숨기)/.test(prompt);
-    const excludeGrades = /(?:성적|시험|테스트)\s*(?:빼|제외|없이|말고|안\s*하|안\s*넣|숨기)/.test(prompt);
-    const excludeHomework = /숙제\s*(?:빼|제외|없이|말고|안\s*하|안\s*넣|숨기)/.test(prompt);
-    const excludeAttendance = /출결\s*(?:빼|제외|없이|말고|안\s*하|안\s*넣|숨기)/.test(prompt);
-
-    const rawBlocks = isCoaching
-      ? [
-          { kind: "feedback" as const, view: "chart" as const, wide: true, emphasis: true },
-          { kind: "progress" as const, view: "chart" as const, wide: true, emphasis: false },
-          { kind: "attendance" as const, view: "card" as const, wide: false, emphasis: false },
-          { kind: "homework" as const, view: "card" as const, wide: false, emphasis: false },
-          { kind: "wrong" as const, view: "chart" as const, wide: true, emphasis: false },
-          { kind: "grades" as const, view: "card" as const, wide: false, emphasis: false },
-        ]
-      : isExamFocused
-        ? [
-            { kind: "grades" as const, view: "chart" as const, wide: true, emphasis: true },
-            { kind: "grades" as const, view: "table" as const, wide: true, emphasis: false },
-            { kind: "wrong" as const, view: "table" as const, wide: true, emphasis: true },
-            { kind: "progress" as const, view: "chart" as const, wide: false, emphasis: false },
-            { kind: "attendance" as const, view: "card" as const, wide: false, emphasis: false },
-            { kind: "feedback" as const, view: "chart" as const, wide: true, emphasis: true },
-          ]
-        : [
-            { kind: "attendance" as const, view: "card" as const, wide: true, emphasis: false },
-            { kind: "homework" as const, view: "chart" as const, wide: false, emphasis: false },
-            { kind: "grades" as const, view: "chart" as const, wide: false, emphasis: true },
-            { kind: "progress" as const, view: "table" as const, wide: true, emphasis: false },
-            { kind: "wrong" as const, view: "table" as const, wide: true, emphasis: false },
-            { kind: "feedback" as const, view: "chart" as const, wide: true, emphasis: true },
-          ];
-
-    const blocks = rawBlocks.filter(b => {
-      if (excludeWrong && b.kind === "wrong") return false;
-      if (excludeGrades && b.kind === "grades") return false;
-      if (excludeHomework && b.kind === "homework") return false;
-      if (excludeAttendance && b.kind === "attendance") return false;
-      return true;
+  const staffList: AcademyStaffMember[] = Array.isArray(body.staff) ? body.staff : [];
+  const activePersonaId =
+    typeof body.contextData?.personaId === "string" ? body.contextData.personaId : AI_PERSONA_PRESETS[0].id;
+  const activePersona = AI_PERSONA_PRESETS.find(p => p.id === activePersonaId) || AI_PERSONA_PRESETS[0];
+  const currentExamStyle = (body.contextData?.currentExamStyle as ExamPaperStyle | undefined) || undefined;
+  const wantsExamStyle = isExamStylePrompt(prompt);
+  const styleResult = wantsExamStyle ? buildExamStyleFromPrompt(prompt, currentExamStyle) : null;
+  if (styleResult) {
+    actions.push({
+      type: "update_exam_style",
+      style: styleResult.style,
+      reset: styleResult.reset,
     });
+  }
+
+  // If the user only asked to change exam style (without requesting new problems/geometry/students), return immediately
+  if (
+    styleResult &&
+    !/출제|변형\s*문제|쌍둥이|문항\s*생성|문제\s*만들|문제\s*뽑아|작도|그려/.test(prompt)
+  ) {
+    return {
+      reply: `✨ 요청하신 대로 시험지 스타일(**${styleResult.summaryParts.join(" · ")}**)을 제한 없이 즉시 변경했습니다!\n\n우측 **시험지 캔버스**에서 실시간으로 바뀐 디자인을 확인하고 **[🖨️ 바로 인쇄 / PDF]** 버튼으로 곧바로 출력하실 수 있습니다. 추가로 폰트, 여백, 단 수(1단/2단/3단), 색상, 워터마크, 해설지 포함 여부 등 무엇이든 말씀해 주세요!`,
+      actions,
+    };
+  }
+
+  if (mode === "geometry" || (/작도|그려|그래프|도형/.test(prompt) && !/문제|문항|출제|변형/.test(prompt))) {
+    const prevSpec = (body.contextData?.currentGeoSpec as MathGeoSpec | undefined) || null;
+    const baseSpec =
+      buildMathGeoSpecFromPrompt(prompt) ||
+      inferMathGeoSpecFromProblem(prompt, "", [], null);
+    const mergedSpec: MathGeoSpec = prevSpec
+      ? {
+          ...prevSpec,
+          ...baseSpec,
+          title: baseSpec.title || prevSpec.title || "AI 맞춤 작도 도형",
+        }
+      : baseSpec;
+
+    // Apply conversational modifications on top of prevSpec if requested
+    if (prevSpec && /추가|같이|더|바꿔|변경|색칠|접선|원|점/.test(prompt)) {
+      const tangentMatch = prompt.match(/x\s*=\s*(-?\d+(?:\.\d+)?)\s*(?:에서|의)?\s*접선/);
+      if (tangentMatch && (mergedSpec.functions?.[0] || prevSpec.functions?.[0])) {
+        const fnExpr = (mergedSpec.functions?.[0] || prevSpec.functions?.[0])!.expr;
+        const atX = Number(tangentMatch[1]);
+        mergedSpec.functions = mergedSpec.functions?.length ? mergedSpec.functions : prevSpec.functions;
+        mergedSpec.tangents = [
+          ...(prevSpec.tangents || []),
+          {
+            fn: fnExpr,
+            atX,
+            label: "l",
+            style: "dashed",
+            pointLabel: `P(${atX})`,
+            dropToX: true,
+            xTick: String(atX),
+          },
+        ];
+      }
+      const shadeMatch = prompt.match(/(-?\d+(?:\.\d+)?)\s*(?:에서|부터|~)\s*(-?\d+(?:\.\d+)?)\s*까지\s*(?:적분|색칠|넓이)/);
+      if (shadeMatch && (mergedSpec.functions?.[0] || prevSpec.functions?.[0])) {
+        const f1 = (mergedSpec.functions?.[0] || prevSpec.functions?.[0])!.expr;
+        const f2 = (mergedSpec.functions?.[1] || prevSpec.functions?.[1])?.expr;
+        mergedSpec.functions = mergedSpec.functions?.length ? mergedSpec.functions : prevSpec.functions;
+        mergedSpec.shadedRegions = [
+          {
+            f1,
+            f2,
+            from: Number(shadeMatch[1]),
+            to: Number(shadeMatch[2]),
+          },
+        ];
+      }
+      if (/색칠\s*(?:빼|제거|삭제|없애)/.test(prompt)) {
+        mergedSpec.shadedRegions = [];
+      }
+      if (/격자|그리드/.test(prompt)) {
+        mergedSpec.showGrid = !/빼|제거|숨기|끄/.test(prompt);
+      }
+      if (/축\s*(?:빼|제거|숨기|없애)/.test(prompt)) {
+        mergedSpec.showAxes = false;
+      } else if (/축\s*(?:보여|표시|켜)/.test(prompt)) {
+        mergedSpec.showAxes = true;
+      }
+    }
 
     actions.push({
-      type: "update_report_template",
-      template: {
-        name: `${studentName} AI 맞춤 보고서`,
-        orientation: isLandscape ? "landscape" : "portrait",
-        theme,
-        period,
-        illustrations: true,
-        blocks,
-      },
+      type: "update_geo_spec",
+      geoSpec: mergedSpec,
+      description: prompt,
     });
-
     return {
-      reply: `요청하신 조건에 맞춰 **${isLandscape ? "가로형" : "세로형"} · ${theme} 테마 (${blocks.length}개 블록 구성)** 보고서 템플릿을 설계해 AI 스튜디오 템플릿 캔버스와 보관함에 저장했습니다! 우측 캔버스에서 미리보기를 확인하거나 **[보고서 페이지에서 바로 열기]**를 눌러 학생 보고서에 적용해 보세요.`,
+      reply: `요청하신 **"${prompt}"** 조건에 맞춰 수학 도형·함수 그래프(**${mergedSpec.title || "맞춤 작도"}**)를 작도했습니다! 추가로 접선, 교점, 적분 색칠 구간, 원·삼각형·보조선을 더하거나 수정하고 싶으시면 채팅으로 편하게 말씀해 주세요.`,
+      actions,
+    };
+  }
+
+  if (mode === "report_feedback") {
+    const studentsData = Array.isArray(body.contextData?.students)
+      ? (body.contextData?.students as Array<{
+          id?: string;
+          name: string;
+          grade?: string;
+          group?: string;
+          attRate?: number | null;
+          hwRate?: number | null;
+          avgScore?: number | null;
+          wrongSummary?: string;
+          progressSummary?: string;
+        }>)
+      : [];
+    const periodKor = String(body.contextData?.periodKor || "수업");
+    const feedbacks = studentsData.map(st => {
+      const attPart = st.attRate !== null && st.attRate !== undefined ? `출석률 ${st.attRate}%` : "성실한 등원";
+      const hwPart = st.hwRate !== null && st.hwRate !== undefined ? `과제 수행률 ${st.hwRate}%` : "과제 이행";
+      const scorePart = st.avgScore !== null && st.avgScore !== undefined ? `최근 테스트 평균 ${st.avgScore}점을 기록하며 ` : "";
+      const progPart = st.progressSummary ? `'${st.progressSummary}' 진도를 학습 중이며, ` : "";
+      const wrongPart = st.wrongSummary ? `${st.wrongSummary} 상태로 약점 유형을 꼼꼼히 보완하고 있습니다.` : "핵심 개념과 풀이 과정을 탄탄하게 다지고 있습니다.";
+      return {
+        studentId: st.id,
+        studentName: st.name,
+        feedback: `${st.name} 학생은 이번 ${periodKor} 기간 ${attPart}, ${hwPart}로 안정적인 학습 리듬을 유지하고 있습니다. ${progPart}${scorePart}${wrongPart}`,
+      };
+    });
+    actions.push({
+      type: "generate_report_feedbacks",
+      feedbacks,
+    });
+    return {
+      reply: `선택한 **${feedbacks.length}명**의 출결·과제·성적·진도 데이터를 분석하여 학생별 맞춤 피드백 코멘트를 작성했습니다.`,
       actions,
     };
   }
@@ -849,48 +1145,279 @@ function buildSmartFallbackResponse(body: {
   }
 
   if (/인수인계|메모/.test(prompt)) {
+    const mentionedStaff = staffList.find(st => prompt.includes(st.name) || prompt.includes(st.role));
+    const titlePrefix = mentionedStaff ? `[${mentionedStaff.name} ${mentionedStaff.role}께] ` : "";
     actions.push({
       type: "add_handoff",
-      title: prompt.slice(0, 28),
+      title: `${titlePrefix}${prompt.slice(0, 26)}`,
       content: prompt,
-      author: "AI 코파일럿",
+      author: mentionedStaff ? `${mentionedStaff.name} ${mentionedStaff.role} 전달` : "AI 코파일럿",
     });
     return {
-      reply: "요청하신 내용을 **일일 메모 · 인수인계 보드**에 등록했습니다.",
+      reply: mentionedStaff
+        ? `**${mentionedStaff.name} ${mentionedStaff.role}**(${mentionedStaff.duties || mentionedStaff.assignedClasses || "학원 구성원"})께 전달할 내용을 **일일 메모 · 인수인계 보드**에 등록했습니다.`
+        : "요청하신 내용을 **일일 메모 · 인수인계 보드**에 등록했습니다.",
       actions,
     };
   }
 
-  if (/출석|지각|결석|조퇴|숙제|점수|성적|오답/.test(prompt)) {
-    const attendance = /지각/.test(prompt) ? "지각" : /결석/.test(prompt) ? "결석" : /조퇴/.test(prompt) ? "조퇴" : "출석";
-    const homework = /숙제\s*X|안\s*해|미제출/i.test(prompt) ? "X" : /숙제\s*△|세모|일부/i.test(prompt) ? "△" : "O";
+  // 학원 구성원(원장님·선생님·조교쌤·실장님) 등록 / 삭제 / 조회
+  if (/(원장님?|선생님|강사|조교쌤?|실장님?)/.test(prompt)) {
+    // 1) 구성원 추가/등록 ("박지훈 조교쌤 오답 클리닉 담당으로 등록해줘", "이수진 실장님 추가해줘")
+    if (/(추가|등록|저장|배정|넣어)/.test(prompt) && !/학생|원생/.test(prompt)) {
+      const roleMatch = prompt.match(/(원장님?|조교쌤?|실장님?|선생님|강사)/);
+      const role = roleMatch
+        ? /원장/.test(roleMatch[1])
+          ? "원장님"
+          : /조교/.test(roleMatch[1])
+            ? "조교쌤"
+            : /실장/.test(roleMatch[1])
+              ? "실장님"
+              : "선생님"
+        : "선생님";
+      const beforeRole = roleMatch
+        ? prompt.slice(0, prompt.indexOf(roleMatch[0])).match(/([가-힣]{2,4})\s*$/)
+        : null;
+      const fallbackNames =
+        prompt
+          .replace(/(우리\s*학원|학원|구성원|원장님?|선생님|강사|조교쌤?|실장님?|담당|업무|클리닉|상담|추가|등록|저장|해줘|해주세요)/g, " ")
+          .match(/[가-힣]{2,4}/g) || [];
+      const staffName = beforeRole ? beforeRole[1] : fallbackNames[0];
+      if (staffName) {
+        const classMatch = prompt.match(/([가-힣a-zA-Z0-9\s]{2,15}반)/);
+        const dutyMatch = prompt.match(/\(([^)]+)\)/);
+        actions.push({
+          type: "upsert_staff",
+          name: staffName,
+          role,
+          assignedClasses: classMatch ? classMatch[1].trim() : "",
+          duties: dutyMatch ? dutyMatch[1].trim() : "",
+        });
+        return {
+          reply: `👥 우리 학원 구성원 명단에 **${staffName} ${role}**${classMatch ? ` (담당: ${classMatch[1].trim()})` : ""}${dutyMatch ? ` · ${dutyMatch[1].trim()}` : ""}을(를) 등록했습니다! ([설정 → 학원 구성원 관리](/settings#staff)에서도 확인·수정하실 수 있습니다.)`,
+          actions,
+        };
+      }
+    }
+
+    // 2) 구성원 삭제 ("박지훈 조교쌤 삭제해줘")
+    if (/(삭제|제거|빼줘)/.test(prompt) && !/학생|원생|반/.test(prompt)) {
+      const matched = staffList.find(st => prompt.includes(st.name));
+      if (matched) {
+        actions.push({ type: "delete_staff", name: matched.name });
+        return {
+          reply: `학원 구성원 목록에서 **${matched.name} ${matched.role}**을(를) 삭제했습니다.`,
+          actions,
+        };
+      }
+    }
+
+    // 3) 구성원 조회 ("우리 학원 조교쌤이나 실장님 누구 있어?", "선생님 명단 알려줘")
+    if (/(누구|명단|목록|알려|보여|현황|있어)/.test(prompt) || staffList.some(st => prompt.includes(st.name))) {
+      if (staffList.length === 0) {
+        return {
+          reply:
+            "현재 등록된 학원 구성원(선생님·조교쌤·실장님)이 없습니다. **[설정 → 학원 구성원 관리](/settings#staff)** 페이지에서 추가하시거나, 이 채팅창에서 *\"박지훈 조교쌤(오답 클리닉 담당), 이수진 실장님(상담·행정 담당) 등록해줘\"*라고 말씀해 주세요!",
+          actions: [],
+        };
+      }
+      const lines = staffList.map(
+        st =>
+          `- **[${st.role}] ${st.name}**${st.assignedClasses ? ` · 담당 반: ${st.assignedClasses}` : ""}${
+            st.duties ? ` · 업무: ${st.duties}` : ""
+          }`
+      );
+      return {
+        reply: `👥 현재 등록된 **우리 학원 구성원(${staffList.length}명)** 명단입니다:\n\n${lines.join("\n")}\n\n*"${staffList[0].name} ${staffList[0].role}께 오늘 결석생 상담 인수인계 메모 남겨줘"*처럼 이름으로 바로 명령하실 수 있습니다!`,
+        actions: [],
+      };
+    }
+  }
+
+  // 학생 관리: 반 추가 / 반 삭제 / 학생 추가 / 학생 수정 / 학생 삭제 / 진도 기록 / 출결·숙제·오답·성적 기록 / 학생 현황 조회
+  const rosterGroups = body.roster || [];
+  const allRosterStudents = rosterGroups.flatMap(g => g.students.map(s => ({ ...s, className: g.group })));
+
+  // 1) 반 추가 ("고1 심화반 만들어줘", "중2 A반 추가해줘")
+  const addClassMatch = prompt.match(/([가-힣a-zA-Z0-9\s]{2,18}반)\s*(?:새로\s*)?(?:만들|생성|추가|개설|등록)/);
+  if (addClassMatch && !/학생/.test(prompt)) {
+    const className = addClassMatch[1].replace(/^(새|새로운|신규)\s*/, "").trim();
+    actions.push({ type: "add_class", name: className });
+    return {
+      reply: `새로운 반 **'${className}'**을(를) 생성했습니다.`,
+      actions,
+    };
+  }
+
+  // 2) 반 삭제 ("중2 C반 삭제해줘")
+  const delClassMatch = prompt.match(/([가-힣a-zA-Z0-9\s]{2,18}반)\s*(?:삭제|제거|없애)/);
+  if (delClassMatch && !/학생/.test(prompt)) {
+    const className = delClassMatch[1].trim();
+    actions.push({ type: "delete_class", name: className });
+    return {
+      reply: `요청하신 **'${className}'** 반을 삭제 처리했습니다.`,
+      actions,
+    };
+  }
+
+  // 3) 학생 추가 ("중2 A반에 홍길동 중2 학생 추가해줘", "고1 심화반 김철수(고1) 등록해줘")
+  if (/(?:학생|원생)?\s*(?:추가|등록|입학|배정)/.test(prompt) && /반/.test(prompt)) {
+    const matchedGroup = rosterGroups.find(g => prompt.includes(g.group));
+    const classMatch = prompt.match(/([가-힣a-zA-Z0-9\s]{2,18}반)/);
+    const className = matchedGroup?.group || (classMatch ? classMatch[1].trim() : rosterGroups[0]?.group || "기본반");
+    const gradeMatch = prompt.match(/(초[1-6]|중[1-3]|고[1-3])/);
+    const grade = gradeMatch ? gradeMatch[1] : "고1";
+    const cleanedForName = prompt
+      .replace(className, " ")
+      .replace(/(초[1-6]|중[1-3]|고[1-3])/g, " ")
+      .replace(/(학생|원생|새로|신규|추가|등록|배정|입학|해줘|해주세요|에|으로|로)/g, " ");
+    const nameTokens = cleanedForName.match(/[가-힣]{2,4}/g) || [];
+    const studentName = nameTokens[nameTokens.length - 1];
+    if (studentName) {
+      actions.push({ type: "add_student", className, name: studentName, grade });
+      return {
+        reply: `**'${className}'**에 **${studentName} (${grade})** 학생을 등록했습니다.`,
+        actions,
+      };
+    }
+  }
+
+  // 4) 학생 삭제 ("홍길동 학생 삭제해줘")
+  if (/학생.*(?:삭제|제거|퇴원)|(?:삭제|제거|퇴원).*학생/.test(prompt)) {
+    const target = allRosterStudents.find(s => prompt.includes(s.name));
+    const fallbackName = (prompt.replace(/(학생|원생|삭제|제거|퇴원|처리|해줘|해주세요)/g, " ").match(/[가-힣]{2,4}/) || [])[0];
+    const targetName = target?.name || fallbackName;
+    if (targetName) {
+      actions.push({ type: "delete_student", name: targetName });
+      return {
+        reply: `**${targetName}** 학생을 재원생 목록에서 삭제했습니다.`,
+        actions,
+      };
+    }
+  }
+
+  // 5) 학생 정보(이름/학년) 수정 ("김민준 학년을 고2로 변경해줘", "김민준 이름을 김민수로 수정해줘")
+  if (/(?:학년|이름).*(?:수정|변경|바꿔)|(?:수정|변경|바꿔).*(?:학년|이름)/.test(prompt)) {
+    const target = allRosterStudents.find(s => prompt.includes(s.name));
+    if (target) {
+      const gradeMatch = prompt.match(/(초[1-6]|중[1-3]|고[1-3])/);
+      const newNameMatch = prompt.match(/이름을?\s*([가-힣]{2,4})(?:으로|로)/);
+      actions.push({
+        type: "update_student",
+        targetName: target.name,
+        ...(newNameMatch ? { newName: newNameMatch[1] } : {}),
+        ...(gradeMatch ? { newGrade: gradeMatch[1] } : {}),
+      });
+      return {
+        reply: `**${target.name}** 학생의 정보를 수정했습니다.`,
+        actions,
+      };
+    }
+  }
+
+  // 6) 진도 · 다음 과제 · 완료 페이지 기록 ("김민준 오늘 진도 이차방정식 p.42~48, 다음 숙제 p.49~52 기록해줘")
+  if (/진도|페이지|교재|과제\s*범위|숙제\s*범위/.test(prompt) && /(?:기록|입력|저장|바꿔|변경|적용|넣어)/.test(prompt)) {
+    const matchedStudent = allRosterStudents.find(s => prompt.includes(s.name));
+    const matchedGroup = rosterGroups.find(g => prompt.includes(g.group));
+    const studentName = matchedStudent?.name || "전체";
+    const pageMatch = prompt.match(/(\d{1,3})\s*(?:페이지|쪽|p)\s*완료/i);
+    const scopeMatch = prompt.match(/진도(?:는|를|범위)?\s*([^,，/]+?)(?:,|，|숙제|과제|기록|입력|저장|$)/);
+    const hwMatch = prompt.match(/(?:다음\s*)?(?:숙제|과제)(?:는|를|범위)?\s*([^,，/]+?)(?:,|，|기록|입력|저장|해줘|$)/);
+    actions.push({
+      type: "record_progress",
+      studentName,
+      ...(matchedGroup ? { className: matchedGroup.group } : {}),
+      ...(scopeMatch ? { scope: scopeMatch[1].trim() } : { scope: prompt }),
+      ...(hwMatch ? { homework: hwMatch[1].trim() } : {}),
+      ...(pageMatch ? { completedPage: Number(pageMatch[1]) } : {}),
+    });
+    return {
+      reply: `**${matchedStudent ? matchedStudent.name : matchedGroup ? `${matchedGroup.group} 전원` : "전체 학생"}**의 수업 진도·과제 기록을 반영했습니다.`,
+      actions,
+    };
+  }
+
+  // 7) 출결 · 숙제 · 오답 · 시험 성적 기록
+  if (/출석|지각|결석|조퇴|숙제|점수|성적|오답/.test(prompt) && !/누구|알려|목록|현황|몇\s*명|보여/.test(prompt)) {
+    const hasAtt = /출석|지각|결석|조퇴/.test(prompt);
+    const attendance = /지각/.test(prompt) ? "지각" : /결석/.test(prompt) ? "결석" : /조퇴/.test(prompt) ? "조퇴" : hasAtt ? "출석" : undefined;
+    const hasHw = /숙제|과제/.test(prompt);
+    const homework = /숙제\s*X|안\s*해|미제출|미완료/i.test(prompt) ? "X" : /숙제\s*△|세모|일부/i.test(prompt) ? "△" : hasHw ? "O" : undefined;
     const scoreMatch = prompt.match(/(\d{1,3})\s*점/);
-    const allStudents = (body.roster || []).flatMap(g => g.students.map(s => s.name));
-    const matchedStudent = allStudents.find(name => prompt.includes(name)) || "전체";
+    const wrongDone = /오답\s*완료/.test(prompt) ? true : undefined;
+    const wrongCountMatch = prompt.match(/오답\s*(\d{1,2})\s*(?:개|문항)(?:\s*중\s*(\d{1,2})\s*(?:개|문항))?/);
+    const matchedStudent = allRosterStudents.find(s => prompt.includes(s.name));
+    const matchedGroup = rosterGroups.find(g => prompt.includes(g.group));
+    const targetName = matchedStudent?.name || "전체";
 
     actions.push({
       type: "record_daily",
-      studentName: matchedStudent,
-      attendance,
-      homework,
+      studentName: targetName,
+      ...(matchedGroup ? { className: matchedGroup.group } : {}),
+      ...(attendance ? { attendance } : {}),
+      ...(homework ? { homework } : {}),
+      ...(wrongDone !== undefined ? { wrongCompleted: wrongDone } : {}),
+      ...(wrongCountMatch
+        ? {
+            totalWrong: Number(wrongCountMatch[1]),
+            correctedCount: wrongCountMatch[2] ? Number(wrongCountMatch[2]) : 0,
+          }
+        : {}),
       ...(scoreMatch ? { examName: "일일 테스트", examScore: Math.min(100, Number(scoreMatch[1])), examMaxScore: 100 } : {}),
     });
 
     return {
-      reply: `**${matchedStudent}** 학생의 일일 기록(출결: **${attendance}**, 숙제: **${homework}**${scoreMatch ? `, 성적: **${scoreMatch[1]}점**` : ""})을 즉시 반영했습니다.`,
+      reply: `**${matchedStudent ? matchedStudent.name : matchedGroup ? `${matchedGroup.group} 전원` : "전체"}** 학생의 일일 기록(${[
+        attendance ? `출결: **${attendance}**` : "",
+        homework ? `숙제: **${homework}**` : "",
+        wrongDone ? `오답: **완료**` : wrongCountMatch ? `오답: **${wrongCountMatch[2] || 0}/${wrongCountMatch[1]}문항**` : "",
+        scoreMatch ? `성적: **${scoreMatch[1]}점**` : "",
+      ]
+        .filter(Boolean)
+        .join(", ")})을 즉시 반영했습니다.`,
       actions,
     };
   }
 
+  // 8) 학생 관리 읽기/조회 ("학생 목록 알려줘", "오늘 출결 현황 보여줘", "김민준 상태 알려줘")
+  if (/학생|명단|목록|출결|출석|결석|지각|숙제|성적|진도|몇\s*명|현황|누구/.test(prompt) || allRosterStudents.some(s => prompt.includes(s.name))) {
+    const specificStudent = allRosterStudents.find(s => prompt.includes(s.name));
+    if (specificStudent) {
+      return {
+        reply: `📋 **${specificStudent.name} (${specificStudent.grade} · ${specificStudent.className})** 학생의 현재 기록입니다:\n- **오늘 출결**: ${specificStudent.attendance || "미기록"}\n- **오늘 숙제**: ${specificStudent.homework || "미기록"}\n- **오답 클리닉**: ${specificStudent.wrongSummary || "기록 없음"}\n- **오늘 시험 성적**: ${specificStudent.examsSummary || "응시 기록 없음"}\n- **진행 교재 · 진도율**: ${specificStudent.bookTitle ? `${specificStudent.bookTitle} (${specificStudent.progressPct ?? 0}%)` : "미배정"}\n- **최근 진도 / 과제**: ${specificStudent.latestScope || "-"} / ${specificStudent.latestHomework || "-"}`,
+        actions: [],
+      };
+    }
+    if (allRosterStudents.length > 0) {
+      const summaryLines = rosterGroups.map(
+        g =>
+          `- **${g.group} (${g.students.length}명)**: ${
+            g.students
+              .map(
+                s =>
+                  `${s.name}(${s.grade}${s.attendance ? `·${s.attendance}` : ""}${s.homework ? `·숙제${s.homework}` : ""}${
+                    s.progressPct !== undefined ? `·진도${s.progressPct}%` : ""
+                  })`
+              )
+              .join(", ") || "학생 없음"
+          }`
+      );
+      return {
+        reply: `📊 현재 학원 재원생 현황(**총 ${rosterGroups.length}개 반 · ${allRosterStudents.length}명**)입니다:\n\n${summaryLines.join("\n")}\n\n채팅으로 *"김민준 오늘 출석, 단원평가 95점 기록해줘"*, *"중2 A반 전원 오늘 진도 p.42~48 입력해줘"*, *"고1 심화반에 이순신(고1) 추가해줘"*처럼 말씀하시면 즉시 수정됩니다!`,
+        actions: [],
+      };
+    }
+  }
+
   if (/^(안녕|하이|헬로|반가워|좋은\s*아침|좋은\s*저녁|계세요|있어)/i.test(prompt)) {
     return {
-      reply: "안녕하세요 선생님! 오늘 하루는 어떠신가요? 수업 준비나 문제 출제 말고도 편하게 아무 이야기나 나누셔도 좋습니다 😊",
+      reply: `${activePersona.emoji} **[${activePersona.name}]** ${activePersona.sampleGreeting}`,
       actions: [],
     };
   }
 
   return {
-    reply: `말씀하신 "${prompt}"에 대해 함께 이야기해 볼까요? 😊\n평범한 일상 잡담이나 고민, 수업 아이디어부터 수학 문제 제작·도형 작도까지 무엇이든 편하게 말씀해 주세요!`,
+    reply: `${activePersona.emoji} **[${activePersona.name}]** 말씀하신 **"${prompt}"**에 대해 함께 이야기해 볼까요?\n${activePersona.sampleGreeting}`,
     actions,
   };
 }
@@ -946,23 +1473,30 @@ export async function POST(req: NextRequest) {
 
     const intent = parsePromptProblemIntent(prompt, body.contextData as Record<string, unknown> | undefined);
     const isProbReq = isProblemGenerationPrompt(prompt, mode);
+    const isReasoningTask =
+      isProbReq ||
+      mode === "problem_studio" ||
+      mode === "geometry" ||
+      /해설|풀이|정답|변형|쌍둥이|킬러|작도|그래프|도형/.test(prompt);
+    const enableWebSearch =
+      body.useWebSearch !== false &&
+      (isProbReq || /검색|서핑|찾아|최신|기출|내신|수능|모의고사|ebs/i.test(prompt));
 
     const key = process.env.GEMINI_API_KEY?.trim();
-    // For multi-problem batch requests (e.g. "킬러문제로 15문제 만들어달라"), killer/high-difficulty twin requests without image,
-    // or when API key is absent, use the deterministic 1:1 seed token twin engine so problems + solutions + geoSpec are generated immediately and reliably without timeout.
-    if (
-      !key ||
-      (isProbReq &&
-        !body.imageBase64 &&
-        (intent.requestedCount >= 2 || intent.difficulty === "킬러" || intent.targetNumber !== null))
-    ) {
+    // Only use instant deterministic fallback when API key is absent or when user requests a large batch (>= 6 problems) that could exceed serverless timeout.
+    if (!key || (isProbReq && !body.imageBase64 && intent.requestedCount >= 6)) {
       const fallback = buildSmartFallbackResponse({
         prompt,
         mode,
         roster: body.roster as Array<{ group: string; students: Array<{ name: string; grade: string }> }> | undefined,
+        staff: body.staff as AcademyStaffMember[] | undefined,
         contextData: body.contextData as Record<string, unknown> | undefined,
       });
-      return NextResponse.json({ ...fallback, quota: quotaSnapshot });
+      return NextResponse.json({
+        ...fallback,
+        modelUsed: isReasoningTask ? REASONING_AGENT_MODELS[0] : FLASH_AGENT_MODELS[0],
+        quota: quotaSnapshot,
+      });
     }
 
     const matchedSeeds = findMatchingSeedTokens(
@@ -972,13 +1506,80 @@ export async function POST(req: NextRequest) {
     );
     const primarySeed = matchedSeeds[0];
     const requestedUnits = extractRequestedUnits(prompt);
+    const ctxObj = (body.contextData as Record<string, unknown> | undefined) || {};
+    const resolvedPersona = resolveActivePersonaPrompt({
+      personaId: typeof ctxObj.personaId === "string" ? ctxObj.personaId : undefined,
+      customPrompt: typeof ctxObj.personaPrompt === "string" ? ctxObj.personaPrompt : undefined,
+    });
+    const activePersonaDirective = `\n[현재 설정된 AI 캐릭터(인격·페르소나) 지침 — '${resolvedPersona.preset.emoji} ${resolvedPersona.preset.name}']\n${
+      typeof ctxObj.personaPrompt === "string" && ctxObj.personaPrompt.trim()
+        ? ctxObj.personaPrompt.trim()
+        : resolvedPersona.effectivePrompt
+    }\n위 캐릭터의 인격, 말투, 공감 방식, 리액션 스타일을 "reply" 답변에 일관되게 반영하세요.\n`;
 
-    const systemInstruction = `당신은 수학 학원 올인원 워크스페이스 '유니데스크(UNIDESK)'의 AI 파트너입니다.
+    const systemInstruction =
+      mode === "geometry"
+        ? `당신은 수학 학원 올인원 워크스페이스 '유니데스크(UNIDESK)'의 알지오매스·지오지브라급 AI 도형 작도 전문가(Gemini 4 추론 엔진)입니다.
+사용자가 채팅으로 요청한 함수 그래프, 접선, 적분 색칠 영역, 원, 삼각형, 사각형, 직선, 각도 호(arc), 직각 표시(rightAngles), 수선의 발 점선 등을 정교한 MathGeoSpec JSON으로 작도하세요.
+이전에 작도 중이던 도형(currentGeoSpec)이 있고 사용자가 "접선 추가해줘", "구간 -1부터 2까지 색칠해줘", "반지름을 4로 키워줘"처럼 부분 수정을 요청하면 기존 currentGeoSpec을 유지하면서 해당 요소만 정확히 반영하세요.
+또한 사용자가 도형과 함께 문제 출제도 요청했다면 "generate_problems" 액션도 함께 포함할 수 있습니다.
+
+반드시 아래 JSON 스키마로 반환하세요:
+{
+  "reply": "작도한 도형의 수학적 특징(함수식, 교점, 접선 방정식, 도형 성질 등)에 대한 친절한 설명",
+  "actions": [
+    {
+      "type": "update_geo_spec",
+      "geoSpec": {
+        "title": "도형 제목",
+        "xRange": [-4, 4],
+        "yRange": [-3, 5],
+        "showAxes": true,
+        "showGrid": false,
+        "equalAspect": true,
+        "autoIntersections": true,
+        "functions": [{ "expr": "x^3 - 3*x + 1", "label": "y=f(x)", "style": "solid" }],
+        "tangents": [{ "fn": "x^3 - 3*x + 1", "atX": 1, "label": "l", "style": "dashed", "pointLabel": "P(1,-1)", "dropToX": true, "xTick": "1" }],
+        "shadedRegions": [{ "f1": "x^3 - 3*x + 1", "from": -1, "to": 2 }],
+        "circles": [{ "cx": 0, "cy": 0, "r": 2, "style": "solid" }],
+        "polygons": [{ "points": [[0, 2], [-1.73, -1], [1.73, -1]], "shaded": true }],
+        "segments": [{ "x1": 0, "y1": 0, "x2": 1.73, "y2": -1, "style": "dashed", "label": "r" }],
+        "points": [{ "x": 0, "y": 2, "label": "A", "dropToX": false }],
+        "rightAngles": [{ "at": [0, 0], "from": [1, 0], "to": [0, 1], "size": 8 }],
+        "arcs": [{ "cx": 0, "cy": 0, "r": 0.6, "startDeg": 0, "endDeg": 60, "label": "θ" }],
+        "asymptotes": [{ "x": 1, "y": 2, "label": "점근선" }]
+      }
+    }
+  ]
+}
+${
+  (body.contextData as Record<string, unknown> | undefined)?.currentGeoSpec
+    ? `\n[현재 캔버스에 그려진 기존 도형 스펙(currentGeoSpec) — 사용자의 추가/수정 요청 시 이 스펙을 기반으로 업데이트하세요]: ${JSON.stringify(
+        (body.contextData as Record<string, unknown>).currentGeoSpec
+      ).slice(0, 4000)}`
+    : ""
+}`
+        : mode === "report_feedback"
+        ? `당신은 수학 학원 올인원 워크스페이스 '유니데스크(UNIDESK)'의 리포트 총평 전문 AI(Flash 모델)입니다.
+전달된 각 학생의 실제 학습 지표(출결, 과제 수행률, 오답 클리닉 상태, 시험 성적 추이, 오늘/기간 교재 진도 범위)를 바탕으로 학부모님께 신뢰감을 주는 다정하고 구체적인 맞춤형 피드백 코멘트(2~3문장)를 학생별로 각각 다르게 작성하세요.
+반드시 아래 JSON 스키마만 반환하세요:
+{
+  "reply": "생성 완료 안내 메시지",
+  "actions": [
+    {
+      "type": "generate_report_feedbacks",
+      "feedbacks": [
+        { "studentId": "학생ID", "studentName": "학생이름", "feedback": "맞춤 피드백 본문" }
+      ]
+    }
+  ]
+}`
+        : `당신은 수학 학원 올인원 워크스페이스 '유니데스크(UNIDESK)'의 AI 수석 출제위원(Gemini 4 추론 엔진)이자 코파일럿입니다.
 사용자의 요청에 따라 자연스럽고 다정한 한국어 답변(reply)과 필요한 경우 시스템을 조작하는 액션 배열(actions)을 반드시 아래 JSON 스키마로 반환하세요.
-
+${activePersonaDirective}
 [응답 JSON 스키마]
 {
-  "reply": "사용자에게 보여줄 안내 메시지",
+  "reply": "사용자에게 보여줄 안내 메시지 (웹 서핑을 참조했다면 어떤 기출/유형을 참고하여 어떻게 변형했는지 요약 포함)",
   "actions": [
     {
       "type": "generate_problems",
@@ -991,12 +1592,12 @@ export async function POST(req: NextRequest) {
           "points": "${intent.difficulty === "킬러" || intent.difficulty === "상" ? "4점" : "3점"}",
           "difficulty": "${intent.difficulty}",
           "sourceTokenId": "${primarySeed?.id || ""}",
-          "sourceLabel": "기출 변형 출처",
-          "question": "LaTeX 수식($...$)이 포함된 발문",
+          "sourceLabel": "웹 기출 탐색 + AI 1:1 창의 변형 출제",
+          "question": "LaTeX 수식($...$)이 포함된 변형 발문",
           "boxContent": "(가)/(나) 조건 또는 ㄱ, ㄴ, ㄷ 보기 (없으면 빈 문자열)",
           "choices": ["① 선지1", "② 선지2", "③ 선지3", "④ 선지4", "⑤ 선지5"],
           "answer": "정답",
-          "solution": "[출제의도] 및 단계별 상세 해설",
+          "solution": "[출제의도] 및 단계별 상세 해설 (수식 검산 포함)",
           "geoSpec": { "xRange": [-3, 4], "yRange": [-2, 6], "showAxes": true, "functions": [{ "expr": "x^3 - 3*x + 1", "label": "y=f(x)" }] }
         }
       ]
@@ -1004,14 +1605,88 @@ export async function POST(req: NextRequest) {
   ]
 }
 
-[수학 문제 출제 절대 원칙 — 기출 토큰 1:1 매칭 쌍둥이 변형 및 고난도 킬러 출제]
-- 사용자가 수학 문제 출제/변형을 요청하면 반드시 actions 배열에 "type": "generate_problems" 액션을 포함하여 요청한 문항 수(${intent.requestedCount}문항)만큼 문제를 생성하세요.
-- 사용자가 30번, 29번, 22번, 21번, 15번 등 킬러/고난도 문항을 요청하면 반드시 아래 제공된 [기출 시드 토큰(문제+해설 1:1 매칭)]의 추론 깊이((가)·(나) 조건 박스, 구간별 정의 함수, 미분가능성, 정적분 치환, 수열 역추적, 기하 접선/외접원 등)를 그대로 유지하여 고난도 쌍둥이 변형 문제로 출제하세요. 절대로 기초 연산 문제를 내고 킬러라고 표기하지 마세요.
-- 각 생성 문항에는 반드시 참조한 원본 시드 토큰의 ID를 sourceTokenId 필드에 기록하세요(예: "${primarySeed?.id || ""}").
-- 그림이나 그래프가 문제 발문("그림과 같이..." 등)에 실제로 필요하거나 사용자가 도형/그래프 작도를 명시적으로 요청한 경우에만 geoSpec 필드를 포함하세요. 그래프 없이 수식만으로 출제되는 대수·수열·미적분·확통 문항에는 불필요한 geoSpec을 넣지 마세요.
+[학생 관리 실시간 읽기 및 편집 권한 — 지원 액션 스키마]
+사용자가 반이나 학생 명단, 출결, 숙제, 오답, 성적, 교재 진도에 대해 질문하면 아래 [현재 학원 반·학생 실시간 데이터(roster)]를 읽고 정확하게 답변하세요.
+사용자가 반/학생 추가·수정·삭제나 출결·숙제·오답·시험성적·진도 기록을 요청하면 actions 배열에 아래 액션을 포함하여 즉시 실행하세요:
+- 반 생성: { "type": "add_class", "name": "고1 심화반" }
+- 반 삭제: { "type": "delete_class", "name": "고1 심화반" }
+- 학생 추가: { "type": "add_student", "className": "고1 심화반", "name": "홍길동", "grade": "고1" }
+- 학생 이름/학년 수정: { "type": "update_student", "targetName": "홍길동", "newName": "홍길동", "newGrade": "고2" }
+- 학생 삭제: { "type": "delete_student", "name": "홍길동", "className": "고1 심화반" }
+- 출결·숙제·오답·당일 시험 성적 기록: { "type": "record_daily", "studentName": "홍길동 또는 전체", "className": "선택 반이름", "attendance": "출석|지각|결석|조퇴", "homework": "O|△|X", "totalWrong": 5, "correctedCount": 5, "wrongCompleted": true, "examName": "단원평가", "examScore": 95, "examMaxScore": 100, "memo": "비고 코멘트" }
+- 교재 진도·과제·완료 페이지 기록: { "type": "record_progress", "studentName": "홍길동 또는 전체", "className": "선택 반이름", "bookTitle": "교재명(선택)", "scope": "오늘 나간 진도 범위(예: p.42~48)", "homework": "오늘 내줄 숙제(예: p.49~52)", "completedPage": 48, "memo": "수업 피드백" }
+- 인수인계 메모 등록: { "type": "add_handoff", "title": "제목", "content": "내용", "author": "작성자 또는 수신 구성원" }
+- 학원 구성원(원장님·선생님·조교쌤·실장님) 등록/수정: { "type": "upsert_staff", "name": "박지훈", "role": "원장님|선생님|조교쌤|실장님", "assignedClasses": "담당 반", "duties": "담당 업무" }
+- 학원 구성원 삭제: { "type": "delete_staff", "name": "박지훈" }
+${
+  Array.isArray(body.staff) && body.staff.length > 0
+    ? `\n[우리 학원 구성원(원장님·선생님·조교쌤·실장님) 실시간 명단(staff) — 이름·직책·담당 반·담당 업무를 정확히 인식하여 대화 및 인수인계에 활용하세요]: ${JSON.stringify(body.staff).slice(0, 3000)}`
+    : "\n[우리 학원 구성원 명단(staff)]: 아직 등록된 구성원이 없습니다. 사용자가 선생님/조교쌤/실장님 이름을 알려주면 upsert_staff 액션으로 즉시 저장하세요."
+}
+
+[시험지 스타일 및 디자인 무제한 AI 커스터마이징 — 지원 액션 스키마]
+사용자가 시험지 스타일, 레이아웃, 단 수(1단/2단/3단 등), 헤더 디자인(수능형/모던/학원 클리닉/배너/미니멀/없음), 제목/부제목/머리말/꼬리말, 풀이 여백 높이, 문항 간격, 글꼴(명조/고딕/필기체 등 자유), 글자 크기, 포인트 색상, 용지 배경색, 세로 구분선, 테두리, 워터마크, 학생 이름/점수 기입란, 빠른 정답표 및 해설지 동시 인쇄 여부, 또는 임의의 CSS 스타일 변경을 요청하면 **어떠한 제한도 두지 말고** actions 배열에 "update_exam_style" 액션을 포함하여 즉시 반영하세요(문제 출제와 동시에 스타일 변경을 요청하면 "generate_problems"와 "update_exam_style"을 함께 반환하세요):
+{
+  "type": "update_exam_style",
+  "reset": false,
+  "style": {
+    "title": "시험지 메인 제목",
+    "subtitle": "상단 보조 부제목",
+    "headerLeft": "좌측 배지(예: 제 2 교시, 고2 내신 대비)",
+    "headerRight": "우측 배지(예: 홀수형, A형)",
+    "footerText": "하단 꼬리말·학원명",
+    "columns": 2,
+    "perPage": 0,
+    "headerStyle": "suneung | modern | academy | minimal | banner | none",
+    "fontFamily": "'Noto Serif KR', serif 또는 'Pretendard', sans-serif 등 자유",
+    "fontSize": 13.5,
+    "lineHeight": 1.68,
+    "problemGap": 22,
+    "solutionSpace": 60,
+    "accentColor": "#111827",
+    "backgroundColor": "#ffffff",
+    "textColor": "#0f172a",
+    "borderStyle": "double | solid | dashed | box | none",
+    "showColumnDivider": true,
+    "showStudentInfoBox": true,
+    "showPoints": true,
+    "showDifficulty": false,
+    "showSource": false,
+    "showAnswerKey": true,
+    "showSolutions": true,
+    "choiceColumns": 0,
+    "pagePadding": 24,
+    "watermark": "배경 워터마크 텍스트(없으면 빈 문자열)",
+    "customNote": "시험지 상단 안내/주의사항 문구",
+    "customCss": {}
+  }
+}
+${
+  (body.contextData as Record<string, unknown> | undefined)?.currentExamStyle
+    ? `\n[현재 시험지 스타일(currentExamStyle) — 부분 수정 요청 시 기존 설정을 유지하면서 요청한 속성만 업데이트하세요]: ${JSON.stringify(
+        (body.contextData as Record<string, unknown>).currentExamStyle
+      ).slice(0, 2500)}`
+    : ""
+}
+${
+  Array.isArray(body.roster) && body.roster.length > 0
+    ? `\n[현재 학원 반·학생 실시간 데이터(roster) — 출결/숙제/오답/성적/교재 진도 포함]: ${JSON.stringify(body.roster).slice(0, 6000)}`
+    : ""
+}
+
+[웹 서핑(Google Search) 및 수학 문제 변형 출제 절대 원칙]
+1. **웹 서핑 및 내부 시드 참조 후 반드시 변형 출제 (그대로 복사 절대 금지!)**:
+   - 웹 서핑(Google Search)이나 내부 기출 시드에서 찾아온 원본 기출·내신 문제를 **절대로 그대로 베껴서 출제하지 마세요**.
+   - 반드시 원본 문제의 핵심 출제의도와 수학적 추론 구조만 가져오고, **함수식·계수·정의역·조건 (가)/(나)의 수치·구하는 값을 새롭게 재설계한 '창작 쌍둥이 변형 문제'**로 출제하세요.
+   - 변형한 문제의 방정식·미적분·수열 해가 깔끔하게 떨어지는지 스스로 끝까지 풀어 검산한 뒤 정확한 정답(answer)과 단계별 해설(solution)을 작성하세요.
+2. **요청 문항 수 및 난이도 엄수**:
+   - 사용자가 수학 문제 출제/변형을 요청하면 반드시 actions 배열에 "type": "generate_problems" 액션을 포함하여 요청한 문항 수(${intent.requestedCount}문항)만큼 생성하세요.
+   - 30번, 29번, 22번, 21번, 15번 등 킬러/고난도 요청 시 (가)·(나) 조건 추론, 구간별 정의 함수, 미분가능성, 정적분 치환, 수열 역추적 등 실제 수능/모의고사 4점 킬러 깊이를 유지하세요.
+3. **도형/그래프(geoSpec)**:
+   - 그림이나 그래프가 문제 발문("그림과 같이..." 등)에 필요하거나 사용자가 작도를 요청한 경우에만 geoSpec 필드를 포함하세요.
 ${
   matchedSeeds.length > 0
-    ? `\n[기출 시드 토큰 (문제+정답+해설 1:1 매칭 레퍼런스 — 이 토큰의 논리 구조와 해설 단계를 그대로 참고하여 수치·함수식을 바꾼 쌍둥이 변형 문제를 만들고 sourceTokenId를 포함하세요)]: ${JSON.stringify(
+    ? `\n[내부 기출 시드 토큰 (문제+정답+해설 레퍼런스 — 그대로 쓰지 말고 논리 구조만 참고하여 새로운 수치·함수로 변형하세요)]: ${JSON.stringify(
         matchedSeeds.slice(0, 4).map(s => ({
           sourceTokenId: s.id,
           sourceLabel: s.sourceLabel,
@@ -1030,6 +1705,11 @@ ${
           geoSpec: s.geoSpec,
         }))
       ).slice(0, 5500)}`
+    : ""
+}
+${
+  mode === "report_feedback" || (body.contextData as Record<string, unknown> | undefined)?.students
+    ? `\n[학생 데이터 컨텍스트]: ${JSON.stringify(body.contextData).slice(0, 6000)}`
     : ""
 }
 
@@ -1055,46 +1735,109 @@ ${
       });
     }
 
-    const agentModel = process.env.GEMINI_AGENT_MODEL?.trim() || OCR_MODEL;
-    let geminiRes: Response;
-    try {
-      geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${agentModel}:generateContent`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-        signal: AbortSignal.timeout(25_000),
-        body: JSON.stringify({
+    // Build model candidate chain:
+    // - Reasoning / Problem Creation -> Gemini 4 (gemini-4-carbon / neon / hydrogen) -> Pro -> Flash fallback
+    // - OCR / Fast Copilot / Report Feedback -> Flash (gemini-3.8-flash / 3.5-flash-lite / 3.1-flash-lite)
+    const customEnvModel = isReasoningTask
+      ? process.env.GEMINI_REASONING_MODEL?.trim() || process.env.GEMINI_AGENT_MODEL?.trim()
+      : process.env.GEMINI_FLASH_MODEL?.trim() || process.env.GEMINI_AGENT_MODEL?.trim();
+
+    const candidateModels: string[] = [
+      ...(customEnvModel ? [customEnvModel] : []),
+      ...(isReasoningTask ? [...REASONING_AGENT_MODELS] : [...FLASH_AGENT_MODELS]),
+    ].filter((m, idx, arr) => Boolean(m) && arr.indexOf(m) === idx);
+
+    let geminiData: Record<string, unknown> | null = null;
+    let modelUsed = candidateModels[0] || OCR_MODEL;
+    const webSearchSources: Array<{ title: string; url: string }> = [];
+
+    for (const candidateModel of candidateModels) {
+      try {
+        // First try with Google Search grounding tool if enabled for problem research
+        const requestPayload: Record<string, unknown> = {
           contents: [{ parts }],
+          ...(enableWebSearch ? { tools: [{ google_search: {} }] } : {}),
           generationConfig: {
-            temperature: 0.3,
+            temperature: isReasoningTask ? 0.45 : 0.25,
             maxOutputTokens: 16384,
-            responseMimeType: "application/json",
+            ...(enableWebSearch ? {} : { responseMimeType: "application/json" }),
           },
-        }),
-      });
-    } catch {
+        };
+
+        let res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${candidateModel}:generateContent`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+            signal: AbortSignal.timeout(22_000),
+            body: JSON.stringify(requestPayload),
+          }
+        );
+
+        // If the model doesn't support google_search tool together with the request, retry immediately without tools
+        if (!res.ok && enableWebSearch && res.status === 400) {
+          res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${candidateModel}:generateContent`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+              signal: AbortSignal.timeout(20_000),
+              body: JSON.stringify({
+                contents: [{ parts }],
+                generationConfig: {
+                  temperature: isReasoningTask ? 0.45 : 0.25,
+                  maxOutputTokens: 16384,
+                  responseMimeType: "application/json",
+                },
+              }),
+            }
+          );
+        }
+
+        if (res.ok) {
+          geminiData = (await res.json()) as Record<string, unknown>;
+          modelUsed = candidateModel;
+          break;
+        }
+      } catch {
+        // Try next candidate model in tier chain
+      }
+    }
+
+    if (!geminiData) {
       const fallback = buildSmartFallbackResponse({
         prompt,
         mode,
         roster: body.roster as Array<{ group: string; students: Array<{ name: string; grade: string }> }> | undefined,
         contextData: body.contextData as Record<string, unknown> | undefined,
       });
-      return NextResponse.json({ ...fallback, quota: quotaSnapshot });
+      return NextResponse.json({ ...fallback, modelUsed, quota: quotaSnapshot });
     }
 
-    if (!geminiRes.ok) {
-      const fallback = buildSmartFallbackResponse({
-        prompt,
-        mode,
-        roster: body.roster as Array<{ group: string; students: Array<{ name: string; grade: string }> }> | undefined,
-        contextData: body.contextData as Record<string, unknown> | undefined,
-      });
-      return NextResponse.json({ ...fallback, quota: quotaSnapshot });
+    const candidates = Array.isArray(geminiData.candidates)
+      ? (geminiData.candidates as Array<Record<string, unknown>>)
+      : [];
+    const firstCandidate = candidates[0] || {};
+
+    // Extract Google Search grounding sources if present
+    const groundingMeta = firstCandidate.groundingMetadata as
+      | { groundingChunks?: Array<{ web?: { title?: string; uri?: string } }> }
+      | undefined;
+    if (Array.isArray(groundingMeta?.groundingChunks)) {
+      for (const chunk of groundingMeta.groundingChunks) {
+        if (chunk.web?.uri) {
+          webSearchSources.push({
+            title: chunk.web.title || chunk.web.uri,
+            url: chunk.web.uri,
+          });
+        }
+      }
     }
 
-    const geminiData = await geminiRes.json();
-    const rawText = geminiData.candidates?.[0]?.content?.parts
-      ?.filter((p: { thought?: boolean }) => !p.thought)
-      .map((p: { text?: string }) => p.text ?? "")
+    const contentObj = firstCandidate.content as { parts?: Array<{ thought?: boolean; text?: string }> } | undefined;
+    const rawText = contentObj?.parts
+      ?.filter(p => !p.thought)
+      .map(p => p.text ?? "")
       .join("");
 
     if (!rawText) {
@@ -1104,13 +1847,19 @@ ${
         roster: body.roster as Array<{ group: string; students: Array<{ name: string; grade: string }> }> | undefined,
         contextData: body.contextData as Record<string, unknown> | undefined,
       });
-      return NextResponse.json({ ...fallback, quota: quotaSnapshot });
+      return NextResponse.json({ ...fallback, modelUsed, webSearchSources, quota: quotaSnapshot });
     }
 
     let parsed: { reply?: unknown; actions?: unknown };
     try {
-      const cleaned = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-      parsed = JSON.parse(cleaned);
+      const cleaned = rawText
+        .replace(/^[\s\S]*?```(?:json)?\s*/i, match => (match.includes("```") ? "" : match))
+        .replace(/\s*```[\s\S]*$/i, "")
+        .trim();
+      const jsonStart = cleaned.indexOf("{");
+      const jsonEnd = cleaned.lastIndexOf("}");
+      const jsonCandidate = jsonStart !== -1 && jsonEnd > jsonStart ? cleaned.slice(jsonStart, jsonEnd + 1) : cleaned;
+      parsed = JSON.parse(jsonCandidate);
     } catch {
       const fallback = buildSmartFallbackResponse({
         prompt,
@@ -1118,12 +1867,23 @@ ${
         roster: body.roster as Array<{ group: string; students: Array<{ name: string; grade: string }> }> | undefined,
         contextData: body.contextData as Record<string, unknown> | undefined,
       });
-      return NextResponse.json({ ...fallback, quota: quotaSnapshot });
+      return NextResponse.json({ ...fallback, modelUsed, webSearchSources, quota: quotaSnapshot });
     }
 
     // Attach 1:1 sourceOrigin token metadata to any generated problems
     const allTokens = loadAllProblemTokens();
     const rawActions = Array.isArray(parsed.actions) ? (parsed.actions as AiCopilotAction[]) : [];
+    if (isExamStylePrompt(prompt) && !rawActions.some(a => a.type === "update_exam_style")) {
+      const currentExamStyle = (body.contextData as Record<string, unknown> | undefined)?.currentExamStyle as
+        | ExamPaperStyle
+        | undefined;
+      const builtStyle = buildExamStyleFromPrompt(prompt, currentExamStyle);
+      rawActions.push({
+        type: "update_exam_style",
+        style: builtStyle.style,
+        reset: builtStyle.reset,
+      });
+    }
     let genAction = rawActions.find(a => a.type === "generate_problems") as
       | Extract<AiCopilotAction, { type: "generate_problems" }>
       | undefined;
@@ -1150,15 +1910,32 @@ ${
             p.sourceOrigin ||
             (p.sourceTokenId ? allTokens.find(t => t.id === p.sourceTokenId) : undefined) ||
             matchedSeeds[i % Math.max(1, matchedSeeds.length)];
+          // Safety guard: if AI ever returned a question identical to the seed/source question, force transform it into a twin variant
+          if (origin && p.question && p.question.replace(/\s+/g, "") === origin.question.replace(/\s+/g, "")) {
+            const transformed = buildTwinProblemFromSeedToken(origin, i + 1, prompt);
+            return {
+              ...transformed,
+              sourceLabel:
+                webSearchSources.length > 0
+                  ? `${origin.sourceLabel} + 웹 기출 변형`
+                  : `${origin.sourceLabel} 1:1 쌍둥이 변형`,
+            };
+          }
           return {
             ...p,
             ...(origin
               ? {
                   sourceTokenId: origin.id,
                   sourceOrigin: origin,
-                  sourceLabel: p.sourceLabel || `${origin.sourceLabel} 1:1 쌍둥이 변형`,
+                  sourceLabel:
+                    p.sourceLabel ||
+                    (webSearchSources.length > 0
+                      ? `${origin.sourceLabel} + 웹 기출 변형`
+                      : `${origin.sourceLabel} 1:1 쌍둥이 변형`),
                 }
-              : {}),
+              : {
+                  sourceLabel: p.sourceLabel || (webSearchSources.length > 0 ? "웹 기출 탐색 · AI 창의 변형" : "AI 창의 변형 출제"),
+                }),
           };
         });
       }
@@ -1167,6 +1944,8 @@ ${
     return NextResponse.json({
       reply: typeof parsed.reply === "string" ? parsed.reply : "요청하신 작업을 완료했습니다.",
       actions: rawActions,
+      modelUsed,
+      webSearchSources,
       quota: quotaSnapshot,
     });
   } catch {

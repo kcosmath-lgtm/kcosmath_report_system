@@ -43,16 +43,9 @@ export default function StudentManagerModal({ open, onClose, onChanged, mode = "
       setGroups(rows);
       setClassId(current => rows.some(group => group.id === current) ? current : rows[0]?.id ?? "");
       const ids = rows.flatMap(group => group.students.map(student => student.id));
-      const firstGroupIds = rows[0]?.students.map(student => student.id) ?? [];
-      setSelectedIds(current => {
-        const valid = current.filter(id => ids.includes(id));
-        return valid.length > 0 ? valid : firstGroupIds;
-      });
-      setSelectedId(current => ids.includes(current) ? current : (firstGroupIds[0] ?? ""));
-      setExpandedGroups(current => {
-        const valid = current.filter(id => rows.some(group => group.id === id));
-        return valid.length > 0 ? valid : (rows[0] ? [rows[0].id] : []);
-      });
+      setSelectedIds(current => current.filter(id => ids.includes(id)));
+      setSelectedId(current => ids.includes(current) ? current : "");
+      setExpandedGroups(current => current.filter(id => rows.some(group => group.id === id)));
     } catch (e) { setError(e instanceof Error ? e.message : "학생 목록을 불러오지 못했습니다."); }
     finally { if (sequence === refreshSequence.current) setLoading(false); }
   }, []);

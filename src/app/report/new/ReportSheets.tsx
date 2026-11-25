@@ -60,10 +60,16 @@ function isWrongRecordDone(w?: WrongAnswerRecord | null): boolean {
  return Boolean(w.completed || (w.total_wrong > 0 && w.corrected_count >= w.total_wrong));
 }
 
+function hasEntryProgressText(e?: ProgressEntry | null): boolean {
+ if (!e) return false;
+ const memo = e.memo?.trim() && e.memo.trim() !== '단원 상태 변경' ? e.memo.trim() : '';
+ return Boolean(e.scope?.trim() || e.homework?.trim() || memo);
+}
+
 function mergeEntriesByBookAndDate(entries: ProgressEntry[]): ProgressEntry[] {
  const map = new Map<string, ProgressEntry>();
  for (const e of entries) {
-  if (e.memo === '단원 상태 변경' && !e.scope.trim() && !e.homework.trim()) continue;
+  if (!hasEntryProgressText(e)) continue;
   const key = `${e.book_id}__${e.record_date}`;
   map.set(key, { ...e });
  }
@@ -191,34 +197,37 @@ function computeStudentData(p:Preview){
  const avgScore=exams.length>0?Math.round(exams.reduce((a,b)=>a+b.rate,0)/exams.length):null;
  const maxScore=exams.length>0?Math.max(...exams.map(e=>e.rate)):null;
 
- // 5. 교재별 진도 및 당일/기간 진도 히스토리
+ // 5. 교재별 진도 및 당일/기간 진도 히스토리 (오늘 진도범위·과제·코멘트가 전부 비어있는 교재 및 프린트 유인물은 보고서에서 제외)
  const isPrintBook=(b?:ProgressBook|null)=>Boolean(b&&(b.curriculum==='프린트'||b.title==='프린트 · 유인물'));
  const activeBooks=p.books.filter(b=>!b.archived&&!isPrintBook(b));
- const bookProgressList=activeBooks.map(b=>{
-  const pct=progressPercent(b);
-  const bEntries=mergedAllEntries.filter(e=>e.book_id===b.id);
-  const periodBEntries=entriesInPeriod.filter(e=>e.book_id===b.id);
-  const latest=periodBEntries[periodBEntries.length-1]??bEntries[bEntries.length-1];
-  const currentUnits=b.units.filter(u=>b.states[u.id]==='진행 중').map(u=>u.name);
-  const doneUnits=b.units.filter(u=>b.states[u.id]==='완료').length;
-  const currentScope=latest?.scope?.trim()||currentUnits.slice(0,2).join(', ')||(doneUnits>0?`${doneUnits}개 단원 완료`:'진행 중');
-  return {
-   id:b.id,
-   title:b.title,
-   curriculum:b.curriculum,
-   course:b.course,
-   pct,
-   donePages:b.completed_page??latest?.completed_page??0,
-   totalPages:b.total_pages??latest?.total_pages_snapshot??0,
-   doneUnits,
-   totalUnits:b.units.length,
-   scope:currentScope,
-   journeyLabel:currentScope,
-   latestHomework:latest?.homework?.trim()||'',
-   latestDueDate:latest?.due_date||null,
-   recordDate:latest?.record_date||null,
-  };
- });
+ const bookProgressList=activeBooks
+  .map(b=>{
+   const pct=progressPercent(b);
+   const bEntries=mergedAllEntries.filter(e=>e.book_id===b.id);
+   const periodBEntries=entriesInPeriod.filter(e=>e.book_id===b.id);
+   const latest=periodBEntries[periodBEntries.length-1];
+   if(!latest||!hasEntryProgressText(latest))return null;
+   const currentUnits=b.units.filter(u=>b.states[u.id]==='진행 중').map(u=>u.name);
+   const doneUnits=b.units.filter(u=>b.states[u.id]==='완료').length;
+   const currentScope=latest.scope?.trim()||'';
+   return {
+    id:b.id,
+    title:b.title,
+    curriculum:b.curriculum,
+    course:b.course,
+    pct,
+    donePages:b.completed_page??latest.completed_page??0,
+    totalPages:b.total_pages??latest.total_pages_snapshot??0,
+    doneUnits,
+    totalUnits:b.units.length,
+    scope:currentScope,
+    journeyLabel:currentScope||currentUnits.slice(0,2).join(', ')||(doneUnits>0?`${doneUnits}개 단원 완료`:'진행 중'),
+    latestHomework:latest.homework?.trim()||'',
+    latestDueDate:latest.due_date||null,
+    recordDate:latest.record_date||null,
+   };
+  })
+  .filter((b):b is NonNullable<typeof b>=>Boolean(b));
 
  const avgProgress=
   bookProgressList.length>0
@@ -2008,46 +2017,8 @@ function SaebomForestSheet({
          </tr>
         </thead>
         <tbody>
-         {(todayLogs.length > 0
-          ? todayLogs.slice(0, bookRowsLimit)
-          : onEditProgress
-            ? [
-               {
-                id: p.books[0]?.id || '__print__',
-                bookId: p.books[0]?.id || '__print__',
-                date: p.end,
-                bookTitle: p.books[0]?.title || '프린트 · 유인물',
-                course: p.books[0]?.course || '개별·보충 프린트',
-                scope: '',
-                homework: '',
-                dueDate: null,
-                pct: 0,
-                done: 0,
-                total: 0,
-                isPrint: !p.books[0] || p.books[0].curriculum === '프린트' || p.books[0].title === '프린트 · 유인물',
-               },
-              ]
-            : []
-         ).length > 0 ? (
-          (todayLogs.length > 0
-           ? todayLogs.slice(0, bookRowsLimit)
-           : [
-              {
-               id: p.books[0]?.id || '__print__',
-               bookId: p.books[0]?.id || '__print__',
-               date: p.end,
-               bookTitle: p.books[0]?.title || '프린트 · 유인물',
-               course: p.books[0]?.course || '개별·보충 프린트',
-               scope: '',
-               homework: '',
-               dueDate: null,
-               pct: 0,
-               done: 0,
-               total: 0,
-               isPrint: !p.books[0] || p.books[0].curriculum === '프린트' || p.books[0].title === '프린트 · 유인물',
-              },
-             ]
-          ).map(log => (
+         {todayLogs.length > 0 ? (
+          todayLogs.slice(0, bookRowsLimit).map(log => (
            <tr key={log.id}>
             <td>
              <strong className={styles.saebomBookName}>{log.bookTitle}</strong>
@@ -2519,7 +2490,7 @@ function DayBody({
          </tbody>
         </table>
 
-        {cfg.showNextHw && (
+        {cfg.showNextHw && (todayLogs.length > 0 || s.homeworkTasks.length > 0) && (
          <div className={styles.nextHwCallout}>
           <div className={styles.nextHwTitle}><Clock size={13}/> 다음 수업까지 해올 숙제 안내</div>
           {onEditProgress && todayLogs.length > 0 ? (
@@ -2535,7 +2506,7 @@ function DayBody({
              />
             </div>
            ))
-          ) : s.homeworkTasks.length>0?(
+          ) : (
            s.homeworkTasks.slice(0,3).map(t=>(
             <p key={t.id} style={{ whiteSpace: 'pre-line' }}>
              <span className={styles.hwBookTag}>{t.bookTitle}</span>
@@ -2543,8 +2514,6 @@ function DayBody({
              {t.dueDate&&<small> (기한: {shortDate(t.dueDate)})</small>}
             </p>
            ))
-          ):(
-           <p className={styles.mutedText}>교재 복습 및 오답 노트 정리</p>
           )}
          </div>
         )}

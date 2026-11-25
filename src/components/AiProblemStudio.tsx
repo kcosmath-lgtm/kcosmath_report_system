@@ -43,13 +43,6 @@ import {
   type ExamPaperStyle,
   type GeneratedMathProblem,
 } from "../lib/ai-copilot";
-import {
-  AI_PERSONA_PRESETS,
-  loadAiPersonaConfig,
-  resolveActivePersonaPrompt,
-  saveAiPersonaConfig,
-  type SavedAiPersonaConfig,
-} from "../lib/ai-personas";
 import { fetchAiQuotaStatus, type AiQuotaSnapshot } from "../lib/ai-quota-client";
 import {
   choiceLabels,
@@ -148,11 +141,6 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
   const [examProblems, setExamProblems] = useState<GeneratedMathProblem[]>([]);
   const [examStyle, setExamStyle] = useState<ExamPaperStyle>(() => DEFAULT_EXAM_PAPER_STYLE);
   const [examStyleChatInput, setExamStyleChatInput] = useState("");
-  const [personaConfig, setPersonaConfig] = useState<SavedAiPersonaConfig>(() => ({
-    personaId: AI_PERSONA_PRESETS[0].id,
-    customPrompt: "",
-  }));
-  const [personaMenuOpen, setPersonaMenuOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [originCompareId, setOriginCompareId] = useState<string | null>(null);
   const [expandedTokenId, setExpandedTokenId] = useState<string | null>(null);
@@ -206,7 +194,6 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
     if (loadedStyle.title) {
       setExamTitle(loadedStyle.title);
     }
-    setPersonaConfig(loadAiPersonaConfig());
 
     try {
       const raw = localStorage.getItem(threadsKey);
@@ -646,23 +633,38 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
   }
 
   async function handleSend(customPrompt?: string, forcedMode?: StudioMode, sourceTokenId?: string) {
-    const activeMode = forcedMode || mode;
     const text = (customPrompt ?? prompt).trim();
 
-    if (sources.length > 0 && activeMode === "typing" && !customPrompt) {
+    // If exam paper PDF/images are attached and the user isn't asking to generate a variant from the single image, automatically run OCR typing extraction
+    if (sources.length > 0 && !customPrompt && (!text || /타이핑|추출|스캔|인식|변환/.test(text) || sources.length > 1)) {
       setPrompt("");
       await handleExtractSourcesInChat(text || undefined);
       return;
     }
 
-    if (!text || busy) return;
+    if (!text && sources.length === 0) return;
+    if (busy) return;
     if (!customPrompt) setPrompt("");
+
+    const isGeoIntent =
+      forcedMode === "geometry" ||
+      (/작도|그려|그래프|도형|접선|적분\s*영역|색칠|외접원|내접원|삼각형|부채꼴/.test(text) &&
+        !/문제\s*출제|문항\s*출제|시험지\s*스타일/.test(text));
+    const isProbIntent =
+      forcedMode === "generate" ||
+      Boolean(sourceTokenId) ||
+      /문제|문항|출제|변형|쌍둥이|유사|모의고사|킬러|4점|3점|내신|기출/.test(text);
+    const isStyleIntent =
+      /시험지\s*스타일|레이아웃|1단|2단|3단|풀이\s*여백|워터마크|정답표|해설지\s*포함|명조체|고딕체/.test(text);
+
+    const detectedMode: StudioMode =
+      forcedMode || (isGeoIntent ? "geometry" : isProbIntent ? "generate" : "default");
 
     const userMsg: StudioChatMessage = {
       id: `u-${Date.now()}`,
       role: "user",
-      content: text,
-      mode: activeMode,
+      content: text || `${sources.map(s => s.name).join(", ")} 이미지 기반 문항 분석·출제`,
+      mode: detectedMode,
       attachmentNames: sources.length ? sources.map(s => s.name) : undefined,
       createdAt: new Date().toISOString(),
     };
@@ -670,36 +672,22 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
     setMessages(nextWithUser);
     setBusy(true);
     setBusyStep(
-      activeMode === "geometry"
+      isGeoIntent
         ? "알지오매스/지오지브라 1:1 등축 좌표계와 도형을 작도하는 중..."
-        : activeMode === "typing"
-          ? "문항 수식(LaTeX)과 레이아웃을 구성하는 중..."
-          : activeMode === "generate"
-            ? `기출 1:1 매칭 토큰 참조 및 고${grade} ${subject} (${difficulty}) 쌍둥이 변형 설계 중...`
-            : "AI가 답변을 준비하고 있습니다..."
+        : isProbIntent
+          ? `기출 1:1 매칭 토큰 참조 및 고${grade} ${subject} (${difficulty}) 쌍둥이 변형 설계 중...`
+          : isStyleIntent
+            ? "시험지 레이아웃과 디자인 스타일을 실시간 변경하는 중..."
+            : "AI가 요청을 통합 분석하여 답변을 준비하고 있습니다..."
     );
-
-    const enrichedPrompt =
-      activeMode === "geometry"
-        ? `[AI 대화형 도형 작도 요청] ${text}. 반드시 update_geo_spec 액션(문항 출제까지 요청한 경우 generate_problems 포함)을 사용해 함수 그래프, 접선, 적분 색칠 영역, 주요 좌표점과 수선의 발 점선, 원/다각형/각도 등을 정교한 MathGeoSpec으로 작도해줘.`
-        : activeMode === "typing"
-          ? `[시험지 타이핑 및 문항 정밀 편집 요청] ${text}. 시험지에 바로 넣을 수 있도록 깔끔한 LaTeX 수식과 5지선다를 포함해 문항을 만들어줘.`
-          : text;
 
     const firstSource = sources[0];
     if (sources.length > 0) setSources([]);
 
     try {
       const response = await sendAiCopilotMessage({
-        prompt: enrichedPrompt,
-        mode:
-          activeMode === "geometry"
-            ? "geometry"
-            : activeMode === "typing"
-              ? "typing"
-              : activeMode === "default"
-                ? "general"
-                : "problem_studio",
+        prompt: text,
+        mode: forcedMode === "geometry" ? "geometry" : forcedMode === "generate" ? "problem_studio" : "general",
         pathname: "/ai-studio",
         contextData: {
           grade,
@@ -792,14 +780,14 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
         id: `a-${Date.now()}`,
         role: "assistant",
         content: response.reply,
-        mode: activeMode,
+        mode: detectedMode,
         problems: createdProblems.length > 0 ? createdProblems : undefined,
         geoSpec: createdGeoSpec,
         modelUsed: response.modelUsed,
         webSearchSources: response.webSearchSources,
         createdAt: new Date().toISOString(),
       };
-      if (activeMode === "geometry" || createdGeoSpec) {
+      if (detectedMode === "geometry" || createdGeoSpec) {
         setGeoChatHistory(prev => [
           ...prev,
           { id: `gu-${Date.now()}`, role: "user", text },
@@ -1004,8 +992,6 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
 
   const currentModeMeta = STUDIO_MODES.find(m => m.id === mode) || STUDIO_MODES[0];
   const CurrentModeIcon = currentModeMeta.icon;
-  const activePersonaResolved = useMemo(() => resolveActivePersonaPrompt(personaConfig), [personaConfig]);
-  const activePersona = activePersonaResolved.preset;
 
   const renderStyledExamPaper = (problemsToRender: GeneratedMathProblem[], isPrintMode: boolean) => {
     const st: ExamPaperStyle = { ...DEFAULT_EXAM_PAPER_STYLE, ...examStyle };
@@ -1616,65 +1602,9 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
               void handleSend();
             }
           }}
-          placeholder={
-            mode === "typing"
-              ? "시험지 PDF·이미지를 + 버튼으로 첨부하거나 타이핑할 수식/문항을 입력하세요..."
-              : mode === "geometry"
-                ? "작도할 함수 그래프(예: 삼차함수와 접선의 넓이)나 기하 도형을 입력하세요..."
-                : mode === "generate"
-                  ? "제작하거나 변형할 수학 문제 조건을 입력하세요..."
-                  : "무엇이든 물어보세요..."
-          }
+          placeholder="질문, 수학 문제 제작·변형, 시험지 PDF 첨부 타이핑, 도형 작도, 학생·시험지 스타일 관리를 한 곳에서 입력하세요..."
           disabled={busy}
         />
-
-        {/* Single Mode Dropdown Button (opens popover below) */}
-        <div className={styles.modeDropdownWrap} ref={modeMenuRef}>
-          <button
-            type="button"
-            className={`${styles.toolPill} ${mode !== "default" ? styles.toolPillActive : ""}`}
-            onClick={() => setModeMenuOpen(v => !v)}
-            aria-expanded={modeMenuOpen}
-            aria-haspopup="menu"
-          >
-            <CurrentModeIcon size={14} />
-            <span>{currentModeMeta.label}</span>
-            <ChevronDown size={13} className={styles.modeChevron} />
-          </button>
-
-          {modeMenuOpen && (
-            <div className={styles.modeMenuPopover} role="menu" aria-label="모드 선택">
-              {STUDIO_MODES.map(item => {
-                const Icon = item.icon;
-                const active = mode === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="menuitem"
-                    className={`${styles.modeMenuItem} ${active ? styles.modeMenuItemActive : ""}`}
-                    onClick={() => {
-                      setMode(item.id);
-                      setModeMenuOpen(false);
-                      if (item.id === "geometry") {
-                        setCanvasPanel("geometry");
-                      }
-                    }}
-                  >
-                    <span className={styles.modeMenuIcon}>
-                      <Icon size={15} />
-                    </span>
-                    <div className={styles.modeMenuText}>
-                      <strong>{item.label}</strong>
-                      <small>{item.desc}</small>
-                    </div>
-                    {active && <Check size={14} className={styles.modeMenuCheck} />}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
 
         <button
           type="submit"
@@ -1860,156 +1790,6 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
           </div>
 
           <div className={styles.topHeaderRight}>
-            <div style={{ position: "relative" }}>
-              <button
-                type="button"
-                className={`${styles.headerCanvasBtn} ${personaMenuOpen ? styles.headerCanvasBtnActive : ""}`}
-                onClick={() => setPersonaMenuOpen(v => !v)}
-                title="AI 캐릭터(인격·말투 프롬프트) 변경"
-              >
-                <span>{activePersona.emoji}</span>
-                <span>{activePersona.name}</span>
-                <ChevronDown size={13} />
-              </button>
-
-              {personaMenuOpen && (
-                <div
-                  style={{
-                    position: "absolute",
-                    top: "calc(100% + 8px)",
-                    right: 0,
-                    width: 380,
-                    maxWidth: "92vw",
-                    background: "#ffffff",
-                    border: "1px solid #cbd5e1",
-                    borderRadius: 16,
-                    boxShadow: "0 16px 38px rgba(15, 23, 42, 0.16)",
-                    padding: 14,
-                    zIndex: 60,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 10,
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <strong style={{ fontSize: 13.5, color: "#0f172a" }}>🎭 AI 캐릭터 (인격 · 페르소나) 설정</strong>
-                    <button
-                      type="button"
-                      className={styles.iconBtn}
-                      onClick={() => setPersonaMenuOpen(false)}
-                      aria-label="닫기"
-                    >
-                      <X size={15} />
-                    </button>
-                  </div>
-                  <p style={{ margin: 0, fontSize: 11.5, color: "#64748b", lineHeight: 1.45 }}>
-                    선택한 캐릭터의 인격과 말투 프롬프트가 기본 모드 및 모든 AI 대화에 즉시 적용됩니다.
-                  </p>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 250, overflowY: "auto" }}>
-                    {AI_PERSONA_PRESETS.map(preset => {
-                      const isSelected = personaConfig.personaId === preset.id;
-                      return (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          onClick={() => {
-                            const next = saveAiPersonaConfig({
-                              ...personaConfig,
-                              personaId: preset.id,
-                            });
-                            setPersonaConfig(next);
-                          }}
-                          style={{
-                            display: "flex",
-                            alignItems: "flex-start",
-                            gap: 10,
-                            padding: "9px 11px",
-                            borderRadius: 11,
-                            border: isSelected ? "1.5px solid #2563eb" : "1px solid #e2e8f0",
-                            background: isSelected ? "#eff6ff" : "#ffffff",
-                            textAlign: "left",
-                            cursor: "pointer",
-                          }}
-                        >
-                          <span style={{ fontSize: 19, lineHeight: 1.1 }}>{preset.emoji}</span>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-                              <strong style={{ fontSize: 12.5, color: isSelected ? "#1d4ed8" : "#0f172a" }}>
-                                {preset.name}
-                              </strong>
-                              {isSelected && <Check size={14} color="#2563eb" />}
-                            </div>
-                            <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 2 }}>{preset.tagline}</div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 5,
-                      paddingTop: 8,
-                      borderTop: "1px solid #e2e8f0",
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                      <label style={{ fontSize: 11.5, fontWeight: 700, color: "#334155" }}>
-                        ✍️ 적용 중인 성격 프롬프트 (직접 추가·수정 가능)
-                      </label>
-                      {personaConfig.customPrompt && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const next = saveAiPersonaConfig({
-                              ...personaConfig,
-                              customPrompt: "",
-                            });
-                            setPersonaConfig(next);
-                          }}
-                          style={{
-                            border: "none",
-                            background: "transparent",
-                            color: "#2563eb",
-                            fontSize: 11,
-                            fontWeight: 600,
-                            cursor: "pointer",
-                          }}
-                        >
-                          기본값 복원
-                        </button>
-                      )}
-                    </div>
-                    <textarea
-                      rows={4}
-                      value={personaConfig.customPrompt || activePersona.systemPrompt}
-                      onChange={e => {
-                        const next = saveAiPersonaConfig({
-                          ...personaConfig,
-                          customPrompt: e.target.value,
-                        });
-                        setPersonaConfig(next);
-                      }}
-                      placeholder="원하시는 AI의 성격, 말투, 호칭(예: 원장님/선생님), 유머 스타일 등을 자유롭게 적어주세요..."
-                      style={{
-                        width: "100%",
-                        padding: "8px 10px",
-                        borderRadius: 8,
-                        border: "1px solid #cbd5e1",
-                        fontSize: 11.5,
-                        lineHeight: 1.5,
-                        resize: "vertical",
-                        background: "#f8fafc",
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
             <span className={styles.quotaPill}>
               ✦ 학원 한도 오늘 <strong>{quota?.dailyPct ?? 0}%</strong>
             </span>
@@ -2036,27 +1816,6 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
 
         {messages.length === 0 ? (
           <div className={styles.emptyStage}>
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "5px 12px",
-                borderRadius: 999,
-                background: "#f8fafc",
-                border: "1px solid #e2e8f0",
-                fontSize: 12.5,
-                color: "#334155",
-                marginBottom: 8,
-                cursor: "pointer",
-              }}
-              onClick={() => setPersonaMenuOpen(true)}
-              title="클릭하여 AI 캐릭터 변경"
-            >
-              <span>{activePersona.emoji}</span>
-              <strong>{activePersona.name}</strong>
-              <span style={{ color: "#64748b" }}>· {activePersona.tagline}</span>
-            </div>
             <h1 className={styles.emptyHeading}>오늘은 무엇을 해볼까요?</h1>
             {renderComposer(true)}
           </div>
@@ -2083,8 +1842,8 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                     ) : (
                       <div className={styles.assistantBlock}>
                         <div className={styles.assistantHeader}>
-                          <span className={styles.assistantBadge}>
-                            {activePersona.emoji} {activePersona.name}
+                          <span className={styles.assistantBadge} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                            <Sparkles size={13} /> AI 스튜디오
                           </span>
                           {msg.modelUsed && (
                             <span

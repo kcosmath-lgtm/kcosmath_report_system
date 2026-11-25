@@ -1411,13 +1411,13 @@ function buildSmartFallbackResponse(body: {
 
   if (/^(안녕|하이|헬로|반가워|좋은\s*아침|좋은\s*저녁|계세요|있어)/i.test(prompt)) {
     return {
-      reply: `${activePersona.emoji} **[${activePersona.name}]** ${activePersona.sampleGreeting}`,
+      reply: `**[${activePersona.name}]** ${activePersona.sampleGreeting}`,
       actions: [],
     };
   }
 
   return {
-    reply: `${activePersona.emoji} **[${activePersona.name}]** 말씀하신 **"${prompt}"**에 대해 함께 이야기해 볼까요?\n${activePersona.sampleGreeting}`,
+    reply: `**[${activePersona.name}]** 말씀하신 **"${prompt}"**에 대해 함께 이야기해 볼까요?\n${activePersona.sampleGreeting}`,
     actions,
   };
 }
@@ -1511,7 +1511,7 @@ export async function POST(req: NextRequest) {
       personaId: typeof ctxObj.personaId === "string" ? ctxObj.personaId : undefined,
       customPrompt: typeof ctxObj.personaPrompt === "string" ? ctxObj.personaPrompt : undefined,
     });
-    const activePersonaDirective = `\n[현재 설정된 AI 캐릭터(인격·페르소나) 지침 — '${resolvedPersona.preset.emoji} ${resolvedPersona.preset.name}']\n${
+    const activePersonaDirective = `\n[현재 설정된 AI 캐릭터(인격·페르소나) 지침 — '${resolvedPersona.preset.name}']\n${
       typeof ctxObj.personaPrompt === "string" && ctxObj.personaPrompt.trim()
         ? ctxObj.personaPrompt.trim()
         : resolvedPersona.effectivePrompt
@@ -1618,6 +1618,37 @@ ${activePersonaDirective}
 - 인수인계 메모 등록: { "type": "add_handoff", "title": "제목", "content": "내용", "author": "작성자 또는 수신 구성원" }
 - 학원 구성원(원장님·선생님·조교쌤·실장님) 등록/수정: { "type": "upsert_staff", "name": "박지훈", "role": "원장님|선생님|조교쌤|실장님", "assignedClasses": "담당 반", "duties": "담당 업무" }
 - 학원 구성원 삭제: { "type": "delete_staff", "name": "박지훈" }
+
+[함수 그래프 · 기하 도형 대화형 작도 — 지원 액션 스키마]
+사용자가 함수 그래프, 접선, 적분 색칠 영역, 원, 삼각형, 사각형, 직선, 각도 호(arc), 직각 표시(rightAngles), 수선의 발 점선 등의 작도나 수정을 요청하면 별도의 모드 전환 없이도 즉시 actions 배열에 "update_geo_spec" 액션을 포함하여 작도하세요:
+{
+  "type": "update_geo_spec",
+  "geoSpec": {
+    "title": "도형 제목",
+    "xRange": [-4, 4],
+    "yRange": [-3, 5],
+    "showAxes": true,
+    "showGrid": false,
+    "equalAspect": true,
+    "autoIntersections": true,
+    "functions": [{ "expr": "x^3 - 3*x + 1", "label": "y=f(x)", "style": "solid" }],
+    "tangents": [{ "fn": "x^3 - 3*x + 1", "atX": 1, "label": "l", "style": "dashed", "pointLabel": "P(1,-1)", "dropToX": true, "xTick": "1" }],
+    "shadedRegions": [{ "f1": "x^3 - 3*x + 1", "from": -1, "to": 2 }],
+    "circles": [{ "cx": 0, "cy": 0, "r": 2, "style": "solid" }],
+    "polygons": [{ "points": [[0, 2], [-1.73, -1], [1.73, -1]], "shaded": true }],
+    "segments": [{ "x1": 0, "y1": 0, "x2": 1.73, "y2": -1, "style": "dashed", "label": "r" }],
+    "points": [{ "x": 0, "y": 2, "label": "A", "dropToX": false }],
+    "rightAngles": [{ "at": [0, 0], "from": [1, 0], "to": [0, 1], "size": 8 }],
+    "arcs": [{ "cx": 0, "cy": 0, "r": 0.6, "startDeg": 0, "endDeg": 60, "label": "θ" }]
+  }
+}
+${
+  (body.contextData as Record<string, unknown> | undefined)?.currentGeoSpec
+    ? `\n[현재 캔버스에 그려진 기존 도형 스펙(currentGeoSpec) — 도형 부분 수정 요청 시 이 스펙을 기반으로 업데이트하세요]: ${JSON.stringify(
+        (body.contextData as Record<string, unknown>).currentGeoSpec
+      ).slice(0, 3000)}`
+    : ""
+}
 ${
   Array.isArray(body.staff) && body.staff.length > 0
     ? `\n[우리 학원 구성원(원장님·선생님·조교쌤·실장님) 실시간 명단(staff) — 이름·직책·담당 반·담당 업무를 정확히 인식하여 대화 및 인수인계에 활용하세요]: ${JSON.stringify(body.staff).slice(0, 3000)}`

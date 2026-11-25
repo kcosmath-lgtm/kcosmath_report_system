@@ -91,9 +91,9 @@ export default function AiPersonaSettingsSection() {
       <div
         style={{
           marginTop: 16,
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
-          gap: 10,
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
         }}
       >
         {AI_PERSONA_PRESETS.map(preset => {
@@ -105,10 +105,11 @@ export default function AiPersonaSettingsSection() {
               type="button"
               onClick={() => handleSelectPreset(preset.id)}
               style={{
+                width: "100%",
                 display: "flex",
-                alignItems: "flex-start",
-                gap: 11,
-                padding: "13px 14px",
+                alignItems: "center",
+                gap: 14,
+                padding: "12px 16px",
                 borderRadius: 8,
                 border: isSelected ? "1.5px solid #2864a9" : "1px solid #dce6f0",
                 background: isSelected ? "#eef6ff" : "#ffffff",
@@ -119,8 +120,8 @@ export default function AiPersonaSettingsSection() {
             >
               <span
                 style={{
-                  width: 34,
-                  height: 34,
+                  width: 36,
+                  height: 36,
                   borderRadius: 8,
                   display: "grid",
                   placeItems: "center",
@@ -129,17 +130,29 @@ export default function AiPersonaSettingsSection() {
                   color: isSelected ? "#ffffff" : "#2864a9",
                 }}
               >
-                <Icon size={17} />
+                <Icon size={18} />
               </span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-                  <strong style={{ fontSize: 12.5, color: "#203b60" }}>{preset.name}</strong>
-                  {isSelected && <Check size={14} color="#2864a9" />}
-                </div>
-                <p style={{ margin: "4px 0 0", fontSize: 11, color: "#60758e", lineHeight: 1.45 }}>
+              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                <strong style={{ fontSize: 13, color: "#203b60", lineHeight: 1.35 }}>{preset.name}</strong>
+                <p style={{ margin: 0, fontSize: 11.5, color: "#60758e", lineHeight: 1.4 }}>
                   {preset.tagline}
                 </p>
               </div>
+              <span
+                style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: "50%",
+                  display: "grid",
+                  placeItems: "center",
+                  flexShrink: 0,
+                  background: isSelected ? "#2864a9" : "transparent",
+                  border: isSelected ? "1.5px solid #2864a9" : "1.5px solid #cbd5e1",
+                  color: "#ffffff",
+                }}
+              >
+                {isSelected && <Check size={13} />}
+              </span>
             </button>
           );
         })}

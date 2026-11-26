@@ -1,14 +1,14 @@
 .page {
-  --student-sidebar-width: 286px;
-  --workspace-header-height: 62px;
+  --student-sidebar-width: 280px;
+  --workspace-header-height: 60px;
   height: 100dvh;
   max-height: 100dvh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: #f4f7fb;
-  color: #1e293b;
-  font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Malgun Gothic", sans-serif;
+  background: #f9fafb;
+  color: #191f28;
+  font-family: var(--font-pretendard);
 }
 
 .page > header {
@@ -21,9 +21,9 @@
   justify-content: space-between;
   padding: 0 24px;
   margin-left: var(--student-sidebar-width);
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e5e8eb;
   background: #ffffff;
-  transition: margin-left 0.25s ease;
+  transition: margin-left 0.22s ease;
 }
 
 .page[data-sidebar-open="false"] > header {

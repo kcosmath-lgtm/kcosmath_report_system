@@ -155,7 +155,7 @@ export function resolveRangeSummary(
         ? `${matched[0].name} ~ ${matched[matched.length - 1].name}`
         : '';
     const pageText = startVal === endVal ? `p.${startVal}` : `p.${startVal}~${endVal}`;
-    const probText = minProb && maxProb ? ` (${minProb}~${maxProb}번, 약 ${estimatedProblems}문항)` : estimatedProblems > 0 ? ` (약 ${estimatedProblems}문항)` : '';
+    const probText = minProb && maxProb ? ` (${minProb}~${maxProb}번)` : '';
     return {
       label: `${unitText ? `${unitText} ` : ''}${pageText}${probText}`.trim(),
       matchedUnits: matched,
@@ -185,7 +185,7 @@ export function resolveRangeSummary(
         ? `${matched[0].name} ~ ${matched[matched.length - 1].name}`
         : '';
     const pageText = minPage && maxPage ? (minPage === maxPage ? ` p.${minPage}` : ` p.${minPage}~${maxPage}`) : '';
-    const probText = startVal === endVal ? `${startVal}번 (1문항)` : `${startVal}~${endVal}번 (${count}문항)`;
+    const probText = startVal === endVal ? `${startVal}번` : `${startVal}~${endVal}번`;
     return {
       label: `${unitText}${pageText} ${probText}`.trim(),
       matchedUnits: matched,

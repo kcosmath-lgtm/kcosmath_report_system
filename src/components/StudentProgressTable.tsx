@@ -382,11 +382,6 @@ function ProgressRow({
               >
                 <ListChecks size={12} /> 단원 ({doneUnitCount}/{book.units.length})
               </button>
-              {totalProbs > 0 && (
-                <span className={styles.problemProgressPill} title="완료 문항 수 / 교재 총 문항 수 (추정)">
-                  {doneProbs.toLocaleString()}/{totalProbs.toLocaleString()}문항
-                </span>
-              )}
             </div>
           </div>
         ) : (

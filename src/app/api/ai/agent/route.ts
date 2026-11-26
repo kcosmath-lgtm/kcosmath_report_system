@@ -257,7 +257,7 @@ function findMatchingSeedTokens(
     if (unitMatched.length > 0) pool = unitMatched;
   }
 
-  // Sort exact problem number match first, then killer/4-point problems with rich solutions
+    // Sort exact problem number match first, then distribute across diverse problem numbers/units so multiple problems aren't clones
   const sorted = [...pool].sort((a, b) => {
     if (intent.targetNumber !== null) {
       const aExact = Number(a.number) === intent.targetNumber ? 0 : 1;
@@ -273,8 +273,150 @@ function findMatchingSeedTokens(
     return (b.solution?.length || 0) - (a.solution?.length || 0);
   });
 
-  return sorted.slice(0, maxSeeds);
+  // Deduplicate by problem topic/archetype first so we don't pick 5 sequences problems in a row
+  const diverse: MockExamProblemToken[] = [];
+  const usedNumbers = new Set<number>();
+  for (const item of sorted) {
+    const num = Number(item.number);
+    if (!usedNumbers.has(num) || intent.targetNumber !== null) {
+      diverse.push(item);
+      usedNumbers.add(num);
+    }
+    if (diverse.length >= maxSeeds) break;
+  }
+  for (const item of sorted) {
+    if (diverse.length >= maxSeeds) break;
+    if (!diverse.some(d => d.id === item.id)) {
+      diverse.push(item);
+    }
+  }
+
+  return diverse.slice(0, maxSeeds);
 }
+
+const DIVERSE_HIGH_SCHOOL_FALLBACKS: Array<
+  (k: number, seed: MockExamProblemToken, promptGeo?: MathGeoSpec | null) => {
+    title: string;
+    grade: number;
+    subject: string;
+    unit: string;
+    points: string;
+    intent: string;
+    difficulty: "하" | "중" | "상" | "킬러";
+    sourceLabel: string;
+    sourceTokenId: string;
+    sourceOrigin: MockExamProblemToken;
+    question: string;
+    boxContent: string;
+    choices: string[];
+    answer: string;
+    solution: string;
+    geoSpec?: MathGeoSpec;
+  }
+> = [
+  // Archetype 0: 삼차함수의 접선과 정적분 넓이 (다항함수 미적분)
+  (mCoeff, seed, promptGeo) => ({
+    title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.subject} 변형] 삼차함수의 접선과 둘러싸인 넓이 추론 (4점)`,
+    grade: seed.grade,
+    subject: seed.subject,
+    unit: "다항함수의 미분과 적분",
+    points: "4점",
+    intent: "삼차함수의 접선의 방정식과 정적분 넓이 공식을 이용하여 명제의 참·거짓을 추론한다.",
+    difficulty: "상",
+    sourceLabel: `${seed.sourceLabel} 1:1 쌍둥이 변형`,
+    sourceTokenId: seed.id,
+    sourceOrigin: seed,
+    question: `최고차항의 계수가 $1$인 삼차함수 $f(x) = x^3 - ${3 * mCoeff}x^2 + ${2 * mCoeff * mCoeff}x + 1$의 그래프 위의 점 $A(0, 1)$에서의 접선 $y = g(x)$가 곡선 $y = f(x)$와 다시 만나는 점을 $B$라 하자. <보기>에서 옳은 것만을 있는 대로 고른 것은?`,
+    boxContent: `ㄱ. 점 $B$의 $x$좌표는 $${3 * mCoeff}$이다.\nㄴ. 열린구간 $(0, ${3 * mCoeff})$에서 $g(x) > f(x)$이다.\nㄷ. 곡선 $y = f(x)$와 직선 $y = g(x)$로 둘러싸인 부분의 넓이는 $\\dfrac{${27 * Math.pow(mCoeff, 4)}}{4}$이다.`,
+    choices: ["ㄱ", "ㄱ, ㄴ", "ㄱ, ㄷ", "ㄴ, ㄷ", "ㄱ, ㄴ, ㄷ"],
+    answer: "⑤",
+    solution: `[출제의도] 삼차함수의 접선과 정적분 넓이 관계를 추론한다.\n\n• ㄱ. $f'(x) = 3x^2 - ${6 * mCoeff}x + ${2 * mCoeff * mCoeff}$에서 $f'(0) = ${2 * mCoeff * mCoeff}$이므로 접선의 방정식은 $g(x) = ${2 * mCoeff * mCoeff}x + 1$이다. $f(x) - g(x) = x^2(x - ${3 * mCoeff}) = 0$이므로 점 $B$의 $x$좌표는 $${3 * mCoeff}$이다. (참)\n• ㄴ. $0 < x < ${3 * mCoeff}$에서 $x^2(x - ${3 * mCoeff}) < 0$이므로 $g(x) > f(x)$이다. (참)\n• ㄷ. 둘러싸인 넓이는 $\\int_0^{${3 * mCoeff}} (g(x) - f(x))\\,dx = \\dfrac{1 \\cdot (${3 * mCoeff} - 0)^4}{12} = \\dfrac{${27 * Math.pow(mCoeff, 4)}}{4}$이다. (참)\n따라서 옳은 것은 ㄱ, ㄴ, ㄷ이다.`,
+    geoSpec: promptGeo || undefined,
+  }),
+  // Archetype 1: 삼각함수 사인법칙·코사인법칙과 외접원
+  (mCoeff, seed, promptGeo) => {
+    const sideB = mCoeff + 1; // 3, 4, 5, 6
+    const sideC = mCoeff + 3; // 5, 6, 7, 8
+    const aSq = sideB * sideB + sideC * sideC - sideB * sideC; // cos 60 = 1/2
+    const fourRSq = Math.round((4 * aSq) / 3);
+    const ansList = [aSq - 2, aSq - 1, aSq, aSq + 1, aSq + 2];
+    return {
+      title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.subject} 변형] 삼각형의 코사인법칙과 외접원의 넓이 (4점)`,
+      grade: seed.grade,
+      subject: seed.subject,
+      unit: "삼각함수 · 사인법칙과 코사인법칙",
+      points: "4점",
+      intent: "코사인법칙과 사인법칙을 결합하여 삼각형의 변의 길이와 외접원의 반지름을 구한다.",
+      difficulty: "상",
+      sourceLabel: `${seed.sourceLabel} 1:1 쌍둥이 변형`,
+      sourceTokenId: seed.id,
+      sourceOrigin: seed,
+      question: `$\\angle A = \\dfrac{\\pi}{3}$이고 $\\overline{AB} = ${sideC}, \\overline{AC} = ${sideB}$인 삼각형 $ABC$의 외접원의 반지름의 길이를 $R$라 할 때, $3R^2$의 값은?`,
+      boxContent: "",
+      choices: ansList.map(v => `$${v}$`),
+      answer: "③",
+      solution: `[출제의도] 코사인법칙과 사인법칙을 이용하여 외접원의 반지름을 구한다.\n\n삼각형 $ABC$에서 코사인법칙에 의하여\n$$\\overline{BC}^2 = ${sideC}^2 + ${sideB}^2 - 2 \\times ${sideC} \\times ${sideB} \\cos\\dfrac{\\pi}{3} = ${sideC * sideC} + ${sideB * sideB} - ${sideB * sideC} = ${aSq}$$\n사인법칙에서 $2R = \\dfrac{\\overline{BC}}{\\sin\\frac{\\pi}{3}} = \\dfrac{2\\overline{BC}}{\\sqrt{3}}$이므로 $R^2 = \\dfrac{\\overline{BC}^2}{3} = \\dfrac{${aSq}}{3}$이다.\n따라서 $3R^2 = ${aSq}$이다. (${fourRSq > 0 ? "정답 ③" : ""})`,
+      geoSpec: promptGeo || undefined,
+    };
+  },
+  // Archetype 2: 함수의 극한과 다항함수 결정
+  (mCoeff, seed, promptGeo) => {
+    const aVal = mCoeff; // 2, 3, 4, 5
+    const slope = 2 * aVal + 1; // 5, 7, 9, 11
+    // f(x) = (x - aVal)(x + aVal) = x^2 - aVal^2 + slope*(x - aVal) -> f'(aVal) = slope, f(aVal) = 0
+    // Wait: f(x) = (x - aVal)(x + mCoeff) -> at x = aVal, limit of f(x)/(x - aVal) = 2*aVal. Let f(x) = x^2 + b*x + c with lim_{x->a} f(x)/(x-a) = slope => f(x) = (x - a)(x - a + slope)
+    const fAtNext = 1 * (1 + slope); // at x = aVal + 1: (1)*(1 + slope) = slope + 1
+    return {
+      title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.subject} 변형] 함수의 극한과 다항함수의 미정계수 결정 (4점)`,
+      grade: seed.grade,
+      subject: seed.subject,
+      unit: "함수의 극한과 연속",
+      points: "4점",
+      intent: "0/0 꼴의 함수의 극한 조건을 이용하여 다항함수를 결정한다.",
+      difficulty: "상",
+      sourceLabel: `${seed.sourceLabel} 1:1 쌍둥이 변형`,
+      sourceTokenId: seed.id,
+      sourceOrigin: seed,
+      question: `다항함수 $f(x)$가 다음 조건을 만족시킬 때, $f(${aVal + 1})$의 값은?`,
+      boxContent: `(가) $\\lim_{x \\to \\infty} \\dfrac{f(x) - x^2}{x} = ${slope - 2 * aVal}$\n(나) $\\lim_{x \\to ${aVal}} \\dfrac{f(x)}{x - ${aVal}} = ${slope}$`,
+      choices: [
+        `$${fAtNext - 4}$`,
+        `$${fAtNext - 2}$`,
+        `$${fAtNext}$`,
+        `$${fAtNext + 2}$`,
+        `$${fAtNext + 4}$`,
+      ],
+      answer: "③",
+      solution: `[출제의도] 무한대 극한과 수렴 조건을 이용하여 이차함수를 결정한다.\n\n조건 (가)에서 $f(x)$는 최고차항의 계수가 $1$이고 일차항의 계수가 $${slope - 2 * aVal}$인 이차함수이다.\n조건 (나)에서 분모가 $0$으로 수렴하므로 $f(${aVal}) = 0$이고 $f(x) = (x - ${aVal})(x + k)$로 놓으면\n$$\\lim_{x \\to ${aVal}} \\dfrac{(x - ${aVal})(x + k)}{x - ${aVal}} = ${aVal} + k = ${slope} \\implies k = ${slope - aVal}$$\n따라서 $f(x) = (x - ${aVal})(x + ${slope - aVal})$이므로 $f(${aVal + 1}) = 1 \\times (${aVal + 1 + slope - aVal}) = ${fAtNext}$이다.`,
+      geoSpec: promptGeo || undefined,
+    };
+  },
+  // Archetype 3: 등차수열의 합과 절댓값 추론
+  (mCoeff, seed, promptGeo) => {
+    const dVal = 2 * mCoeff; // 4, 6, 8, 10
+    const a1 = -5 * mCoeff; // -10, -15, -20, -25 (so a3 = -mCoeff, a4 = +mCoeff => S3 minimum)
+    const a6 = a1 + 5 * dVal; // 5*mCoeff
+    const ansChoices = [a6 - 4, a6 - 2, a6, a6 + 2, a6 + 4];
+    return {
+      title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.subject} 변형] 등차수열의 부호 변화와 부분합의 최솟값 (4점)`,
+      grade: seed.grade,
+      subject: seed.subject,
+      unit: "수열 · 등차수열과 등비수열",
+      points: "4점",
+      intent: "등차수열의 합이 최소가 되는 조건과 항의 대칭성을 이용하여 일반항을 구한다.",
+      difficulty: "상",
+      sourceLabel: `${seed.sourceLabel} 1:1 쌍둥이 변형`,
+      sourceTokenId: seed.id,
+      sourceOrigin: seed,
+      question: `첫째항부터 제$n$항까지의 합을 $S_n$이라 하는 등차수열 $\\{a_n\\}$이 다음 조건을 만족시킬 때, $a_6$의 값은?`,
+      boxContent: `(가) 모든 자연수 $n$에 대하여 $S_n \\ge S_3$이다.\n(나) $|a_3| = |a_4| = ${mCoeff}$`,
+      choices: ansChoices.map(v => `$${v}$`),
+      answer: "③",
+      solution: `[출제의도] 등차수열의 합이 최솟값을 갖는 조건으로부터 공차를 추론한다.\n\n조건 (가)에서 $S_3$이 최솟값이므로 $a_3 \\le 0$이고 $a_4 \\ge 0$이다.\n조건 (나)에서 $|a_3| = |a_4| = ${mCoeff}$이므로 $a_3 = -${mCoeff}, a_4 = ${mCoeff}$이다.\n따라서 공차 $d = a_4 - a_3 = ${dVal}$이므로 $a_6 = a_4 + 2d = ${mCoeff} + ${2 * dVal} = ${a6}$이다.`,
+      geoSpec: promptGeo || undefined,
+    };
+  },
+];
 
 /**
  * 실제 기출 토큰(MockExamProblemToken)의 수학적 추론 구조와 난이도(특히 15·21·22·29·30번 킬러)를 그대로 보존하면서
@@ -532,7 +674,11 @@ function buildTwinProblemFromSeedToken(
       };
     }
 
-    // 5. 수열 귀납적 정의 / 등차·등비 급수 15번·22번·29번 킬러 (e.g. 3-27682637-q29)
+    // 5. 수열 귀납적 정의 / 등차·등비 급수 또는 회전형 킬러/준킬러 (동일 문제 반복 출제 방지)
+    if (variantIndex % 5 !== 1 && !/수열|등차|등비|급수/.test(customPrompt)) {
+      const archetypeFn = DIVERSE_HIGH_SCHOOL_FALLBACKS[(variantIndex - 1) % DIVERSE_HIGH_SCHOOL_FALLBACKS.length];
+      return archetypeFn(k, seed, promptGeo);
+    }
     const dStep = k + 2; // 4, 5, 6, 7
     const a1Val = 3 * dStep;
     const pAns = 2 * dStep + 3;
@@ -548,7 +694,7 @@ function buildTwinProblemFromSeedToken(
       sourceLabel: `${seed.sourceLabel} 1:1 쌍둥이 변형`,
       sourceTokenId: seed.id,
       sourceOrigin: seed,
-      question: `자연수 $k$에 대하여 첫째항과 공차가 모두 정수인 등차수열 $\\{a_n\\}$과 첫째항이 $${18 * k}$이고 공비가 $r\\ (0 < |r| < 1)$인 등비수열 $\\{b_n\\}$이 다음 조건을 만족시킨다. $\\sum_{n=1}^{\\infty} \\frac{b_n}{k^n} = \\frac{q}{p}$일 때, $p + q$의 값을 구하시오. (단, $p$와 $q$는 서로소인 자연수이다.) [4점]`,
+      question: `자연수 $k$에 대하여 첫째항과 공차가 모두 정수인 등차수열 $\\{a_n\\}$과 첫째항이 $${18 * k}$이고 공비가 $r\\ (0 < |r| < 1)$인 등비수열 $\\{b_n\\}$이 다음 조건을 만족시킨다. $\\sum_{n=1}^{\\infty} \\dfrac{b_n}{k^n} = \\dfrac{q}{p}$일 때, $p + q$의 값을 구하시오. (단, $p$와 $q$는 서로소인 자연수이다.)`,
       boxContent: `(가) $a_k = b_3$, $a_k + ${9 * k + 9} = b_4$\n(나) $\\sum_{n=k}^{\\infty} b_n = a_k + ${5 * k + 5}$`,
       choices: [],
       answer: String(pAns + qAns),
@@ -557,28 +703,11 @@ function buildTwinProblemFromSeedToken(
     };
   }
 
-  // Case B: 4점 준킬러 (13, 14, 19, 20, 27, 28번) 및 3점/2점 문항 1:1 쌍둥이 변형
+  // Case B: 4점 준킬러 (13, 14, 19, 20, 27, 28번) — 단원별 다양한 아키타입 순환 출제
   const mCoeff = k; // 2, 3, 4, 5
   if (isHard || seed.points === "4점") {
-    const areaNum = 9 * mCoeff * mCoeff;
-    return {
-      title: `[${seed.year}년 ${seed.month}월 고${seed.grade} ${seed.subject} ${seed.number}번 1:1 변형] ${seed.unit} 핵심 추론 (4점)`,
-      grade: seed.grade,
-      subject: seed.subject,
-      unit: seed.unit,
-      points: "4점",
-      intent: seed.intent || "",
-      difficulty: "상",
-      sourceLabel: `${seed.sourceLabel} 1:1 쌍둥이 변형`,
-      sourceTokenId: seed.id,
-      sourceOrigin: seed,
-      question: `최고차항의 계수가 $1$인 삼차함수 $f(x) = x^3 - ${3 * mCoeff}x^2 + ${2 * mCoeff * mCoeff}x + 1$의 그래프 위의 점 $A(0, 1)$에서의 접선 $y = g(x)$가 곡선 $y = f(x)$와 다시 만나는 점을 $B$라 하자. 보기에서 옳은 것만을 있는 대로 고른 것은? [4점]`,
-      boxContent: `ㄱ. 점 $B$의 $x$좌표는 $${3 * mCoeff}$이다.\nㄴ. 구간 $(0, ${3 * mCoeff})$에서 $g(x) > f(x)$이다.\nㄷ. 곡선 $y = f(x)$와 직선 $y = g(x)$로 둘러싸인 부분의 넓이는 $\\frac{${27 * Math.pow(mCoeff, 4)}}{4}$이다.`,
-      choices: ["ㄱ", "ㄱ, ㄴ", "ㄱ, ㄷ", "ㄴ, ㄷ", "ㄱ, ㄴ, ㄷ"],
-      answer: "⑤",
-      solution: `[출제의도] ${seed.intent || "삼차함수의 접선과 정적분 넓이 관계를 추론한다."}\n\n• ㄱ. $f'(x) = 3x^2 - ${6 * mCoeff}x + ${2 * mCoeff * mCoeff}$에서 $f'(0) = ${2 * mCoeff * mCoeff}$이므로 접선의 방정식은 $g(x) = ${2 * mCoeff * mCoeff}x + 1$이다. $f(x) - g(x) = x^2(x - ${3 * mCoeff}) = 0$이므로 점 $B$의 $x$좌표는 $${3 * mCoeff}$이다. (참)\n• ㄴ. $0 < x < ${3 * mCoeff}$에서 $x^2(x - ${3 * mCoeff}) < 0$이므로 $g(x) > f(x)$이다. (참)\n• ㄷ. 둘러싸인 넓이는 $\\int_0^{${3 * mCoeff}} (g(x) - f(x))\\,dx = \\frac{1 \\cdot (${3 * mCoeff} - 0)^4}{12} = \\frac{${27 * Math.pow(mCoeff, 4)}}{4}$이다. (참)\n따라서 옳은 것은 ㄱ, ㄴ, ㄷ이다. (정답 ${areaNum / areaNum === 1 ? "⑤" : "⑤"})`,
-      geoSpec: promptGeo || undefined,
-    };
+    const archetypeFn = DIVERSE_HIGH_SCHOOL_FALLBACKS[(variantIndex - 1) % DIVERSE_HIGH_SCHOOL_FALLBACKS.length];
+    return archetypeFn(mCoeff, seed, promptGeo);
   }
 
   // Case C: 3점/2점 기출 토큰 1:1 쌍둥이 변형 (문항 번호·단원별 맞춤 변형)

@@ -16,14 +16,7 @@ import styles from './student-progress.module.css';
 const UNIT_STATES: UnitStatus[] = ['미시작', '진행 중', '완료'];
 
 function formatUnitScopeText(u: ProgressUnit): string {
-  const parts: string[] = [u.name];
-  const cnt = unitProblemCount(u);
-  if (u.start_problem && u.end_problem) {
-    parts.push(`(${u.start_problem}~${u.end_problem}번${cnt > 0 ? `, ${cnt}문항` : ''})`);
-  } else if (cnt > 0) {
-    parts.push(`(${cnt}문항)`);
-  }
-  return parts.join(' ');
+  return u.name;
 }
 
 export default function ProgressUnitEditor({
@@ -55,8 +48,6 @@ export default function ProgressUnitEditor({
 
   const currentPct = unitProgressPercent({ ...book, states });
   const doneUnitCount = book.units.filter(u => states[u.id] === '완료').length;
-  const totalProbs = totalBookProblems(book);
-  const doneProbs = completedBookProblems({ ...book, states, completed_page: 0 });
   const totalTypes = totalBookTypes(book);
 
   return (
@@ -74,7 +65,6 @@ export default function ProgressUnitEditor({
           <h4>{book.title}</h4>
           <p>
             {count}명의 단원별 진행 상태를 체크합니다 ({doneUnitCount} / {book.units.length}개 단원 완료).
-            {totalProbs > 0 ? ` · 누적 약 ${doneProbs.toLocaleString()} / ${totalProbs.toLocaleString()}문항` : ''}
             {totalTypes > 0 ? ` · 총 ${totalTypes}개 유형` : ''}
           </p>
         </div>
@@ -93,7 +83,7 @@ export default function ProgressUnitEditor({
               maxLength={2000}
               value={draftScope}
               onChange={e => setDraftScope(e.target.value)}
-              placeholder="예: 02. 단항식의 계산 (133~250번, 118문항)"
+              placeholder="예: 02. 단항식의 계산"
             />
           </label>
           <label>
@@ -103,7 +93,7 @@ export default function ProgressUnitEditor({
               maxLength={2000}
               value={draftHomework}
               onChange={e => setDraftHomework(e.target.value)}
-              placeholder="예: 02. 단항식의 계산 (133~200번)"
+              placeholder="예: 02. 단항식의 계산 (p.26~35)"
             />
           </label>
         </div>
@@ -146,16 +136,13 @@ export default function ProgressUnitEditor({
       <div className={styles.unitList}>
         {book.units.map(u => {
           const current = states[u.id] ?? '미시작';
-          const cnt = unitProblemCount(u);
           return (
             <div className={styles.unitRow} key={u.id}>
               <div className={styles.unitTitle}>
                 {u.group && <small>{u.group}</small>}
                 <span>{u.name}</span>
-                {(cnt > 0 || u.type_count || u.step_detail) && (
+                {(u.type_count || u.step_detail) && (
                   <div className={styles.unitMetaBadges}>
-                    {u.start_problem && u.end_problem && <span>#{u.start_problem}~{u.end_problem}</span>}
-                    {cnt > 0 && <span>{cnt}문항</span>}
                     {u.type_count && <span>{u.type_count}유형</span>}
                     {u.step_detail && <span>{u.step_detail}</span>}
                   </div>

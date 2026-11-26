@@ -1381,17 +1381,17 @@ export default function NewReportPage(){
        display:'inline-flex',
        alignItems:'center',
        gap:6,
-       padding:'8px 12px',
-       borderRadius:9,
-       border:showCustomizer?'1.5px solid #2563eb':'1px solid #cbd5e1',
-       background:showCustomizer?'#eff6ff':'#ffffff',
-       color:showCustomizer?'#1d4ed8':'#1e293b',
+       padding:'7px 12px',
+       borderRadius:8,
+       border:showCustomizer?'1px solid #191f28':'1px solid #e5e8eb',
+       background:showCustomizer?'#191f28':'#ffffff',
+       color:showCustomizer?'#ffffff':'#333d4b',
        fontSize:12,
-       fontWeight:800,
+       fontWeight:600,
        cursor:'pointer',
       }}
      >
-      <SlidersHorizontal size={13}/> 양식 · 디자인 설정 {showCustomizer ? '▲' : '▼'}
+      <SlidersHorizontal size={13}/> 양식 설정
      </button>
 
      <button
@@ -1402,18 +1402,18 @@ export default function NewReportPage(){
        display:'inline-flex',
        alignItems:'center',
        gap:6,
-       padding:'8px 12px',
-       borderRadius:9,
-       border:'1px solid #8b5cf6',
-       background:'#f5f3ff',
-       color:'#6d28d9',
+       padding:'7px 12px',
+       borderRadius:8,
+       border:'1px solid #e5e8eb',
+       background:'#f9fafb',
+       color:'#191f28',
        fontSize:12,
-       fontWeight:800,
+       fontWeight:700,
        cursor:!loading && !exporting && !aiFeedbackBusy ? 'pointer' : 'default',
       }}
       title="반드시 들어가야 하는 단어·문구를 입력하고 기존 학습 요소(출결·과제·성적·진도·오답)와 조합하여 맞춤 총평을 완성합니다"
      >
-      <Sparkles size={13}/> {aiFeedbackBusy ? 'AI 작성 중…' : `AI 맞춤 총평${students.length ? ` (${students.length}명)` : ''}`}
+      <Sparkles size={13} color="#3182f6"/> {aiFeedbackBusy ? 'AI 작성 중…' : `AI 맞춤 총평${students.length ? ` (${students.length})` : ''}`}
      </button>
 
      {students.length > 1 && (
@@ -1424,27 +1424,27 @@ export default function NewReportPage(){
         display:'inline-flex',
         alignItems:'center',
         gap:6,
-        padding:'8px 12px',
-        borderRadius:9,
-        border:showBulkFeedbackBar?'1.5px solid #2563eb':'1px solid #cbd5e1',
-        background:showBulkFeedbackBar?'#eff6ff':'#ffffff',
-        color:showBulkFeedbackBar?'#1d4ed8':'#1e293b',
+        padding:'7px 12px',
+        borderRadius:8,
+        border:showBulkFeedbackBar?'1px solid #191f28':'1px solid #e5e8eb',
+        background:showBulkFeedbackBar?'#191f28':'#ffffff',
+        color:showBulkFeedbackBar?'#ffffff':'#333d4b',
         fontSize:12,
-        fontWeight:800,
+        fontWeight:600,
         cursor:'pointer',
        }}
       >
-       <MessageSquareText size={13}/> 일괄 피드백 ({bulkFeedbackTargets.length || students.length}명) {showBulkFeedbackBar ? '▲' : '▼'}
+       <MessageSquareText size={13}/> 일괄 피드백 ({bulkFeedbackTargets.length || students.length})
       </button>
      )}
 
      {/* 컴팩트 배율 & 크게 보기 */}
-     <div style={{display:'inline-flex',alignItems:'center',gap:2,background:'#f1f5f9',padding:'2px 4px',borderRadius:9,border:'1px solid #dbe5f2'}}>
+     <div style={{display:'inline-flex',alignItems:'center',gap:2,background:'#f2f4f6',padding:'2px 3px',borderRadius:8}}>
       <button
        type="button"
        title="축소"
        onClick={()=>setZoomMode(prev => Math.max(0.5, Number(((prev === 'fit' ? fitScale : prev) - 0.15).toFixed(2))))}
-       style={{padding:'5px 6px',border:0,background:'transparent'}}
+       style={{padding:'4px 6px',border:0,background:'transparent',color:'#4e5968'}}
       >
        <ZoomOut size={13}/>
       </button>
@@ -1452,7 +1452,7 @@ export default function NewReportPage(){
        type="button"
        onClick={()=>setZoomMode(prev => prev === 'fit' ? 1 : 'fit')}
        title="화면맞춤 / 100% 전환"
-       style={{padding:'4px 7px',fontSize:11,fontWeight:700,border:0,borderRadius:6,background:'#ffffff',color:'#1d4ed8'}}
+       style={{padding:'4px 7px',fontSize:11,fontWeight:700,border:0,borderRadius:6,background:'#ffffff',color:'#191f28',boxShadow:'0 1px 2px rgba(25,31,40,0.06)'}}
       >
        {zoomMode === 'fit' ? `${Math.round(fitScale*100)}%` : `${Math.round(zoomMode*100)}%`}
       </button>
@@ -1460,7 +1460,7 @@ export default function NewReportPage(){
        type="button"
        title="확대"
        onClick={()=>setZoomMode(prev => Math.min(1.6, Number(((prev === 'fit' ? fitScale : prev) + 0.15).toFixed(2))))}
-       style={{padding:'5px 6px',border:0,background:'transparent'}}
+       style={{padding:'4px 6px',border:0,background:'transparent',color:'#4e5968'}}
       >
        <ZoomIn size={13}/>
       </button>
@@ -1468,15 +1468,15 @@ export default function NewReportPage(){
        type="button"
        disabled={!activeReport}
        onClick={()=>setLargeModalOpen(true)}
-       style={{padding:'5px 9px',fontSize:11.5,fontWeight:800,border:0,borderRadius:6,background:'#1e40af',color:'#ffffff'}}
+       style={{padding:'4px 8px',fontSize:11.5,fontWeight:600,border:0,borderRadius:6,background:'transparent',color:'#333d4b'}}
       >
-       <Maximize2 size={12}/> 크게 보기
+       <Maximize2 size={12}/> 크게
       </button>
      </div>
 
-     <button disabled={!ready||exporting} onClick={()=>window.print()} style={{padding:'8px 11px'}}>PDF</button>
+     <button disabled={!ready||exporting} onClick={()=>window.print()} style={{padding:'7px 11px'}}>PDF</button>
      <button className={styles.batchDownload} disabled={!ready||exporting} onClick={()=>void exportAll()}>
-      <Download size={15}/>{exporting?'생성 중…':`이미지 저장${students.length?` (${students.length}명)`:''}`}
+      <Download size={14}/>{exporting?'생성 중…':`이미지 저장${students.length?` (${students.length})`:''}`}
      </button>
      <button
       type="button"
@@ -1486,18 +1486,17 @@ export default function NewReportPage(){
        display:'inline-flex',
        alignItems:'center',
        gap:6,
-       padding:'8px 14px',
-       borderRadius:9,
-       border:'1px solid #eab308',
-       background:'#fae100',
-       color:'#3c1e1e',
-       fontSize:12.5,
-       fontWeight:800,
+       padding:'7px 13px',
+       borderRadius:8,
+       border:'1px solid #191f28',
+       background:'#191f28',
+       color:'#ffffff',
+       fontSize:12,
+       fontWeight:700,
        cursor:ready && !exporting ? 'pointer' : 'default',
-       boxShadow:'0 1px 4px rgba(0,0,0,0.08)',
       }}
      >
-      <Send size={14}/> 카카오톡 발송{students.length ? ` (${students.length}명)` : ''}
+      <Send size={13}/> 카톡 발송{students.length ? ` (${students.length})` : ''}
      </button>
     </div>
    </div>
@@ -1842,10 +1841,10 @@ export default function NewReportPage(){
           display:'inline-flex',
           alignItems:'center',
           gap:6,
-          background:'#15803d',
+          background:'#191f28',
           color:'#ffffff',
-          borderColor:'#15803d',
-          fontWeight:800,
+          borderColor:'#191f28',
+          fontWeight:700,
           padding:'7px 14px',
          }}
         >
@@ -1865,20 +1864,20 @@ export default function NewReportPage(){
     <section
      aria-label="선택 학생 피드백 일괄 작성"
      style={{
-      margin:'8px 18px 4px',
-      padding:'12px 16px',
-      background:'#f8fafc',
-      border:'1px solid #bfdbfe',
+      margin:'10px 24px 4px',
+      padding:'14px 16px',
+      background:'#ffffff',
+      border:'1px solid #e5e8eb',
       borderRadius:12,
       display:'flex',
       flexDirection:'column',
-      gap:8,
+      gap:10,
      }}
     >
      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
       <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
-       <strong style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:12.5,color:'#1e40af'}}>
-        <MessageSquareText size={14}/> 선택 학생 피드백 코멘트 일괄 적용 ({bulkFeedbackTargets.length}명 대상)
+       <strong style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12.5,color:'#191f28'}}>
+        <MessageSquareText size={14}/> 선택 학생 피드백 일괄 적용 ({bulkFeedbackTargets.length}명)
        </strong>
        <button
         type="button"
@@ -1888,13 +1887,13 @@ export default function NewReportPage(){
          )
         }
         style={{
-         padding:'3px 8px',
+         padding:'3px 9px',
          fontSize:11,
-         fontWeight:700,
+         fontWeight:600,
          borderRadius:6,
-         border:'1px solid #93c5fd',
-         background:'#ffffff',
-         color:'#1d4ed8',
+         border:'1px solid #e5e8eb',
+         background:'#f9fafb',
+         color:'#4e5968',
          cursor:'pointer',
         }}
        >
@@ -1914,13 +1913,13 @@ export default function NewReportPage(){
             )
            }
            style={{
-            padding:'3px 9px',
+            padding:'3px 10px',
             fontSize:11,
-            fontWeight:700,
+            fontWeight:600,
             borderRadius:999,
-            border:checkedTarget ? '1px solid #2563eb' : '1px solid #cbd5e1',
-            background:checkedTarget ? '#2563eb' : '#ffffff',
-            color:checkedTarget ? '#ffffff' : '#475569',
+            border:checkedTarget ? '1px solid #191f28' : '1px solid #e5e8eb',
+            background:checkedTarget ? '#191f28' : '#ffffff',
+            color:checkedTarget ? '#ffffff' : '#6b7684',
             cursor:'pointer',
            }}
           >
@@ -1941,12 +1940,12 @@ export default function NewReportPage(){
        style={{
         flex:1,
         minWidth:240,
-        padding:'8px 11px',
+        padding:'8px 12px',
         fontSize:12.5,
         borderRadius:8,
-        border:'1px solid #cbd5e1',
-        background:'#ffffff',
-        color:'#0f172a',
+        border:'1px solid #e5e8eb',
+        background:'#f9fafb',
+        color:'#191f28',
         resize:'vertical',
        }}
       />
@@ -1959,18 +1958,18 @@ export default function NewReportPage(){
         alignItems:'center',
         justifyContent:'center',
         gap:6,
-        padding:'0 16px',
+        padding:'0 15px',
         borderRadius:8,
-        border:'1px solid #1d4ed8',
-        background:bulkFeedbackTargets.length > 0 ? '#2563eb' : '#94a3b8',
-        color:'#ffffff',
-        fontSize:12.5,
-        fontWeight:800,
+        border:'1px solid #e5e8eb',
+        background:bulkFeedbackTargets.length > 0 ? '#ffffff' : '#f2f4f6',
+        color:bulkFeedbackTargets.length > 0 ? '#191f28' : '#8b95a1',
+        fontSize:12,
+        fontWeight:700,
         cursor:bulkFeedbackTargets.length > 0 ? 'pointer' : 'default',
         whiteSpace:'nowrap',
        }}
       >
-       <Check size={14}/> 선택 {bulkFeedbackTargets.length}명 피드백 일괄 적용
+       <Check size={14}/> 일괄 적용 ({bulkFeedbackTargets.length})
       </button>
       <button
        type="button"
@@ -1983,16 +1982,16 @@ export default function NewReportPage(){
         gap:6,
         padding:'0 16px',
         borderRadius:8,
-        border:'1px solid #7c3aed',
-        background:bulkFeedbackTargets.length > 0 ? '#7c3aed' : '#94a3b8',
+        border:0,
+        background:bulkFeedbackTargets.length > 0 ? '#3182f6' : '#d1d6db',
         color:'#ffffff',
-        fontSize:12.5,
-        fontWeight:800,
+        fontSize:12,
+        fontWeight:700,
         cursor:bulkFeedbackTargets.length > 0 && !aiFeedbackBusy ? 'pointer' : 'default',
         whiteSpace:'nowrap',
        }}
       >
-       <Sparkles size={14}/> {aiFeedbackBusy ? 'AI 분석·작성 중…' : `✨ 선택 ${bulkFeedbackTargets.length}명 AI 학생별 맞춤 작성`}
+       <Sparkles size={13}/> {aiFeedbackBusy ? 'AI 작성 중…' : `AI 학생별 맞춤 작성 (${bulkFeedbackTargets.length})`}
       </button>
      </div>
     </section>
@@ -2036,7 +2035,7 @@ export default function NewReportPage(){
     )}
    </div>
 
-   {/* AI 맞춤 총평 작성 설정 모달 (반드시 들어가야 하는 말 입력 + 기존 요소와 조합하여 문장 완성) */}
+   {/* AI 맞춤 총평 작성 설정 모달 (토스/노션 화이트 미니멀 스타일) */}
    {aiFeedbackModalOpen && (
     <div
      role="dialog"
@@ -2049,8 +2048,8 @@ export default function NewReportPage(){
       position:'fixed',
       inset:0,
       zIndex:115,
-      background:'rgba(15, 23, 42, 0.72)',
-      backdropFilter:'blur(3px)',
+      background:'rgba(25, 31, 40, 0.45)',
+      backdropFilter:'blur(4px)',
       display:'flex',
       alignItems:'center',
       justifyContent:'center',
@@ -2060,34 +2059,35 @@ export default function NewReportPage(){
      <div
       style={{
        width:'100%',
-       maxWidth:680,
+       maxWidth:660,
        maxHeight:'90vh',
        background:'#ffffff',
-       borderRadius:18,
-       boxShadow:'0 24px 60px rgba(15, 23, 42, 0.35)',
+       border:'1px solid #e5e8eb',
+       borderRadius:20,
+       boxShadow:'0 24px 64px rgba(25, 31, 40, 0.16)',
        display:'flex',
        flexDirection:'column',
        overflow:'hidden',
       }}
      >
-      {/* 모달 헤더 */}
+      {/* 모달 헤더 (화이트 미니멀) */}
       <div
        style={{
-        padding:'16px 22px',
-        background:'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
-        color:'#ffffff',
+        padding:'20px 24px 16px',
+        background:'#ffffff',
+        borderBottom:'1px solid #f2f4f6',
         display:'flex',
-        alignItems:'center',
+        alignItems:'flex-start',
         justifyContent:'space-between',
         gap:12,
        }}
       >
-       <div style={{display:'flex',flexDirection:'column',gap:2}}>
-        <strong style={{fontSize:16,fontWeight:900,display:'inline-flex',alignItems:'center',gap:7}}>
-         <Sparkles size={17}/> AI 맞춤 총평 작성 ({periodKorText} 리포트)
+       <div style={{display:'flex',flexDirection:'column',gap:4}}>
+        <strong style={{fontSize:17,fontWeight:800,color:'#191f28',letterSpacing:'-0.02em',display:'inline-flex',alignItems:'center',gap:7}}>
+         <Sparkles size={17} color="#3182f6"/> AI 맞춤 총평 작성 ({periodKorText})
         </strong>
-        <span style={{fontSize:11.5,color:'#e0e7ff'}}>
-         반드시 들어가야 하는 단어나 말을 적으면 학생별 기존 요소(출결·과제·성적·진도·오답)와 조합해 문장을 완성합니다.
+        <span style={{fontSize:12.5,color:'#6b7684'}}>
+         반드시 들어가야 하는 단어·문구를 입력하면 학생별 기존 학습 요소와 조합해 문장을 완성합니다.
         </span>
        </div>
        <button
@@ -2095,13 +2095,13 @@ export default function NewReportPage(){
         disabled={aiFeedbackBusy}
         onClick={() => setAiFeedbackModalOpen(false)}
         style={{
-         padding:'6px 11px',
+         padding:'6px 10px',
          borderRadius:8,
-         border:'1px solid rgba(255,255,255,0.28)',
-         background:'rgba(255,255,255,0.14)',
-         color:'#ffffff',
+         border:0,
+         background:'#f2f4f6',
+         color:'#4e5968',
          fontSize:12,
-         fontWeight:800,
+         fontWeight:600,
          cursor:aiFeedbackBusy ? 'default' : 'pointer',
          display:'inline-flex',
          alignItems:'center',
@@ -2113,39 +2113,39 @@ export default function NewReportPage(){
       </div>
 
       {/* 모달 본문 */}
-      <div style={{padding:'18px 22px',overflowY:'auto',display:'flex',flexDirection:'column',gap:16}}>
+      <div style={{padding:'20px 24px',overflowY:'auto',display:'flex',flexDirection:'column',gap:16}}>
        {/* 1. 반드시 들어가야 하는 말 입력 공간 */}
        <div
         style={{
-         padding:'14px 16px',
-         background:'#f5f3ff',
-         border:'1.5px solid #c4b5fd',
-         borderRadius:12,
+         padding:'16px',
+         background:'#f9fafb',
+         border:'1px solid #e5e8eb',
+         borderRadius:14,
          display:'flex',
          flexDirection:'column',
          gap:10,
         }}
        >
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
-         <strong style={{fontSize:13.5,color:'#4c1d95',display:'inline-flex',alignItems:'center',gap:6}}>
-          <MessageSquareText size={15}/> 1. 총평에 반드시 들어가야 하는 말 / 핵심 단어 입력
+         <strong style={{fontSize:13.5,fontWeight:700,color:'#191f28',display:'inline-flex',alignItems:'center',gap:6}}>
+          1. 총평에 반드시 들어가야 하는 말 / 핵심 단어
          </strong>
          {aiMustIncludeText && (
           <button
            type="button"
            onClick={() => setAiMustIncludeText('')}
            style={{
-            padding:'3px 8px',
+            padding:'3px 9px',
             fontSize:11,
-            fontWeight:700,
+            fontWeight:600,
             borderRadius:6,
-            border:'1px solid #cbd5e1',
+            border:'1px solid #e5e8eb',
             background:'#ffffff',
-            color:'#64748b',
+            color:'#6b7684',
             cursor:'pointer',
            }}
           >
-           입력 초기화
+           초기화
           </button>
          )}
         </div>
@@ -2156,23 +2156,23 @@ export default function NewReportPage(){
          aria-label="총평에 반드시 들어가야 하는 말"
          value={aiMustIncludeText}
          onChange={e => setAiMustIncludeText(e.target.value)}
-         placeholder="예: 계산 실수 줄이기, 풀이 과정 노트 정리, 다음 주 단원평가 대비, 최근 수업 집중력이 좋아짐 등&#10;(단어나 짧은 구절을 쉼표로 구분해 적으셔도 기존 학습 기록과 자연스럽게 어우러진 완성된 문장으로 만들어 줍니다)"
+         placeholder="예: 계산 실수 줄이기, 풀이 과정 노트 정리, 다음 주 단원평가 대비, 최근 수업 집중력이 좋아짐 등&#10;(단어나 짧은 구절을 쉼표로 구분해 적으면 기존 학습 기록과 자연스럽게 어우러진 문장으로 완성합니다)"
          style={{
           width:'100%',
-          padding:'10px 12px',
+          padding:'11px 13px',
           fontSize:13,
           lineHeight:1.55,
           borderRadius:10,
-          border:'1.5px solid #8b5cf6',
+          border:'1px solid #d1d6db',
           background:'#ffffff',
-          color:'#0f172a',
+          color:'#191f28',
           resize:'vertical',
          }}
         />
 
-        <div style={{display:'flex',flexDirection:'column',gap:5}}>
-         <span style={{fontSize:11.5,fontWeight:700,color:'#5b21b6'}}>
-          자주 쓰는 키워드 원클릭 추가 (클릭하면 입력란에 바로 들어갑니다)
+        <div style={{display:'flex',flexDirection:'column',gap:6}}>
+         <span style={{fontSize:11.5,fontWeight:600,color:'#6b7684'}}>
+          추천 키워드 클릭하여 추가
          </span>
          <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
           {[
@@ -2203,13 +2203,13 @@ export default function NewReportPage(){
               });
              }}
              style={{
-              padding:'4px 10px',
+              padding:'5px 11px',
               fontSize:11.5,
-              fontWeight:700,
+              fontWeight:600,
               borderRadius:999,
-              border:activeKw ? '1.5px solid #6d28d9' : '1px solid #ddd6fe',
-              background:activeKw ? '#6d28d9' : '#ffffff',
-              color:activeKw ? '#ffffff' : '#5b21b6',
+              border:activeKw ? '1px solid #191f28' : '1px solid #e5e8eb',
+              background:activeKw ? '#191f28' : '#ffffff',
+              color:activeKw ? '#ffffff' : '#4e5968',
               cursor:'pointer',
              }}
             >
@@ -2224,33 +2224,33 @@ export default function NewReportPage(){
        {/* 2. 총평 문체 · 어조 스타일 선택 */}
        <div
         style={{
-         padding:'12px 16px',
-         background:'#f8fafc',
-         border:'1px solid #e2e8f0',
-         borderRadius:12,
+         padding:'14px 16px',
+         background:'#ffffff',
+         border:'1px solid #e5e8eb',
+         borderRadius:14,
          display:'flex',
          flexDirection:'column',
          gap:8,
         }}
        >
-        <strong style={{fontSize:13,color:'#0f172a'}}>2. 문장 완성 어조 · 스타일 선택</strong>
+        <strong style={{fontSize:13,fontWeight:700,color:'#191f28'}}>2. 문장 어조 · 스타일</strong>
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))',gap:8}}>
          {([
-          { key: 'counsel', label: '다정한 학부모 상담형', desc: '신뢰감 있고 정중한 기본 총평' },
-          { key: 'praise', label: '칭찬 · 동기부여 강조형', desc: '성취와 긍정적 변화 중심 격려' },
-          { key: 'coaching', label: '약점 보완 · 학습 코칭형', desc: '구체적인 학습 습관·보완 방향 제시' },
-          { key: 'concise', label: '간결한 핵심 브리핑형', desc: '핵심 지표와 전달사항 위주 요약' },
+          { key: 'counsel', label: '학부모 상담형', desc: '신뢰감 있고 정중한 기본 총평' },
+          { key: 'praise', label: '칭찬 · 동기부여형', desc: '성취와 긍정적 변화 중심 격려' },
+          { key: 'coaching', label: '학습 코칭형', desc: '학습 습관·보완 방향 제시' },
+          { key: 'concise', label: '핵심 브리핑형', desc: '핵심 지표와 전달사항 요약' },
          ] as const).map(opt => (
           <button
            key={opt.key}
            type="button"
            onClick={() => setAiToneStyle(opt.key)}
            style={{
-            padding:'8px 10px',
+            padding:'9px 11px',
             borderRadius:10,
-            border:aiToneStyle === opt.key ? '1.5px solid #7c3aed' : '1px solid #cbd5e1',
-            background:aiToneStyle === opt.key ? '#f5f3ff' : '#ffffff',
-            color:aiToneStyle === opt.key ? '#5b21b6' : '#334155',
+            border:aiToneStyle === opt.key ? '1.5px solid #3182f6' : '1px solid #e5e8eb',
+            background:aiToneStyle === opt.key ? '#eff6ff' : '#ffffff',
+            color:aiToneStyle === opt.key ? '#1d4ed8' : '#333d4b',
             textAlign:'left',
             cursor:'pointer',
             display:'flex',
@@ -2258,8 +2258,8 @@ export default function NewReportPage(){
             gap:2,
            }}
           >
-           <strong style={{fontSize:12,fontWeight:800}}>{aiToneStyle === opt.key ? '● ' : '○ '}{opt.label}</strong>
-           <small style={{fontSize:10.5,color:'#64748b'}}>{opt.desc}</small>
+           <strong style={{fontSize:12,fontWeight:700}}>{opt.label}</strong>
+           <small style={{fontSize:10.5,color:'#6b7684'}}>{opt.desc}</small>
           </button>
          ))}
         </div>
@@ -2270,16 +2270,16 @@ export default function NewReportPage(){
         style={{
          padding:'14px 16px',
          background:'#ffffff',
-         border:'1px solid #e2e8f0',
-         borderRadius:12,
+         border:'1px solid #e5e8eb',
+         borderRadius:14,
          display:'flex',
          flexDirection:'column',
          gap:10,
         }}
        >
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
-         <strong style={{fontSize:13,color:'#0f172a'}}>
-          3. 적용 대상 학생 및 조합될 기존 요소 ({bulkFeedbackTargets.length || students.length}명)
+         <strong style={{fontSize:13,fontWeight:700,color:'#191f28'}}>
+          3. 적용 대상 학생 및 기존 학습 요소 ({bulkFeedbackTargets.length || students.length}명)
          </strong>
          {students.length > 1 && (
           <div style={{display:'flex',gap:6}}>
@@ -2288,17 +2288,17 @@ export default function NewReportPage(){
              type="button"
              onClick={() => setBulkFeedbackTargets([activeReport.id])}
              style={{
-              padding:'4px 9px',
+              padding:'4px 10px',
               fontSize:11,
-              fontWeight:700,
+              fontWeight:600,
               borderRadius:7,
-              border:'1px solid #c4b5fd',
-              background:'#f5f3ff',
-              color:'#6d28d9',
+              border:'1px solid #e5e8eb',
+              background:'#f9fafb',
+              color:'#333d4b',
               cursor:'pointer',
              }}
             >
-             현재 보고 있는 학생만 ({activeReport.name})
+             현재 학생만 ({activeReport.name})
             </button>
            )}
            <button
@@ -2309,13 +2309,13 @@ export default function NewReportPage(){
              )
             }
             style={{
-             padding:'4px 9px',
+             padding:'4px 10px',
              fontSize:11,
-             fontWeight:700,
+             fontWeight:600,
              borderRadius:7,
-             border:'1px solid #cbd5e1',
-             background:'#f8fafc',
-             color:'#334155',
+             border:'1px solid #e5e8eb',
+             background:'#f9fafb',
+             color:'#333d4b',
              cursor:'pointer',
             }}
            >
@@ -2326,15 +2326,15 @@ export default function NewReportPage(){
         </div>
 
         {students.length === 0 ? (
-         <div style={{padding:'16px',borderRadius:10,background:'#fef2f2',border:'1px solid #fecaca',color:'#b91c1c',fontSize:12.5,fontWeight:700}}>
-          왼쪽 학생 목록에서 총평을 작성할 학생이나 반을 먼저 체크해 주세요.
+         <div style={{padding:'16px',borderRadius:10,background:'#f9fafb',border:'1px solid #e5e8eb',color:'#4e5968',fontSize:12.5,fontWeight:600}}>
+          왼쪽 학생 목록에서 총평을 작성할 학생이나 반을 먼저 선택해 주세요.
          </div>
         ) : (
          <div
           style={{
            maxHeight:190,
            overflowY:'auto',
-           border:'1px solid #e2e8f0',
+           border:'1px solid #e5e8eb',
            borderRadius:10,
           }}
          >
@@ -2365,9 +2365,9 @@ export default function NewReportPage(){
               alignItems:'center',
               justifyContent:'space-between',
               gap:10,
-              padding:'8px 12px',
-              borderBottom:'1px solid #f1f5f9',
-              background:checked ? '#faf8ff' : '#ffffff',
+              padding:'9px 12px',
+              borderBottom:'1px solid #f2f4f6',
+              background:checked ? '#ffffff' : '#f9fafb',
               flexWrap:'wrap',
              }}
             >
@@ -2382,8 +2382,8 @@ export default function NewReportPage(){
                 })
                }
               />
-              <span style={{fontSize:13,fontWeight:800,color:'#0f172a'}}>{s.name}</span>
-              <small style={{fontSize:11,color:'#64748b'}}>{s.grade}</small>
+              <span style={{fontSize:13,fontWeight:700,color:'#191f28'}}>{s.name}</span>
+              <small style={{fontSize:11,color:'#8b95a1'}}>{s.grade}</small>
              </label>
 
              <div style={{display:'flex',alignItems:'center',gap:4,flexWrap:'wrap'}}>
@@ -2393,19 +2393,19 @@ export default function NewReportPage(){
                  key={b}
                  style={{
                   fontSize:10.5,
-                  fontWeight:700,
+                  fontWeight:600,
                   padding:'2px 7px',
-                  borderRadius:999,
-                  background:'#ede9fe',
-                  color:'#5b21b6',
+                  borderRadius:6,
+                  background:'#f2f4f6',
+                  color:'#4e5968',
                  }}
                 >
                  {b}
                 </span>
                ))
               ) : (
-               <span style={{fontSize:10.5,color:'#64748b',background:'#f1f5f9',padding:'2px 7px',borderRadius:999}}>
-                기본 수업태도 + 입력단어 조합
+               <span style={{fontSize:10.5,color:'#8b95a1',background:'#f2f4f6',padding:'2px 7px',borderRadius:6}}>
+                수업태도 + 입력단어 조합
                </span>
               )}
              </div>
@@ -2420,7 +2420,8 @@ export default function NewReportPage(){
                height:28,
                padding:'0 8px',
                borderRadius:6,
-               border:'1px solid #cbd5e1',
+               border:'1px solid #e5e8eb',
+               background:'#f9fafb',
                fontSize:11.5,
               }}
              />
@@ -2435,9 +2436,9 @@ export default function NewReportPage(){
       {/* 모달 푸터 액션 */}
       <div
        style={{
-        padding:'14px 22px',
-        background:'#f8fafc',
-        borderTop:'1px solid #e2e8f0',
+        padding:'14px 24px',
+        background:'#ffffff',
+        borderTop:'1px solid #f2f4f6',
         display:'flex',
         alignItems:'center',
         justifyContent:'space-between',
@@ -2445,8 +2446,8 @@ export default function NewReportPage(){
         gap:10,
        }}
       >
-       <span style={{fontSize:11.5,color:'#64748b'}}>
-        💡 일부 학습 요소가 빠져 있어도 있는 요소와 입력하신 단어를 자연스럽게 조합합니다.
+       <span style={{fontSize:11.5,color:'#8b95a1'}}>
+        일부 요소가 빠져 있어도 기록된 항목과 입력 단어를 자연스럽게 조합합니다.
        </span>
        <div style={{display:'flex',alignItems:'center',gap:8}}>
         <button
@@ -2456,11 +2457,11 @@ export default function NewReportPage(){
          style={{
           padding:'9px 15px',
           borderRadius:9,
-          border:'1px solid #cbd5e1',
+          border:'1px solid #e5e8eb',
           background:'#ffffff',
-          color:'#475569',
+          color:'#4e5968',
           fontSize:12.5,
-          fontWeight:700,
+          fontWeight:600,
           cursor:'pointer',
          }}
         >
@@ -2480,24 +2481,23 @@ export default function NewReportPage(){
           )
          }
          style={{
-          padding:'9px 20px',
+          padding:'9px 18px',
           borderRadius:9,
           border:0,
-          background:students.length > 0 ? 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)' : '#94a3b8',
+          background:students.length > 0 ? '#3182f6' : '#d1d6db',
           color:'#ffffff',
           fontSize:13,
-          fontWeight:900,
+          fontWeight:700,
           cursor:students.length > 0 && !aiFeedbackBusy ? 'pointer' : 'default',
           display:'inline-flex',
           alignItems:'center',
           gap:6,
-          boxShadow:'0 4px 12px rgba(124, 58, 237, 0.28)',
          }}
         >
          <Sparkles size={14}/>
          {aiFeedbackBusy
-          ? '기존 요소 + 입력 단어 조합 중…'
-          : `✨ 문장 완성 및 리포트 적용 (${bulkFeedbackTargets.length || students.length}명)`}
+          ? '문장 완성 중…'
+          : `문장 완성 및 리포트 적용 (${bulkFeedbackTargets.length || students.length}명)`}
         </button>
        </div>
       </div>

@@ -38,129 +38,129 @@
 }
 
 /* ============================================================================
- * 3가지 분위기 테마 변수 및 외곽 프레임 정의
- * 1) miricheck (하늘색 체크리스트 분위기)
- * 2) mirireport (노란색 인포그래픽 분위기)
- * 3) mirigraph (파스텔 라벤더·핑크 성취도 분위기)
+ * 3가지 분위기 테마 변수 및 외곽 프레임 정의 (토스/노션 화이트 미니멀 에디토리얼)
+ * 1) miricheck (미니멀 블루 체크리스트)
+ * 2) mirireport (미니멀 웜 에디토리얼 브리핑)
+ * 3) mirigraph (미니멀 인디고 성취도 리포트)
  * ============================================================================ */
 .sheet[data-theme=miricheck]{
- --theme-border:#68a4f1;
- --theme-soft-border:#cfe3fb;
- --theme-head-bg:#68a4f1;
- --theme-head-text:#ffffff;
- --theme-th-bg:#eaf3fe;
- --theme-th-text:#2b6cb0;
- --theme-accent:#2b6cb0;
- --theme-stamp-ring:#ef4444;
- --theme-stamp-bg:#fff5f5;
- --theme-bar:#68a4f1;
- --theme-line:#1e40af;
- --theme-Radius:8px;
- background:#eef5fd;
- padding:22px;
- color:#1e3a5f;
+ --theme-border:#e5e8eb;
+ --theme-soft-border:#f2f4f6;
+ --theme-head-bg:#f9fafb;
+ --theme-head-text:#191f28;
+ --theme-th-bg:#f9fafb;
+ --theme-th-text:#4e5968;
+ --theme-accent:#3182f6;
+ --theme-stamp-ring:#3182f6;
+ --theme-stamp-bg:#eff6ff;
+ --theme-bar:#3182f6;
+ --theme-line:#3182f6;
+ --theme-Radius:12px;
+ background:#ffffff;
+ padding:32px 36px;
+ color:#191f28;
 }
 .sheet[data-theme=miricheck] .sheetInner{
  background:#ffffff;
- border:2px solid #9bc5f4;
- border-radius:14px;
- padding:26px 28px;
+ border:0;
+ border-radius:0;
+ padding:0;
  display:flex;
  flex-direction:column;
- gap:14px;
+ gap:16px;
  flex:1;
  box-sizing:border-box;
 }
 
 .sheet[data-theme=mirireport]{
- --theme-border:#1e293b;
- --theme-soft-border:#cbd5e1;
- --theme-head-bg:#fef08a;
- --theme-head-text:#0f172a;
- --theme-th-bg:#fef9c3;
- --theme-th-text:#1e293b;
- --theme-accent:#b45309;
- --theme-stamp-ring:#1e293b;
- --theme-stamp-bg:#fef08a;
- --theme-bar:#facc15;
- --theme-line:#1e293b;
- --theme-Radius:0px;
+ --theme-border:#e5e8eb;
+ --theme-soft-border:#f2f4f6;
+ --theme-head-bg:#f9fafb;
+ --theme-head-text:#191f28;
+ --theme-th-bg:#f9fafb;
+ --theme-th-text:#4e5968;
+ --theme-accent:#191f28;
+ --theme-stamp-ring:#191f28;
+ --theme-stamp-bg:#f2f4f6;
+ --theme-bar:#191f28;
+ --theme-line:#191f28;
+ --theme-Radius:10px;
  background:#ffffff;
- padding:24px 28px;
- color:#1e293b;
+ padding:32px 36px;
+ color:#191f28;
 }
 .sheet[data-theme=mirireport] .sheetInner{
  background:#ffffff;
- border:2px solid #1e293b;
- padding:22px 24px;
+ border:0;
+ padding:0;
  display:flex;
  flex-direction:column;
- gap:14px;
+ gap:16px;
  flex:1;
  box-sizing:border-box;
 }
 
 .sheet[data-theme=mirigraph]{
- --theme-border:#dbe4ff;
- --theme-soft-border:#e2e8f0;
- --theme-head-bg:#5c7cfa;
- --theme-head-text:#ffffff;
- --theme-th-bg:#eef2ff;
- --theme-th-text:#3b5bdb;
- --theme-accent:#3b5bdb;
- --theme-stamp-ring:#ec4899;
- --theme-stamp-bg:#fdf2f8;
- --theme-bar:#5c7cfa;
- --theme-line:#db2777;
- --theme-Radius:14px;
- background:#fdf2f8;
- padding:26px 30px;
- color:#1e293b;
+ --theme-border:#e5e8eb;
+ --theme-soft-border:#f2f4f6;
+ --theme-head-bg:#f9fafb;
+ --theme-head-text:#191f28;
+ --theme-th-bg:#f9fafb;
+ --theme-th-text:#4e5968;
+ --theme-accent:#4f46e5;
+ --theme-stamp-ring:#4f46e5;
+ --theme-stamp-bg:#eef2ff;
+ --theme-bar:#4f46e5;
+ --theme-line:#4f46e5;
+ --theme-Radius:12px;
+ background:#ffffff;
+ padding:32px 36px;
+ color:#191f28;
 }
 .sheet[data-theme=mirigraph] .sheetInner{
  display:flex;
  flex-direction:column;
- gap:14px;
+ gap:16px;
  flex:1;
  box-sizing:border-box;
 }
 
 /* ============================================================================
- * 분위기별 상단 헤더 & 메타 바
+ * 분위기별 상단 헤더 & 메타 바 (화이트 미니멀)
  * ============================================================================ */
-/* 1) 하늘색 체크리스트 헤더 */
-.miriCheckHeader{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #68a4f1;padding-bottom:10px}
+/* 1) 미니멀 체크리스트 헤더 */
+.miriCheckHeader{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1.5px solid #191f28;padding-bottom:14px}
 .miriCheckHeader[data-title-pos=center]{flex-direction:column;align-items:center;text-align:center;gap:8px}
 .miriCheckHeader[data-title-pos=right]{flex-direction:row-reverse;text-align:right}
-.miriCheckEngTitle{display:block;font-size:34px;font-weight:900;color:#2b6cb0;letter-spacing:-0.8px;line-height:1.05;font-family:Georgia,"Pretendard Variable","Malgun Gothic",serif}
-.miriCheckHeader h2{font-size:14.5px;font-weight:700;color:#5a7d9a;margin:5px 0 0;letter-spacing:-0.2px}
-.miriHeaderIconWrap{display:flex;align-items:flex-start;gap:6px}
-.miriSparkleIcon{color:#60a5fa;margin-top:2px}
-.miriHeaderBadgeIcon{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#e0effe 0%,#bae0fd 100%);border:1.5px solid #7ab3f2;color:#2b6cb0;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 10px rgba(104,164,241,0.16)}
-.miriMetaBar{display:grid;grid-template-columns:1.25fr 1fr;gap:12px}
-.miriMetaItem{display:grid;grid-template-columns:104px 1fr;border:1.5px solid #68a4f1;border-radius:7px;overflow:hidden;background:#ffffff}
-.miriMetaLabel{background:#68a4f1;color:#ffffff;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;gap:5px;padding:7px 6px}
-.miriMetaValue{padding:7px 12px;font-size:12.5px;font-weight:700;color:#1e3a5f;display:flex;align-items:center}
+.miriCheckEngTitle{display:block;font-size:11px;font-weight:700;color:#3182f6;letter-spacing:0.08em;line-height:1.2;margin-bottom:4px;text-transform:uppercase}
+.miriCheckHeader h2{font-size:22px;font-weight:800;color:#191f28;margin:0;letter-spacing:-0.03em}
+.miriHeaderIconWrap{display:flex;align-items:center;gap:6px}
+.miriSparkleIcon{color:#3182f6}
+.miriHeaderBadgeIcon{width:38px;height:38px;border-radius:10px;background:#f2f4f6;border:1px solid #e5e8eb;color:#191f28;display:flex;align-items:center;justify-content:center}
+.miriMetaBar{display:grid;grid-template-columns:1.25fr 1fr;gap:10px}
+.miriMetaItem{display:grid;grid-template-columns:96px 1fr;border:1px solid #e5e8eb;border-radius:10px;overflow:hidden;background:#ffffff}
+.miriMetaLabel{background:#f9fafb;color:#4e5968;font-weight:700;font-size:11.5px;display:flex;align-items:center;justify-content:center;gap:5px;padding:8px 6px;border-right:1px solid #e5e8eb}
+.miriMetaValue{padding:8px 12px;font-size:12.5px;font-weight:700;color:#191f28;display:flex;align-items:center}
 
-/* 2) 노란색 인포그래픽 헤더 */
-.miriYellowHeader{background:#fef08a;border:1.5px solid #1e293b;padding:16px 20px 14px;text-align:center}
+/* 2) 노션형 에디토리얼 헤더 */
+.miriYellowHeader{background:#f9fafb;border:1px solid #e5e8eb;border-radius:12px;padding:18px 22px 16px;text-align:center}
 .miriYellowHeader[data-title-pos=left]{text-align:left}
 .miriYellowHeader[data-title-pos=center]{text-align:center}
 .miriYellowHeader[data-title-pos=right]{text-align:right}
-.miriYellowHeader h2{font-size:24px;font-weight:900;color:#0f172a;margin:0 0 5px;letter-spacing:-0.8px}
-.miriYellowHeader p{font-size:11.5px;font-weight:700;color:#334155;margin:0 0 10px}
-.miriYellowStudentPill{display:inline-flex;align-items:center;gap:6px;background:#ffffff;border:1.5px solid #1e293b;padding:5px 18px;font-size:12px;font-weight:600;color:#0f172a}
+.miriYellowHeader h2{font-size:22px;font-weight:800;color:#191f28;margin:0 0 4px;letter-spacing:-0.03em}
+.miriYellowHeader p{font-size:11.5px;font-weight:500;color:#6b7684;margin:0 0 12px}
+.miriYellowStudentPill{display:inline-flex;align-items:center;gap:8px;background:#ffffff;border:1px solid #e5e8eb;border-radius:999px;padding:5px 16px;font-size:11.5px;font-weight:600;color:#333d4b}
 
-/* 3) 파스텔 성취도 헤더 */
-.miriGraphHeader{display:flex;justify-content:space-between;align-items:flex-end;padding:2px 4px 6px}
+/* 3) 미니멀 성취도 헤더 */
+.miriGraphHeader{display:flex;justify-content:space-between;align-items:flex-end;padding:0 0 14px;border-bottom:1px solid #e5e8eb}
 .miriGraphHeader[data-title-pos=center]{flex-direction:column;align-items:center;text-align:center;gap:10px}
 .miriGraphHeader[data-title-pos=right]{flex-direction:row-reverse;text-align:right}
-.miriGraphEyebrow{display:block;font-size:10.5px;font-weight:800;letter-spacing:2px;color:#4f75ff;margin-bottom:4px}
-.miriGraphHeader h2{font-size:30px;font-weight:900;color:#2b50aa;margin:0;letter-spacing:-1px}
-.miriGraphMetaLines{display:flex;flex-direction:column;gap:5px;min-width:235px;font-size:12px;color:#3b5bdb}
+.miriGraphEyebrow{display:block;font-size:10.5px;font-weight:700;letter-spacing:0.1em;color:#4f46e5;margin-bottom:4px}
+.miriGraphHeader h2{font-size:23px;font-weight:800;color:#191f28;margin:0;letter-spacing:-0.03em}
+.miriGraphMetaLines{display:flex;flex-direction:column;gap:4px;min-width:220px;font-size:11.5px;color:#6b7684}
 .miriGraphHeader[data-title-pos=center] .miriGraphMetaLines{flex-direction:row;flex-wrap:wrap;justify-content:center;gap:14px}
-.miriGraphMetaLines>div{border-bottom:1.5px dotted #93c5fd;padding-bottom:3px;display:flex;gap:8px}
-.miriGraphMetaLines b{color:#1e293b}
+.miriGraphMetaLines>div{border-bottom:1px solid #f2f4f6;padding-bottom:3px;display:flex;justify-content:space-between;gap:8px}
+.miriGraphMetaLines b{color:#191f28;font-weight:700}
 
 /* ============================================================================
  * 공통 모듈 카드 & 그리드 (테마 변수에 따라 자동 스타일링)
@@ -169,8 +169,8 @@
 .dayStampGrid{display:grid;grid-template-columns:1fr 1fr 1.15fr;gap:12px}
 .twoColGrid{display:grid;grid-template-columns:1.08fr 1fr;gap:12px}
 .moduleCard{
- border:1.5px solid var(--theme-border);
- border-radius:var(--theme-Radius,8px);
+ border:1px solid var(--theme-border);
+ border-radius:var(--theme-Radius,12px);
  background:#ffffff;
  overflow:hidden;
  display:flex;
@@ -178,30 +178,24 @@
  height:100%;
  box-sizing:border-box;
 }
-.sheet[data-theme=mirigraph] .moduleCard{
- box-shadow:0 4px 14px rgba(79,117,255,0.06);
-}
 .moduleHeader{
  background:var(--theme-head-bg);
  color:var(--theme-head-text);
  font-size:12.5px;
- font-weight:800;
- padding:8px 12px;
+ font-weight:700;
+ padding:10px 14px;
  margin:0;
  display:flex;
  align-items:center;
  gap:6px;
- border-bottom:1.5px solid var(--theme-border);
-}
-.sheet[data-theme=miricheck] .moduleHeader,
-.sheet[data-theme=mirigraph] .moduleHeader{
- border-bottom:0;
+ border-bottom:1px solid var(--theme-border);
+ letter-spacing:-0.015em;
 }
 .headerStatRight{
  margin-left:auto;
  font-size:11px;
- font-weight:700;
- opacity:0.92;
+ font-weight:600;
+ color:#6b7684;
 }
 .moduleContent{
  padding:12px 14px;
@@ -569,32 +563,32 @@
 .mutedText{color:#94a3b8;font-size:11px;margin:0}
 
 /* ============================================================================
- * 분위기별 하단 선생님 피드백 영역
+ * 분위기별 하단 선생님 피드백 영역 (화이트 미니멀)
  * ============================================================================ */
-/* 1) 하늘색 체크리스트 피드백 */
-.miriFeedbackBox{display:grid;grid-template-columns:114px 1fr;border:1.5px solid #68a4f1;border-radius:8px;overflow:hidden;background:#ffffff}
-.miriFeedbackLabel{background:#68a4f1;color:#ffffff;font-weight:800;font-size:12.5px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;text-align:center;line-height:1.35;padding:12px 8px}
-.miriFeedbackBody{padding:9px 14px 10px;display:flex;flex-direction:column;gap:3px}
-.miriFeedbackSub{font-size:10px;font-weight:800;color:#68a4f1}
-.miriRuledLines p{margin:0;padding:5px 0;border-bottom:1px solid #cfe3fb;font-size:11.5px;color:#1e3a5f;line-height:1.4}
-.miriRuledLines p b{color:#2b6cb0}
-.miriMutedLine{color:#7890ab;font-size:11px;display:inline-flex;align-items:center;gap:5px}
+/* 1) 미니멀 체크리스트 피드백 */
+.miriFeedbackBox{display:grid;grid-template-columns:108px 1fr;border:1px solid #e5e8eb;border-radius:12px;overflow:hidden;background:#ffffff}
+.miriFeedbackLabel{background:#f9fafb;color:#191f28;font-weight:700;font-size:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;text-align:center;line-height:1.35;padding:12px 8px;border-right:1px solid #e5e8eb}
+.miriFeedbackBody{padding:11px 14px;display:flex;flex-direction:column;gap:4px}
+.miriFeedbackSub{font-size:10px;font-weight:700;color:#8b95a1}
+.miriRuledLines p{margin:0;padding:5px 0;border-bottom:1px solid #f2f4f6;font-size:11.5px;color:#191f28;line-height:1.45}
+.miriRuledLines p b{color:#3182f6}
+.miriMutedLine{color:#8b95a1;font-size:11px;display:inline-flex;align-items:center;gap:5px}
 
-/* 2) 노란색 인포그래픽 피드백 */
-.miriYellowTakeaway{background:#fefce8;border:1.5px solid #1e293b;padding:12px 14px;display:flex;flex-direction:column;gap:7px}
-.miriYellowSecTitle{font-size:13px;font-weight:900;color:#0f172a;margin:0}
-.miriTakeawayList p{margin:3px 0;font-size:11.5px;line-height:1.5;color:#1e293b;display:flex;align-items:flex-start;gap:6px}
+/* 2) 노션형 에디토리얼 피드백 */
+.miriYellowTakeaway{background:#f9fafb;border:1px solid #e5e8eb;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+.miriYellowSecTitle{font-size:13px;font-weight:800;color:#191f28;margin:0;letter-spacing:-0.02em}
+.miriTakeawayList p{margin:2px 0;font-size:11.5px;line-height:1.5;color:#4e5968;display:flex;align-items:flex-start;gap:6px}
 .miriCheckIconGreen{color:#16a34a;flex-shrink:0;margin-top:2px}
-.miriConclusionPill{display:flex;align-items:center;gap:7px;background:#fef08a;border:1.3px solid #1e293b;border-radius:7px;padding:6px 11px;font-size:11.5px;color:#0f172a}
-.miriBulbIcon{color:#ca8a04;flex-shrink:0}
+.miriConclusionPill{display:flex;align-items:flex-start;gap:8px;background:#ffffff;border:1px solid #e5e8eb;border-radius:10px;padding:10px 12px;font-size:11.5px;color:#191f28}
+.miriBulbIcon{color:#3182f6;flex-shrink:0;margin-top:2px}
 
-/* 3) 파스텔 성취도 피드백 */
-.miriGraphCard{background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 4px 14px rgba(79,117,255,0.07);border:1.5px solid #dbe4ff}
-.miriGraphCardHead{background:#5c7cfa;color:#ffffff;font-size:13px;font-weight:800;text-align:center;padding:9px 14px}
+/* 3) 미니멀 성취도 피드백 */
+.miriGraphCard{background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e8eb}
+.miriGraphCardHead{background:#f9fafb;color:#191f28;font-size:12.5px;font-weight:700;padding:10px 14px;border-bottom:1px solid #e5e8eb}
 .miriGraphCommentBody{padding:12px 16px;display:flex;flex-direction:column;gap:6px}
-.miriGraphCommentBody p{margin:0;font-size:11.5px;line-height:1.55;color:#334155;padding-bottom:5px;border-bottom:1px dashed #e2e8f0;display:flex;align-items:flex-start;gap:6px}
+.miriGraphCommentBody p{margin:0;font-size:11.5px;line-height:1.55;color:#333d4b;padding-bottom:5px;border-bottom:1px solid #f2f4f6;display:flex;align-items:flex-start;gap:6px}
 .miriGraphCommentBody p:last-child{border-bottom:0;padding-bottom:0}
-.miriCommentIcon{color:#5c7cfa;flex-shrink:0;margin-top:3px}
+.miriCommentIcon{color:#4f46e5;flex-shrink:0;margin-top:3px}
 
 /* ============================================================================
  * 공통 12칸 커스텀 그리드, 학원 로고, 하단 공지란
@@ -602,7 +596,7 @@
 .customGrid12{
  display:grid;
  grid-template-columns:repeat(12,minmax(0,1fr));
- gap:12px;
+ gap:14px;
  align-items:stretch;
 }
 .customLogoImg{
@@ -618,53 +612,51 @@
  align-items:center;
  gap:8px;
  margin-top:8px;
- padding:8px 12px;
- border-radius:8px;
- background:#f8fafc;
- border:1px dashed var(--theme-border,#cbd5e1);
+ padding:9px 14px;
+ border-radius:10px;
+ background:#f9fafb;
+ border:1px solid #e5e8eb;
  font-size:11.5px;
- font-weight:700;
- color:#334155;
+ font-weight:600;
+ color:#4e5968;
 }
 
 /* ============================================================================
- * 4) 📘 기본형 (클린 블루 & 화이트 에디토리얼 테마, data-theme="saebom" | "clean")
- * - 깔끔한 순백색(#ffffff) 배경 + 신뢰감 있는 로열 블루(#2563eb) 포인트
- * - 일간 / 주간 / 월간 맞춤 구성 지원
+ * 4) 📘 기본형 (토스/노션 화이트 미니멀 에디토리얼 테마, data-theme="saebom" | "clean")
  * ============================================================================ */
 .sheet[data-theme=saebom],
 .sheet[data-theme=clean]{
- --theme-border:#dbe5f2;
- --theme-soft-border:#e2e8f0;
- --theme-head-bg:#2563eb;
+ --theme-border:#e5e8eb;
+ --theme-soft-border:#f2f4f6;
+ --theme-head-bg:#191f28;
  --theme-head-text:#ffffff;
- --theme-th-bg:#f8fafc;
- --theme-th-text:#475569;
- --theme-accent:#2563eb;
- --theme-bar:#2563eb;
- --theme-line:#1d4ed8;
- --theme-Radius:10px;
+ --theme-th-bg:#f9fafb;
+ --theme-th-text:#6b7684;
+ --theme-accent:#3182f6;
+ --theme-bar:#3182f6;
+ --theme-line:#3182f6;
+ --theme-Radius:12px;
  background:#ffffff;
- padding:28px 32px;
- color:#0f172a;
+ padding:32px 36px;
+ color:#191f28;
 }
 .sheet[data-theme=saebom] .sheetInner,
 .sheet[data-theme=clean] .sheetInner{
  display:flex;
  flex-direction:column;
- gap:14px;
+ gap:16px;
  flex:1;
  box-sizing:border-box;
 }
 .saebomContainer{
  display:flex;
  flex-direction:column;
- gap:14px;
+ gap:16px;
  flex:1;
 }
 .saebomHeader{
- border-bottom:2px solid #0f172a;
- padding-bottom:11px;
+ border-bottom:1.5px solid #191f28;
+ padding-bottom:13px;
  position:relative;
 }
 .saebomHeaderTop{

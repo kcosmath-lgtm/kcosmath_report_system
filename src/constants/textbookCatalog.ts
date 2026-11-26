@@ -640,7 +640,7 @@ export const TEXTBOOK_CATALOG: TextbookPreset[] = BOOK_SERIES_SPECS.flatMap(
         curriculum: '2022 개정',
         course,
         total_pages,
-        description: `${course} 과정 (${units[0]?.name} ~ ${units.at(-1)?.name}) · 총 ${total_problems.toLocaleString()}문항${total_types > 0 ? ` · ${total_types}개 유형` : ''}`,
+        description: `${course} 과정 (${units[0]?.name} ~ ${units.at(-1)?.name})${total_types > 0 ? ` · ${total_types}개 유형` : ''}`,
         units,
       };
     })
@@ -654,8 +654,6 @@ export function formatUnitToTextLine(u: ProgressUnit): string {
   const head = u.group ? `${u.group} > ${u.name}` : u.name;
   const extras: string[] = [];
   if (u.start_page && u.end_page) extras.push(`p.${u.start_page}~${u.end_page}`);
-  if (u.start_problem && u.end_problem) extras.push(`#${u.start_problem}~${u.end_problem}`);
-  if (u.problem_count) extras.push(`${u.problem_count}문항`);
   if (u.type_count) extras.push(`${u.type_count}유형`);
   if (u.step_detail) extras.push(u.step_detail);
   return extras.length > 0 ? `${head} | ${extras.join(' | ')}` : head;

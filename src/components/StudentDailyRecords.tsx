@@ -982,10 +982,7 @@ export default function StudentDailyRecords({
                   <div className={styles.bentoInfo}>
                     <div className={styles.bentoLabel}>{primaryBookTitle} 평균 진도</div>
                     <div className={styles.bentoMainStat}>
-                      {avgBookPct}%{' '}
-                      <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>
-                        ({avgDoneProblems}/{avgTotalProblems}문항)
-                      </span>
+                      {avgBookPct}%
                     </div>
                     <div className={styles.bentoLegend} style={{ color: '#059669' }}>
                       {classAvgScore > 0 ? `▲ 최근 시험 평균 ${classAvgScore}점` : '● 학생 카드에서 원클릭 관리'}
@@ -1369,7 +1366,7 @@ export default function StudentDailyRecords({
                             <div className={styles.bookHeaderRow}>
                               <span className={styles.bookTitleText}>📘 {book.title}</span>
                               <span className={styles.bookMetaText}>
-                                {bookPct}% ({bookDoneQ}/{bookTotalQ}문항) · 단원 버튼 {isUnitPopoverOpen ? '닫기 ▴' : '열기 ▸'}
+                                {bookPct}% · 단원 버튼 {isUnitPopoverOpen ? '닫기 ▴' : '열기 ▸'}
                               </span>
                             </div>
                             <div className={styles.unitSegmentGrid}>
@@ -1405,7 +1402,6 @@ export default function StudentDailyRecords({
                             <div className={styles.unitCapsuleList}>
                               {book.units.map(u => {
                                 const st = book.states[u.id] ?? '미시작';
-                                const qCount = unitProblemCount(u);
                                 const badge = st === '완료' ? '🟩 완료' : st === '진행 중' ? '🟦 진행중' : '⬜ 예정';
                                 return (
                                   <button
@@ -1416,7 +1412,6 @@ export default function StudentDailyRecords({
                                     onClick={() => cycleUnitStateFor(s.id, u.id)}
                                   >
                                     <span>{u.name}</span>
-                                    {qCount > 0 && <span style={{ opacity: 0.75 }}>({qCount}문항)</span>}
                                     <span>{badge}</span>
                                   </button>
                                 );

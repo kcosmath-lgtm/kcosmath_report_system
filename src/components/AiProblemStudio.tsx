@@ -129,7 +129,7 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
   const modeMenuRef = useRef<HTMLDivElement>(null);
   const [grade, setGrade] = useState<1 | 2 | 3>(3);
   const [subject, setSubject] = useState("미적분");
-  const [difficulty, setDifficulty] = useState<"하" | "중" | "상" | "킬러">("킬러");
+  const [difficulty, setDifficulty] = useState<"하" | "중" | "상" | "킬러">("상");
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
   const [busyStep, setBusyStep] = useState("");
@@ -1155,8 +1155,8 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    gap: 10,
-                    flexWrap: "wrap",
+                    gap: 12,
+                    flexWrap: "nowrap",
                   }}
                 >
                   {headerLeft ? (
@@ -1170,6 +1170,8 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                             : `1.5px solid ${accent}`,
                         fontSize: Math.max(11, fSize - 1.5),
                         fontWeight: 700,
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
                       }}
                     >
                       {headerLeft}
@@ -1180,12 +1182,14 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
 
                   <strong
                     style={{
-                      fontSize: Math.round(fSize * 1.48),
+                      fontSize: Math.round(fSize * 1.42),
                       fontWeight: 900,
                       letterSpacing: "-0.02em",
                       color: st.headerStyle === "banner" ? "#ffffff" : accent,
                       textAlign: "center",
                       flex: 1,
+                      wordBreak: "keep-all",
+                      lineHeight: 1.25,
                     }}
                   >
                     {displayTitle}
@@ -1202,6 +1206,8 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                             : `1.5px solid ${accent}`,
                         fontSize: Math.max(11, fSize - 1.5),
                         fontWeight: 700,
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
                       }}
                     >
                       {headerRight}
@@ -1215,11 +1221,13 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                   <div
                     style={{
                       marginTop: 10,
-                      display: "grid",
-                      gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                      gap: 6,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      flexWrap: "wrap",
+                      gap: "6px 14px",
                       fontSize: Math.max(10.5, fSize - 2),
-                      padding: "6px 10px",
+                      padding: "7px 12px",
                       borderRadius: 6,
                       border:
                         st.headerStyle === "banner"
@@ -1229,10 +1237,10 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                         st.headerStyle === "banner" ? "rgba(255,255,255,0.12)" : "rgba(248,250,252,0.8)",
                     }}
                   >
-                    <div>학교/반: _____________</div>
-                    <div>학년: _______</div>
-                    <div>성명: _____________</div>
-                    <div>점수: _____ / 100</div>
+                    <div style={{ whiteSpace: "nowrap" }}>학교/반: __________</div>
+                    <div style={{ whiteSpace: "nowrap" }}>학년: _____</div>
+                    <div style={{ whiteSpace: "nowrap" }}>성명: ________</div>
+                    <div style={{ whiteSpace: "nowrap" }}>점수: ____ / 100</div>
                   </div>
                 )}
 
@@ -1261,7 +1269,7 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                 zIndex: 1,
                 display: "grid",
                 gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-                columnGap: cols > 1 ? 26 : 0,
+                columnGap: cols > 1 ? 24 : 0,
                 rowGap: `${gap}px`,
                 alignItems: "start",
               }}
@@ -1283,6 +1291,7 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
               {page.items.map((p, idx) => {
                 const probNum = page.startIdx + idx + 1;
                 const pts = p.points || (p.difficulty === "킬러" || p.difficulty === "상" ? "4점" : "3점");
+                const cleanedQuestion = (p.question || "").replace(/\s*\[[234]점\]\s*$/, "").trim();
                 const choiceCols =
                   st.choiceColumns && st.choiceColumns > 0
                     ? st.choiceColumns
@@ -1297,11 +1306,14 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                     className={styles.examProblemItem}
                     style={{
                       background: "transparent",
-                      border: isPrintMode ? "none" : "1px solid rgba(226,232,240,0.8)",
-                      padding: isPrintMode ? "4px 2px" : "10px",
-                      paddingBottom: `${Math.max(8, solSpace)}px`,
+                      border: "none",
+                      borderRadius: 0,
+                      padding: "2px 4px",
+                      paddingBottom: `${Math.max(12, solSpace)}px`,
                       breakInside: "avoid",
                       pageBreakInside: "avoid",
+                      wordBreak: "keep-all",
+                      overflowWrap: "break-word",
                     }}
                   >
                     <div className={styles.examProblemTop} style={{ marginBottom: 4 }}>
@@ -1344,8 +1356,16 @@ export default function AiProblemStudio({ fullScreen = false }: { fullScreen?: b
                       )}
                     </div>
 
-                    <div className={styles.examProblemText} style={{ fontSize: `${fSize}px`, lineHeight: lHeight }}>
-                      <TypingMath text={p.question} />
+                    <div
+                      className={styles.examProblemText}
+                      style={{
+                        fontSize: `${fSize}px`,
+                        lineHeight: lHeight,
+                        wordBreak: "keep-all",
+                        overflowWrap: "break-word",
+                      }}
+                    >
+                      <TypingMath text={cleanedQuestion} />
                     </div>
 
                     {p.figure && (

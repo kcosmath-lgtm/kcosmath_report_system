@@ -1,44 +1,47 @@
-@font-face {
-    font-family: 'Hamchorom Dotum';
-    src: local('함초롬돋움'), local('HCR Dotum'), local('Hamchorom Dotum');
-    font-weight: normal;
-    font-style: normal;
-}
-
 @import "tailwindcss";
 
 :root {
-  --workspace-header-height: 84px;
-  --workspace-header-gutter: 28px;
-  --workspace-logo-width: 168px;
+  --workspace-header-height: 64px;
+  --workspace-header-gutter: 24px;
+  --workspace-logo-width: 148px;
   --background: #ffffff;
-  --foreground: #171717;
-  /* 함초롬돋움을 CSS 변수로 등록 */
-  --font-hamchorom: 'Hamchorom Dotum', sans-serif;
+  --foreground: #191f28;
+  --surface-canvas: #f9fafb;
+  --surface-card: #ffffff;
+  --surface-subtle: #f2f4f6;
+  --border-hairline: #e5e8eb;
+  --border-strong: #d1d6db;
+  --text-primary: #191f28;
+  --text-secondary: #4e5968;
+  --text-muted: #8b95a1;
+  --accent-primary: #3182f6;
+  --accent-primary-hover: #1b64da;
+  --accent-soft: #eff6ff;
+  --font-pretendard: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  --font-hamchorom: var(--font-pretendard);
 }
 
 @media (max-width: 760px) {
   :root {
     --workspace-header-gutter: 16px;
-    --workspace-logo-width: 140px;
+    --workspace-logo-width: 132px;
   }
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  /* Tailwind 기본 폰트를 함초롬돋움으로 변경 */
-  --font-sans: var(--font-hamchorom); 
+  --font-sans: var(--font-pretendard);
   --font-mono: var(--font-geist-mono);
 }
-
-/* 생략: @media (prefers-color-scheme: dark) 부분은 그대로 두세요 */
 
 body {
   background: var(--background);
   color: var(--foreground);
-  /* font-family를 함초롬돋움 변수로 변경 */
-  font-family: var(--font-hamchorom);
+  font-family: var(--font-pretendard);
+  letter-spacing: -0.015em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 html,
@@ -48,11 +51,11 @@ body {
 }
 
 /* Error-management roster accordion (the page's generated class remains intentionally local). */
-aside section > div:has(> button[aria-expanded]) { display: flex; align-items: center; gap: 7px; padding: 3px 6px; border-radius: 9px; }
-aside section > div:has(> button[aria-expanded]):hover { background: #f1f5f9; }
+aside section > div:has(> button[aria-expanded]) { display: flex; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 8px; transition: background 0.15s ease; }
+aside section > div:has(> button[aria-expanded]):hover { background: #f2f4f6; }
 aside section > div:has(> button[aria-expanded]) > input { flex: 0 0 auto; }
-aside section > div > button[aria-expanded] { min-width: 0; flex: 1; display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 7px; padding: 4px 1px; color: #60758e; text-align: left; }
-aside section > div > button[aria-expanded] > span { overflow: hidden; font-size: 11px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; }
-aside section > div > button[aria-expanded] > small { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: #e8eef5; font-size: 9px; }
+aside section > div > button[aria-expanded] { min-width: 0; flex: 1; display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 7px; padding: 4px 1px; color: #4e5968; text-align: left; }
+aside section > div > button[aria-expanded] > span { overflow: hidden; font-size: 12px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; color: #191f28; }
+aside section > div > button[aria-expanded] > small { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 999px; background: #f2f4f6; color: #4e5968; font-size: 10px; font-weight: 600; }
 aside section > div > button[aria-expanded] svg { transition: transform .18s; }
 aside section > div > button[aria-expanded="true"] svg { transform: rotate(180deg); }

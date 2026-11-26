@@ -8,11 +8,13 @@ export const FLASH_AGENT_MODELS = [
   "gemini-3.1-flash-lite",
 ] as const;
 export const REASONING_AGENT_MODELS = [
+  "gemini-2.5-flash",
+  "gemini-2.5-pro",
+  "gemini-2.0-flash",
   "gemini-4-carbon",
   "gemini-4-neon",
   "gemini-4-hydrogen",
   "gemini-3.1-pro-preview",
-  "gemini-2.5-pro",
   "gemini-3.8-flash",
   "gemini-3.1-flash-lite",
 ] as const;

@@ -177,7 +177,7 @@ export default function ClassBookManager({
       await manageClassBook('save', nextBook);
       setRevision(v => v + 1);
       onChanged();
-      setMessage(`'${preset.title}' (${preset.total_pages}p · ${totalBookProblems(nextBook).toLocaleString()}문항) 교재를 반 교재로 즉시 등록했습니다.`);
+      setMessage(`'${preset.title}' (${preset.units.length}개 단원) 교재를 반 교재로 즉시 등록했습니다.`);
     } catch (e) {
       setMessage(e instanceof Error ? e.message : '교재를 등록하지 못했습니다.');
     } finally {
@@ -355,7 +355,7 @@ export default function ClassBookManager({
       </div>
 
       <p className={styles.helperText}>
-        시중 교재(쎈, 개념원리, RPM, 라이트쎈, 마플시너지, 일품 등)의 실제 단원별 페이지·문항 수·유형 수를 불러와 반 교재로 등록하면, 진도 관리에서 페이지·문항 번호만 입력해도 단원과 문제 수가 자동 계산됩니다.
+        시중 교재(쎈, 개념원리, RPM, 라이트쎈, 마플시너지, 일품 등)의 실제 단원 목차와 유형 수를 불러와 반 교재로 등록하면, 단원 완료 여부에 따라 진도율이 자동 계산됩니다.
       </p>
 
       {message && (
@@ -498,7 +498,6 @@ export default function ClassBookManager({
                   <p className={styles.catalogCardDesc}>{preset.description}</p>
                   <div className={styles.catalogSpecPills}>
                     <span>{preset.units.length}개 단원</span>
-                    <span>{totalProbs.toLocaleString()}문항</span>
                     {totalTypes > 0 && <span>{totalTypes}개 유형</span>}
                     <button
                       type="button"
@@ -513,7 +512,6 @@ export default function ClassBookManager({
                       {preset.units.map((u, idx) => (
                         <li key={idx}>
                           <span>{u.group ? `${u.group} › ` : ''}{u.name}</span>
-                          <small>{u.problem_count}문항</small>
                         </li>
                       ))}
                     </ul>
@@ -564,7 +562,6 @@ export default function ClassBookManager({
             </p>
           ) : (
             books.map(b => {
-              const totalProbs = totalBookProblems(b);
               const totalTypes = totalBookTypes(b);
               const isExpanded = expandedBookId === b.id;
               return (
@@ -578,7 +575,6 @@ export default function ClassBookManager({
                       <small>
                         {b.course ? `${b.course} · ` : ''}
                         {b.units.length}개 단원
-                        {totalProbs > 0 ? ` · 총 ${totalProbs.toLocaleString()}문항` : ''}
                         {totalTypes > 0 ? ` · ${totalTypes}개 유형` : ''}
                       </small>
                     </div>
@@ -587,7 +583,7 @@ export default function ClassBookManager({
                       className={styles.secondaryBtn}
                       onClick={() => setExpandedBookId(isExpanded ? null : b.id)}
                     >
-                      {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />} 단원·문항표
+                      {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />} 단원 목차
                     </button>
                     <button type="button" className={styles.secondaryBtn} disabled={busy} onClick={() => edit(b)}>
                       <Pencil size={13} /> 편집
@@ -603,21 +599,16 @@ export default function ClassBookManager({
                           <tr>
                             <th>대단원</th>
                             <th>중단원명</th>
-                            <th>문항 번호</th>
-                            <th>문항 수</th>
                             <th>유형 수</th>
                             <th>구성 단계</th>
                           </tr>
                         </thead>
                         <tbody>
                           {b.units.map(u => {
-                            const cnt = unitProblemCount(u);
                             return (
                               <tr key={u.id}>
                                 <td>{u.group || '—'}</td>
                                 <td><strong>{u.name}</strong></td>
-                                <td>{u.start_problem && u.end_problem ? `${u.start_problem}번 ~ ${u.end_problem}번` : '—'}</td>
-                                <td>{cnt > 0 ? `${cnt}문항` : '—'}</td>
                                 <td>{u.type_count ? `${u.type_count}유형` : '—'}</td>
                                 <td>{u.step_detail || '—'}</td>
                               </tr>
@@ -652,7 +643,7 @@ export default function ClassBookManager({
 
             <div className={styles.templateRow}>
               <label style={{ flex: 1 }}>
-                시중 교재 프리셋 불러오기 (단원 · 페이지 · 문항수 자동 입력)
+                시중 교재 프리셋 불러오기 (단원 목차 자동 입력)
                 <select
                   defaultValue=""
                   onChange={e => {
@@ -663,7 +654,7 @@ export default function ClassBookManager({
                   <option value="">시중 교재 선택 (쎈, 개념원리, RPM, 라이트쎈, 마플시너지, 일품…)</option>
                   {TEXTBOOK_CATALOG.map(item => (
                     <option key={item.id} value={item.id}>
-                      [{item.category}] {item.title} ({item.total_pages}p · {item.units.reduce((s, u) => s + u.problem_count, 0)}문항)
+                      [{item.category}] {item.title} ({item.units.length}개 단원)
                     </option>
                   ))}
                 </select>
@@ -702,7 +693,6 @@ export default function ClassBookManager({
             <div className={styles.editorModeBar}>
               <div className={styles.editorSummaryBadges}>
                 <span>단원 <b>{unitsDraft.length}개</b></span>
-                <span>총 문항 <b>{draftTotalProblems.toLocaleString()}문항</b></span>
                 {draftTotalTypes > 0 && <span>총 유형 <b>{draftTotalTypes}개</b></span>}
               </div>
               <div className={styles.editorModeButtons}>
@@ -711,7 +701,7 @@ export default function ClassBookManager({
                   className={editorMode === 'table' ? styles.primaryActionBtn : styles.secondaryActionBtn}
                   onClick={() => setEditorMode('table')}
                 >
-                  <Table size={13} /> 단원 · 문항 표 편집
+                  <Table size={13} /> 단원 표 편집
                 </button>
                 <button
                   type="button"
@@ -728,9 +718,6 @@ export default function ClassBookManager({
                 <div className={styles.unitTableHelperBar}>
                   <span>단원명을 등록하면 단원 완료 비율로 학생별 진도율(%)이 자동 계산됩니다.</span>
                   <div className={styles.unitTableHelperBtns}>
-                    <button type="button" className={styles.secondaryActionBtn} onClick={recalculateSequentialProblems}>
-                      1번부터 연속 문항번호 자동 채우기
-                    </button>
                     <button type="button" className={styles.secondaryActionBtn} onClick={addUnitRow}>
                       <Plus size={12} /> 단원 행 추가
                     </button>
@@ -741,13 +728,10 @@ export default function ClassBookManager({
                     <table className={styles.unitEditTable}>
                       <thead>
                         <tr>
-                          <th style={{ width: '165px' }}>대단원</th>
+                          <th style={{ width: '180px' }}>대단원</th>
                           <th>중단원명</th>
-                          <th style={{ width: '74px' }}>시작번</th>
-                          <th style={{ width: '74px' }}>끝번</th>
-                          <th style={{ width: '74px' }}>문항수</th>
-                          <th style={{ width: '68px' }}>유형수</th>
-                          <th style={{ width: '150px' }}>단계 구성 (예: A·B·C단계)</th>
+                          <th style={{ width: '80px' }}>유형수</th>
+                          <th style={{ width: '160px' }}>단계 구성 (예: A·B·C단계)</th>
                           <th style={{ width: '48px' }}>삭제</th>
                         </tr>
                       </thead>
@@ -771,36 +755,6 @@ export default function ClassBookManager({
                                 onChange={e => updateUnitRow(idx, { name: e.target.value })}
                                 placeholder="예: 01. 유리수와 순환소수"
                                 aria-label={`${idx + 1}단원 중단원명`}
-                              />
-                            </td>
-                            <td>
-                              <input
-                                type="number"
-                                min={1}
-                                value={u.start_problem ?? ''}
-                                onChange={e => updateUnitRow(idx, { start_problem: e.target.value ? Number(e.target.value) : undefined })}
-                                placeholder="1"
-                                aria-label={`${idx + 1}단원 시작 문항번호`}
-                              />
-                            </td>
-                            <td>
-                              <input
-                                type="number"
-                                min={1}
-                                value={u.end_problem ?? ''}
-                                onChange={e => updateUnitRow(idx, { end_problem: e.target.value ? Number(e.target.value) : undefined })}
-                                placeholder="132"
-                                aria-label={`${idx + 1}단원 끝 문항번호`}
-                              />
-                            </td>
-                            <td>
-                              <input
-                                type="number"
-                                min={0}
-                                value={u.problem_count ?? ''}
-                                onChange={e => updateUnitRow(idx, { problem_count: e.target.value ? Number(e.target.value) : undefined })}
-                                placeholder="132"
-                                aria-label={`${idx + 1}단원 문항수`}
                               />
                             </td>
                             <td>
@@ -842,13 +796,13 @@ export default function ClassBookManager({
             )}
 
             <label style={{ display: editorMode === 'text' || unitsDraft.length === 0 ? 'flex' : 'none' }}>
-              단원 목차 (한 줄에 한 단원, &ldquo;대단원 &gt; 소단원 | p.8~25 | #1~132 | 132문항 | 18유형&rdquo; 형식 지원)
+              단원 목차 (한 줄에 한 단원, &ldquo;대단원 &gt; 소단원 | 18유형 | A·B·C단계&rdquo; 형식 지원)
               <textarea
                 rows={8}
                 required={unitsDraft.length === 0}
                 value={text}
                 onChange={e => syncUnitsFromText(e.target.value, editing.units)}
-                placeholder="I. 수와 식의 계산 > 01. 유리수와 순환소수 | p.8~25 | #1~132 | 132문항 | 18유형"
+                placeholder="I. 수와 식의 계산 > 01. 유리수와 순환소수 | 18유형 | A·B·C단계"
               />
             </label>
 

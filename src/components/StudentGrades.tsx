@@ -30,26 +30,43 @@ export default function StudentGrades({ groups, history, onSaved, blocked, show,
     });
     setBulkTitleDirty(false);
   }
-  async function read(file: File) {
+  async function read(files: FileList | File[]) {
+    const fileList = Array.from(files);
+    if (!fileList.length) return;
     onBusyChange(true);
-    console.info('[grade-import] file_selected', { size: file.size });
+    console.info('[grade-import] file_selected', { count: fileList.length, sizes: fileList.map(f => f.size) });
     setMessage(''); setPending([]); setBulkTitle(''); setBulkTitleDirty(false); setError(false);
     try {
-      if (file.size > 5 * 1024 * 1024) throw new Error('5MB 이하 파일을 선택해 주세요.');
-      const buffer = await file.arrayBuffer();
-      const bytes = new Uint8Array(buffer);
-      if (bytes[0] === 0x50 || bytes[0] === 0xd0) throw new Error('현재는 배정문제지 목록의 HTML 형식 .xls를 지원합니다. 이 파일 형식은 아직 지원하지 않습니다.');
-      let text = new TextDecoder('utf-8').decode(buffer);
-      if (/charset\s*=\s*["']?(euc-kr|ks_c_5601|cp949)/i.test(text)) text = new TextDecoder('euc-kr').decode(buffer);
-      const doc = new DOMParser().parseFromString(text, 'text/html');
-      const grid = Array.from(doc.querySelectorAll('tr')).map(tr => Array.from(tr.querySelectorAll('th,td')).map(td => td.textContent?.replace(/\u00a0/g,' ').trim() ?? ''));
-      const parsed = parseGradeRows(grid);
-      console.info('[grade-import] file_parsed', { graded: parsed.rows.length, skipped: parsed.skipped });
-      setPending(parsed.rows.map(r => {
-        const matches = students.filter(s => s.name.trim() === r.name.trim() && s.grade.trim() === r.grade.trim());
-        return { ...r, studentId: matches.length === 1 ? matches[0].id : '' };
-      }));
-      setMessage(`${parsed.rows.length}건 확인 · 미채점 ${parsed.skipped}건 제외. 날짜는 생성일 기준이며 시험명과 날짜를 변경할 수 있습니다. 점수 만점은 100점 기준입니다.`);
+      const mergedRows: ImportedGrade[] = [];
+      const seenKeys = new Set<string>();
+      let totalSkipped = 0;
+      let duplicateSkipped = 0;
+      for (const file of fileList) {
+        if (file.size > 5 * 1024 * 1024) throw new Error(`${fileList.length > 1 ? `${file.name}: ` : ''}5MB 이하 파일을 선택해 주세요.`);
+        const buffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        if (bytes[0] === 0x50 || bytes[0] === 0xd0) throw new Error(`${fileList.length > 1 ? `${file.name}: ` : ''}현재는 배정문제지 목록의 HTML 형식 .xls를 지원합니다. 이 파일 형식은 아직 지원하지 않습니다.`);
+        let text = new TextDecoder('utf-8').decode(buffer);
+        if (/charset\s*=\s*["']?(euc-kr|ks_c_5601|cp949)/i.test(text)) text = new TextDecoder('euc-kr').decode(buffer);
+        const doc = new DOMParser().parseFromString(text, 'text/html');
+        const grid = Array.from(doc.querySelectorAll('tr')).map(tr => Array.from(tr.querySelectorAll('th,td')).map(td => td.textContent?.replace(/\u00a0/g,' ').trim() ?? ''));
+        const parsed = parseGradeRows(grid);
+        totalSkipped += parsed.skipped;
+        for (const r of parsed.rows) {
+          if (seenKeys.has(r.key)) {
+            duplicateSkipped++;
+            continue;
+          }
+          seenKeys.add(r.key);
+          const matches = students.filter(s => s.name.trim() === r.name.trim() && s.grade.trim() === r.grade.trim());
+          mergedRows.push({ ...r, studentId: matches.length === 1 ? matches[0].id : '' });
+        }
+      }
+      console.info('[grade-import] file_parsed', { files: fileList.length, graded: mergedRows.length, skipped: totalSkipped, duplicateSkipped });
+      setPending(mergedRows);
+      const filePrefix = fileList.length > 1 ? `${fileList.length}개 파일에서 ` : '';
+      const dupText = duplicateSkipped > 0 ? ` · 중복 ${duplicateSkipped}건 제외` : '';
+      setMessage(`${filePrefix}${mergedRows.length}건 확인 · 미채점 ${totalSkipped}건 제외${dupText}. 날짜는 생성일 기준이며 시험명과 날짜를 변경할 수 있습니다. 점수 만점은 100점 기준입니다.`);
     } catch(e) { console.error('[grade-import] file_read_failed', e instanceof Error ? e.message : 'Unknown error'); setError(true); setMessage(e instanceof Error ? e.message : '파일을 읽지 못했습니다.'); }
     finally { onBusyChange(false); }
   }
@@ -96,7 +113,7 @@ export default function StudentGrades({ groups, history, onSaved, blocked, show,
     finally { setBusy(false); onBusyChange(false); }
   }
   return <>
-    <div className={styles.gradeActions}><label className={styles.filePicker} data-disabled={blocked || busy}>성적 엑셀 가져오기<input ref={fileInput} aria-label="성적 엑셀 가져오기" type="file" disabled={blocked || busy} accept=".xls,.html,.htm" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void read(file); else onBusyChange(false); }} /></label>
+    <div className={styles.gradeActions}><label className={styles.filePicker} data-disabled={blocked || busy}>성적 엑셀 가져오기<input ref={fileInput} aria-label="성적 엑셀 가져오기" type="file" multiple disabled={blocked || busy} accept=".xls,.html,.htm" onChange={e => { const files = e.target.files ? Array.from(e.target.files) : []; e.target.value = ''; if (files.length) void read(files); else onBusyChange(false); }} /></label>
       <button aria-pressed={show} disabled={busy} onClick={() => setShow(!show)}>{show ? '수업 기록 보기' : '성적 보기'}</button>
     </div>
     {message && <p className={styles.message} role={error ? 'alert' : 'status'} data-error={error}>{message}</p>}

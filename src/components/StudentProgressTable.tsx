@@ -527,6 +527,8 @@ export default function StudentProgressTable({
   const [history, setHistory] = useState<{ book: ProgressBook; entries: ProgressEntry[] } | null>(null);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importSourceClassId, setImportSourceClassId] = useState('');
+  const [importSelectedVariantKey, setImportSelectedVariantKey] = useState<string>('');
+  const [importMatchByStudentOption, setImportMatchByStudentOption] = useState(true);
   const [importBusy, setImportBusy] = useState(false);
   const [importPreviewMap, setImportPreviewMap] = useState<
     Record<
@@ -536,15 +538,33 @@ export default function StudentProgressTable({
         className: string;
         studentCount: number;
         hasRecord: boolean;
-        bookTitle: string;
-        isPrint: boolean;
-        sourceBook?: ProgressBook;
-        states: ProgressBook['states'];
-        completedPage: number;
-        scope: string;
-        homework: string;
-        feedback: string;
-        recordDate: string;
+        variants: Array<{
+          key: string;
+          bookTitle: string;
+          isPrint: boolean;
+          sourceBook?: ProgressBook;
+          states: ProgressBook['states'];
+          completedPage: number;
+          scope: string;
+          homework: string;
+          feedback: string;
+          recordDate: string;
+          studentNames: string[];
+        }>;
+        studentRecords: Array<{
+          studentId: string;
+          studentName: string;
+          hasRecord: boolean;
+          bookTitle: string;
+          isPrint: boolean;
+          sourceBook?: ProgressBook;
+          states: ProgressBook['states'];
+          completedPage: number;
+          scope: string;
+          homework: string;
+          feedback: string;
+          recordDate: string;
+        }>;
       }
     >
   >({});
@@ -863,18 +883,16 @@ export default function StudentProgressTable({
 
     const previewEntries = await Promise.all(
       groups.map(async g => {
-        for (const st of g.students) {
-          const live = handles.current[st.id];
-          if (live && live.ready && (live.book || live.scope || live.homework || live.feedback)) {
-            const latestEntry = [...live.entries]
-              .filter(e => e.memo !== '단원 상태 변경')
-              .sort((a, b) => b.record_date.localeCompare(a.record_date) || b.created_at.localeCompare(a.created_at))[0];
-            return [
-              g.id,
-              {
-                classId: g.id,
-                className: g.group,
-                studentCount: g.students.length,
+        const studentRecords = await Promise.all(
+          g.students.map(async st => {
+            const live = handles.current[st.id];
+            if (live && live.ready && (live.book || live.scope || live.homework || live.feedback)) {
+              const latestEntry = [...live.entries]
+                .filter(e => e.memo !== '단원 상태 변경')
+                .sort((a, b) => b.record_date.localeCompare(a.record_date) || b.created_at.localeCompare(a.created_at))[0];
+              return {
+                studentId: st.id,
+                studentName: st.name,
                 hasRecord: Boolean(live.book || live.scope.trim() || live.homework.trim()),
                 bookTitle: live.book?.title || '미연결',
                 isPrint: isPrintBook(live.book),
@@ -885,62 +903,114 @@ export default function StudentProgressTable({
                 homework: live.homework.trim(),
                 feedback: live.feedback.trim(),
                 recordDate: latestEntry?.record_date || date,
-              },
-            ] as const;
+              };
+            }
+
+            try {
+              const data = await loadProgress(st.id);
+              const primaryBook = data.books[0];
+              const sortedEntries = [...data.entries]
+                .filter(e => (!primaryBook || e.book_id === primaryBook.id) && e.memo !== '단원 상태 변경')
+                .sort((a, b) => b.record_date.localeCompare(a.record_date) || b.created_at.localeCompare(a.created_at));
+              const dateEntry = sortedEntries.find(e => e.record_date === date) ?? sortedEntries[0];
+              const scopeVal =
+                dateEntry?.scope?.trim() ||
+                sortedEntries.find(e => e.scope.trim())?.scope.trim() ||
+                (primaryBook && !isPrintBook(primaryBook)
+                  ? primaryBook.units
+                      .filter(u => primaryBook.states[u.id] === '진행 중')
+                      .map(u => u.name)
+                      .slice(0, 2)
+                      .join(', ')
+                  : '') ||
+                '';
+              const hwVal =
+                dateEntry?.homework?.trim() ||
+                sortedEntries.find(e => e.homework.trim())?.homework.trim() ||
+                '';
+              const fbVal =
+                dateEntry?.memo?.trim() ||
+                sortedEntries.find(e => e.memo.trim())?.memo.trim() ||
+                '';
+              const hasRec = Boolean(primaryBook || scopeVal || hwVal);
+              return {
+                studentId: st.id,
+                studentName: st.name,
+                hasRecord: hasRec,
+                bookTitle: primaryBook?.title || '미연결',
+                isPrint: isPrintBook(primaryBook),
+                sourceBook: primaryBook,
+                states: primaryBook?.states ? { ...primaryBook.states } : {},
+                completedPage: primaryBook?.completed_page ?? 0,
+                scope: scopeVal,
+                homework: hwVal,
+                feedback: fbVal,
+                recordDate: dateEntry?.record_date || date,
+              };
+            } catch {
+              return {
+                studentId: st.id,
+                studentName: st.name,
+                hasRecord: false,
+                bookTitle: '기록 없음',
+                isPrint: false,
+                sourceBook: undefined,
+                states: {},
+                completedPage: 0,
+                scope: '',
+                homework: '',
+                feedback: '',
+                recordDate: '',
+              };
+            }
+          })
+        );
+
+        const variantMap = new Map<
+          string,
+          {
+            key: string;
+            bookTitle: string;
+            isPrint: boolean;
+            sourceBook?: ProgressBook;
+            states: ProgressBook['states'];
+            completedPage: number;
+            scope: string;
+            homework: string;
+            feedback: string;
+            recordDate: string;
+            studentNames: string[];
+          }
+        >();
+
+        for (const rec of studentRecords) {
+          if (!rec.hasRecord) continue;
+          const pct = rec.sourceBook ? unitProgressPercent({ units: rec.sourceBook.units, states: rec.states }) : 0;
+          const vKey = `${rec.bookTitle}::${pct}::${rec.scope}::${rec.homework}`;
+          const existing = variantMap.get(vKey);
+          if (existing) {
+            existing.studentNames.push(rec.studentName);
+            if (!existing.feedback && rec.feedback) existing.feedback = rec.feedback;
+          } else {
+            variantMap.set(vKey, {
+              key: vKey,
+              bookTitle: rec.bookTitle,
+              isPrint: rec.isPrint,
+              sourceBook: rec.sourceBook,
+              states: rec.states,
+              completedPage: rec.completedPage,
+              scope: rec.scope,
+              homework: rec.homework,
+              feedback: rec.feedback,
+              recordDate: rec.recordDate,
+              studentNames: [rec.studentName],
+            });
           }
         }
 
-        for (const st of g.students.slice(0, 5)) {
-          try {
-            const data = await loadProgress(st.id);
-            const primaryBook = data.books[0];
-            const sortedEntries = [...data.entries]
-              .filter(e => (!primaryBook || e.book_id === primaryBook.id) && e.memo !== '단원 상태 변경')
-              .sort((a, b) => b.record_date.localeCompare(a.record_date) || b.created_at.localeCompare(a.created_at));
-            const dateEntry = sortedEntries.find(e => e.record_date === date) ?? sortedEntries[0];
-            const scopeVal =
-              dateEntry?.scope?.trim() ||
-              sortedEntries.find(e => e.scope.trim())?.scope.trim() ||
-              (primaryBook && !isPrintBook(primaryBook)
-                ? primaryBook.units
-                    .filter(u => primaryBook.states[u.id] === '진행 중')
-                    .map(u => u.name)
-                    .slice(0, 2)
-                    .join(', ')
-                : '') ||
-              '';
-            const hwVal =
-              dateEntry?.homework?.trim() ||
-              sortedEntries.find(e => e.homework.trim())?.homework.trim() ||
-              '';
-            const fbVal =
-              dateEntry?.memo?.trim() ||
-              sortedEntries.find(e => e.memo.trim())?.memo.trim() ||
-              '';
-            if (primaryBook || scopeVal || hwVal) {
-              return [
-                g.id,
-                {
-                  classId: g.id,
-                  className: g.group,
-                  studentCount: g.students.length,
-                  hasRecord: true,
-                  bookTitle: primaryBook?.title || '미연결',
-                  isPrint: isPrintBook(primaryBook),
-                  sourceBook: primaryBook,
-                  states: primaryBook?.states ? { ...primaryBook.states } : {},
-                  completedPage: primaryBook?.completed_page ?? 0,
-                  scope: scopeVal,
-                  homework: hwVal,
-                  feedback: fbVal,
-                  recordDate: dateEntry?.record_date || date,
-                },
-              ] as const;
-            }
-          } catch {
-            // ignore individual load error
-          }
-        }
+        const variants = Array.from(variantMap.values()).sort(
+          (a, b) => b.studentNames.length - a.studentNames.length
+        );
 
         return [
           g.id,
@@ -948,16 +1018,9 @@ export default function StudentProgressTable({
             classId: g.id,
             className: g.group,
             studentCount: g.students.length,
-            hasRecord: false,
-            bookTitle: '기록 없음',
-            isPrint: false,
-            sourceBook: undefined,
-            states: {},
-            completedPage: 0,
-            scope: '',
-            homework: '',
-            feedback: '',
-            recordDate: '',
+            hasRecord: variants.length > 0,
+            variants,
+            studentRecords,
           },
         ] as const;
       })
@@ -971,89 +1034,152 @@ export default function StudentProgressTable({
       candidateGroups[0];
     if (firstWithRecord) {
       setImportSourceClassId(firstWithRecord.id);
+      setImportSelectedVariantKey(mapObj[firstWithRecord.id]?.variants[0]?.key ?? '');
     }
     setImportBusy(false);
   }
 
   async function applyImportedClassProgress() {
     const sourceInfo = importPreviewMap[importSourceClassId];
-    if (!sourceInfo || !sourceInfo.hasRecord) {
+    if (!sourceInfo || !sourceInfo.hasRecord || sourceInfo.variants.length === 0) {
       setMessage('선택한 반에 가져올 진도 기록이 없습니다.');
       return;
     }
     const rows = targets(targetIds);
     if (!rows) return;
 
+    const chosenVariant =
+      sourceInfo.variants.find(v => v.key === importSelectedVariantKey) ?? sourceInfo.variants[0];
+
+    const targetStudentsById = new Map(students.map(s => [s.id, s]));
+    const sourceRecordByName = new Map(
+      sourceInfo.studentRecords.filter(r => r.hasRecord).map(r => [r.studentName.trim(), r])
+    );
+
     setImportBusy(true);
     setMessage('');
     try {
+      // Determine which record each target student will receive
+      const planByTargetId = new Map<
+        string,
+        {
+          bookTitle: string;
+          isPrint: boolean;
+          sourceBook?: ProgressBook;
+          states: ProgressBook['states'];
+          completedPage: number;
+          scope: string;
+          homework: string;
+          feedback: string;
+        }
+      >();
+      let matchedStudentCount = 0;
+
+      for (const id of targetIds) {
+        const targetStudent = targetStudentsById.get(id);
+        const exactStudentRec =
+          importMatchByStudentOption && targetStudent
+            ? sourceRecordByName.get(targetStudent.name.trim())
+            : undefined;
+        if (exactStudentRec) {
+          matchedStudentCount++;
+          planByTargetId.set(id, exactStudentRec);
+        } else {
+          planByTargetId.set(id, chosenVariant);
+        }
+      }
+
       const assignedMap: Record<string, ProgressBook> = {};
 
-      if (importIncludeBook && sourceInfo.sourceBook) {
-        if (sourceInfo.isPrint) {
-          const missingIds = targetIds.filter(id => !handles.current[id]?.books.some(isPrintBook));
+      if (importIncludeBook) {
+        // 1. Handle print book assignments
+        const printTargetIds = targetIds.filter(id => {
+          const plan = planByTargetId.get(id);
+          return plan?.sourceBook && plan.isPrint;
+        });
+        if (printTargetIds.length > 0) {
+          const missingIds = printTargetIds.filter(id => !handles.current[id]?.books.some(isPrintBook));
           const created = missingIds.length > 0 ? await saveProgressBooks(missingIds.map(createNewPrintBook)) : [];
           const createdMap = Object.fromEntries(created.map(c => [c.book.student_id, c.book]));
-          for (const id of targetIds) {
+          for (const id of printTargetIds) {
             const existingPrint = handles.current[id]?.books.find(isPrintBook);
             const pBook = existingPrint ?? createdMap[id];
             if (pBook) assignedMap[id] = pBook;
           }
-        } else {
-          for (const grp of activeGroups) {
-            const grpTargetIds = grp.students.map(s => s.id).filter(id => targetIds.includes(id));
-            if (!grpTargetIds.length) continue;
+        }
 
+        // 2. Handle regular textbooks per active group and source book title
+        let catalogAdded = false;
+        for (const grp of activeGroups) {
+          const grpTargetIds = grp.students.map(s => s.id).filter(id => targetIds.includes(id));
+          if (!grpTargetIds.length) continue;
+
+          const byBookTitle = new Map<string, { sourceBook: ProgressBook; ids: string[] }>();
+          for (const id of grpTargetIds) {
+            const plan = planByTargetId.get(id);
+            if (!plan?.sourceBook || plan.isPrint) continue;
+            const key = plan.sourceBook.title;
+            const bucket = byBookTitle.get(key);
+            if (bucket) {
+              bucket.ids.push(id);
+            } else {
+              byBookTitle.set(key, { sourceBook: plan.sourceBook, ids: [id] });
+            }
+          }
+
+          for (const { sourceBook, ids } of byBookTitle.values()) {
             let targetClassBook = catalog.find(
               c =>
                 c.class_id === grp.id &&
-                (c.id === sourceInfo.sourceBook?.library_id || c.title === sourceInfo.sourceBook?.title)
+                (c.id === sourceBook.library_id || c.title === sourceBook.title)
             );
 
             if (!targetClassBook) {
               const newClassBook: ClassBook = {
                 id: crypto.randomUUID(),
                 class_id: grp.id,
-                title: sourceInfo.sourceBook.title,
-                curriculum: sourceInfo.sourceBook.curriculum,
-                course: sourceInfo.sourceBook.course,
-                total_pages: sourceInfo.sourceBook.total_pages ?? 0,
+                title: sourceBook.title,
+                curriculum: sourceBook.curriculum,
+                course: sourceBook.course,
+                total_pages: sourceBook.total_pages ?? 0,
                 version: 0,
-                units: sourceInfo.sourceBook.units.map(u => ({ ...u })),
+                units: sourceBook.units.map(u => ({ ...u })),
               };
               const savedCatalog = (await manageClassBook('save', newClassBook)) as ClassBook;
               targetClassBook = savedCatalog || newClassBook;
+              catalogAdded = true;
             }
 
-            const assignedBooks = (await manageClassBook('assign', targetClassBook, grpTargetIds)) as ProgressBook[];
+            const assignedBooks = (await manageClassBook('assign', targetClassBook, ids)) as ProgressBook[];
             for (const b of assignedBooks) {
               assignedMap[b.student_id] = b;
             }
           }
-          setRevision(v => v + 1);
         }
-      }
-
-      const sourceUnitStateByName = new Map<string, ProgressBook['states'][string]>();
-      if (sourceInfo.sourceBook) {
-        for (const u of sourceInfo.sourceBook.units) {
-          const st = sourceInfo.states[u.id];
-          if (st) sourceUnitStateByName.set(`${u.group}::${u.name}`, st);
-          if (st) sourceUnitStateByName.set(u.name, st);
-        }
+        if (catalogAdded) setRevision(v => v + 1);
       }
 
       for (const id of targetIds) {
         const r = handles.current[id];
-        if (!r) continue;
+        const plan = planByTargetId.get(id);
+        if (!r || !plan) continue;
+
         const baseBook = assignedMap[id] ?? r.book;
         const nextPatch: { book?: ProgressBook; scope?: string; homework?: string; feedback?: string } = {};
 
-        if (baseBook && importIncludeBook && sourceInfo.sourceBook) {
+        if (baseBook && importIncludeBook && plan.sourceBook) {
+          const sourceUnitStateByName = new Map<string, ProgressBook['states'][string]>();
+          for (const u of plan.sourceBook.units) {
+            const st = plan.states[u.id];
+            if (st) {
+              sourceUnitStateByName.set(`${u.group}::${u.name}`, st);
+              sourceUnitStateByName.set(u.name, st);
+            }
+          }
           const mappedStates: ProgressBook['states'] = { ...baseBook.states };
           for (const u of baseBook.units) {
             const matchedState =
-              sourceInfo.states[u.id] ??
+              plan.states[u.id] ??
               sourceUnitStateByName.get(`${u.group}::${u.name}`) ??
               sourceUnitStateByName.get(u.name);
             if (matchedState) {
@@ -1064,24 +1190,26 @@ export default function StudentProgressTable({
             ...baseBook,
             states: mappedStates,
             completed_page:
-              baseBook.total_pages && sourceInfo.completedPage
-                ? Math.min(baseBook.total_pages, sourceInfo.completedPage)
-                : sourceInfo.completedPage || baseBook.completed_page || 0,
+              baseBook.total_pages && plan.completedPage
+                ? Math.min(baseBook.total_pages, plan.completedPage)
+                : plan.completedPage || baseBook.completed_page || 0,
           };
         } else if (assignedMap[id]) {
           nextPatch.book = assignedMap[id];
         }
 
-        if (sourceInfo.scope) nextPatch.scope = sourceInfo.scope;
-        if (sourceInfo.homework) nextPatch.homework = sourceInfo.homework;
-        if (importIncludeFeedback && sourceInfo.feedback) nextPatch.feedback = sourceInfo.feedback;
+        if (plan.scope) nextPatch.scope = plan.scope;
+        if (plan.homework) nextPatch.homework = plan.homework;
+        if (importIncludeFeedback && plan.feedback) nextPatch.feedback = plan.feedback;
 
         r.patch(nextPatch);
       }
 
       setImportModalOpen(false);
       setMessage(
-        `'${sourceInfo.className}'의 진도 기록(${sourceInfo.bookTitle}${sourceInfo.scope ? ` · ${sourceInfo.scope}` : ''})을 ${targetIds.length}명에게 그대로 적용했습니다. 우측 상단의 [진도 기록 저장]을 눌러 확정하세요.`
+        matchedStudentCount > 0
+          ? `'${sourceInfo.className}'에서 동일 이름 학생 ${matchedStudentCount}명은 개별 진도로 1:1 매칭하고, 나머지 ${targetIds.length - matchedStudentCount}명은 선택한 진도(${chosenVariant.bookTitle})로 적용했습니다. [진도 기록 저장]을 눌러 확정하세요.`
+          : `'${sourceInfo.className}'의 진도 기록(${chosenVariant.bookTitle}${chosenVariant.scope ? ` · ${chosenVariant.scope}` : ''})을 ${targetIds.length}명에게 적용했습니다. 우측 상단의 [진도 기록 저장]을 눌러 확정하세요.`
       );
     } catch (e) {
       setMessage(e instanceof Error ? e.message : '다른 반 진도를 가져오지 못했습니다.');
@@ -1388,6 +1516,7 @@ export default function StudentProgressTable({
           <section className={styles.modalBody}>
             <p className={styles.helperText}>
               가져올 반을 선택하면 해당 반의 <b>교재·단원 진행률, 오늘 진도 범위, 오늘 부여 과제</b>를 현재 선택된 학생({targetIds.length}명)에게 그대로 적용합니다.
+              반 안에서 <b>학생마다 진도가 다른 경우</b>에도 원하는 학생(그룹)의 진도를 골라 가져오거나, 동명 학생 1:1 자동 매칭으로 가져올 수 있습니다.
             </p>
 
             <div className={styles.importOptionsBar}>
@@ -1404,6 +1533,15 @@ export default function StudentProgressTable({
                 <input
                   type="checkbox"
                   className={styles.check}
+                  checked={importMatchByStudentOption}
+                  onChange={e => setImportMatchByStudentOption(e.target.checked)}
+                />
+                <span>양쪽 반에 같은 이름의 학생이 있으면 그 학생의 개별 진도로 1:1 매칭</span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  className={styles.check}
                   checked={importIncludeFeedback}
                   onChange={e => setImportIncludeFeedback(e.target.checked)}
                 />
@@ -1412,53 +1550,158 @@ export default function StudentProgressTable({
             </div>
 
             {importBusy && Object.keys(importPreviewMap).length === 0 ? (
-              <p className={styles.loadingState}>반별 최근 진도 기록을 불러오는 중…</p>
+              <p className={styles.loadingState}>반별·학생별 최근 진도 기록을 불러오는 중…</p>
             ) : (
               <div className={styles.importModalGrid} role="radiogroup" aria-label="가져올 반 선택">
                 {groups.map(g => {
                   const info = importPreviewMap[g.id];
                   const isSelected = importSourceClassId === g.id;
                   const isCurrentActive = activeGroups.length === 1 && activeGroups[0].id === g.id;
-                  const pct = info?.sourceBook ? unitProgressPercent({ units: info.sourceBook.units, states: info.states }) : 0;
+                  const variants = info?.variants ?? [];
+                  const primaryVariant = variants.find(v => v.key === importSelectedVariantKey) ?? variants[0];
+                  const primaryPct = primaryVariant?.sourceBook
+                    ? unitProgressPercent({ units: primaryVariant.sourceBook.units, states: primaryVariant.states })
+                    : 0;
+                  const matchedNames = info
+                    ? students
+                        .filter(s => targetIds.includes(s.id))
+                        .map(s => s.name.trim())
+                        .filter(name => info.studentRecords.some(r => r.hasRecord && r.studentName.trim() === name))
+                    : [];
+
                   return (
-                    <button
+                    <div
                       key={g.id}
-                      type="button"
+                      role="radio"
+                      aria-checked={isSelected}
+                      tabIndex={0}
                       className={styles.importClassCard}
                       data-selected={isSelected || undefined}
-                      onClick={() => setImportSourceClassId(g.id)}
+                      onClick={() => {
+                        setImportSourceClassId(g.id);
+                        if (variants[0] && !variants.some(v => v.key === importSelectedVariantKey)) {
+                          setImportSelectedVariantKey(variants[0].key);
+                        }
+                      }}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setImportSourceClassId(g.id);
+                          if (variants[0] && !variants.some(v => v.key === importSelectedVariantKey)) {
+                            setImportSelectedVariantKey(variants[0].key);
+                          }
+                        }
+                      }}
                     >
                       <div className={styles.importClassCardMain}>
                         <div className={styles.importClassCardHead}>
                           <strong>{g.group}</strong>
                           <span className={styles.classBookCountPill}>{g.students.length}명</span>
+                          {variants.length > 1 && (
+                            <span
+                              style={{
+                                fontSize: 11,
+                                padding: '2px 8px',
+                                borderRadius: 999,
+                                background: '#fff3e0',
+                                color: '#d97706',
+                                fontWeight: 800,
+                              }}
+                            >
+                              학생별 진도 {variants.length}종류
+                            </span>
+                          )}
                           {isCurrentActive && (
                             <span style={{ fontSize: 11, color: '#6b7684', fontWeight: 600 }}>(현재 보고 있는 반)</span>
                           )}
-                          {info?.recordDate && info.hasRecord && (
+                          {primaryVariant?.recordDate && (
                             <span style={{ fontSize: 11, color: '#3182f6', fontWeight: 700 }}>
-                              최근 기록: {info.recordDate}
+                              최근 기록: {primaryVariant.recordDate}
                             </span>
                           )}
                         </div>
-                        {info?.hasRecord ? (
-                          <div className={styles.importClassCardMeta}>
-                            <div>
-                              📘 교재: <b>{info.bookTitle}</b>
-                              {!info.isPrint && info.sourceBook ? ` (단원 진도율 ${pct}%)` : ''}
-                            </div>
-                            <div>
-                              📍 진도 범위: <b>{info.scope || '—'}</b>
-                            </div>
-                            <div>
-                              📝 부여 과제: <b>{info.homework || '—'}</b>
-                            </div>
-                            {importIncludeFeedback && info.feedback && (
-                              <div>
-                                💬 수업 피드백: <b>{info.feedback}</b>
+
+                        {info?.hasRecord && primaryVariant ? (
+                          <>
+                            {variants.length === 1 ? (
+                              <div className={styles.importClassCardMeta}>
+                                <div>
+                                  📘 교재: <b>{primaryVariant.bookTitle}</b>
+                                  {!primaryVariant.isPrint && primaryVariant.sourceBook ? ` (단원 진도율 ${primaryPct}%)` : ''}
+                                </div>
+                                <div>
+                                  📍 진도 범위: <b>{primaryVariant.scope || '—'}</b>
+                                </div>
+                                <div>
+                                  📝 부여 과제: <b>{primaryVariant.homework || '—'}</b>
+                                </div>
+                                {importIncludeFeedback && primaryVariant.feedback && (
+                                  <div>
+                                    💬 수업 피드백: <b>{primaryVariant.feedback}</b>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className={styles.importVariantList} onClick={e => e.stopPropagation()}>
+                                <span style={{ fontSize: 11.5, fontWeight: 700, color: '#4e5968' }}>
+                                  이 반은 학생마다 진도가 다릅니다. 가져올 진도 그룹(또는 특정 학생 진도)을 선택하세요:
+                                </span>
+                                {variants.map((v, vIdx) => {
+                                  const vPct = v.sourceBook
+                                    ? unitProgressPercent({ units: v.sourceBook.units, states: v.states })
+                                    : 0;
+                                  const isVarActive =
+                                    isSelected &&
+                                    (importSelectedVariantKey === v.key ||
+                                      (!variants.some(item => item.key === importSelectedVariantKey) && vIdx === 0));
+                                  return (
+                                    <button
+                                      key={v.key}
+                                      type="button"
+                                      className={styles.importVariantChip}
+                                      data-active={isVarActive || undefined}
+                                      onClick={() => {
+                                        setImportSourceClassId(g.id);
+                                        setImportSelectedVariantKey(v.key);
+                                      }}
+                                    >
+                                      <div className={styles.importVariantChipLeft}>
+                                        <div className={styles.importVariantStudents}>
+                                          <small>{v.studentNames.length}명</small>
+                                          <span>
+                                            {v.studentNames.slice(0, 5).join(', ')}
+                                            {v.studentNames.length > 5 ? ` 외 ${v.studentNames.length - 5}명` : ''}
+                                          </span>
+                                        </div>
+                                        <div>
+                                          📘 <b>{v.bookTitle}</b>
+                                          {!v.isPrint && v.sourceBook ? ` (${vPct}%)` : ''} · 진도: <b>{v.scope || '—'}</b> · 과제:{' '}
+                                          <b>{v.homework || '—'}</b>
+                                        </div>
+                                      </div>
+                                      <input
+                                        type="radio"
+                                        checked={isVarActive}
+                                        onChange={() => {
+                                          setImportSourceClassId(g.id);
+                                          setImportSelectedVariantKey(v.key);
+                                        }}
+                                        aria-label={`${g.group} 진도 그룹 ${vIdx + 1} 선택`}
+                                        style={{ marginTop: 2, accentColor: '#3182f6' }}
+                                      />
+                                    </button>
+                                  );
+                                })}
                               </div>
                             )}
-                          </div>
+
+                            {isSelected && importMatchByStudentOption && matchedNames.length > 0 && (
+                              <div className={styles.importMatchNotice}>
+                                ✓ 동일 이름 학생 {matchedNames.length}명({matchedNames.slice(0, 4).join(', ')}
+                                {matchedNames.length > 4 ? ' 등' : ''})은 각자의 개별 진도·교재로 1:1 자동 매칭됩니다.
+                              </div>
+                            )}
+                          </>
                         ) : (
                           <div className={styles.importClassCardMeta} style={{ color: '#8b95a1' }}>
                             저장된 진도·과제 기록이 없습니다.
@@ -1469,11 +1712,14 @@ export default function StudentProgressTable({
                         type="radio"
                         name="importSourceClass"
                         checked={isSelected}
-                        onChange={() => setImportSourceClassId(g.id)}
+                        onChange={() => {
+                          setImportSourceClassId(g.id);
+                          if (variants[0]) setImportSelectedVariantKey(variants[0].key);
+                        }}
                         aria-label={`${g.group} 선택`}
                         style={{ marginTop: 4, accentColor: '#3182f6' }}
                       />
-                    </button>
+                    </div>
                   );
                 })}
               </div>

@@ -41,7 +41,7 @@ export function parseGradeRows(grid: string[][]): { rows: ImportedGrade[]; skipp
       if (new Date(`${date}T00:00:00Z`).toISOString().slice(0,10) !== date) throw new Error('유효하지 않은 시험 날짜입니다.');
     }
     const counts = get('정/오').match(/^(\d+)\s*\/\s*(\d+)$/);
-    rows.push({ key: `bank:${get('문제지ID')}`, name: get('학생명'), group: get('반'), grade: get('학년'), title: rawTitle, date, score, max: 100, total: Number(get('문항수').replace(/문항/g,'')) || 0, wrong: counts ? Number(counts[2]) : 0, studentId: '', enabled: true });
+    rows.push({ key: `bank:${get('문제지ID')}`, name: get('학생명'), group: get('반'), grade: get('학년'), title: 'daily test', date, score, max: 100, total: Number(get('문항수').replace(/문항/g,'')) || 0, wrong: counts ? Number(counts[2]) : 0, studentId: '', enabled: true });
   }
   if (!rows.length) throw new Error('가져올 채점 완료 성적이 없습니다.');
   return { rows, skipped };

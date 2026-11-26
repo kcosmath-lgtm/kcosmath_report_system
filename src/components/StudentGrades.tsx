@@ -9,7 +9,7 @@ import styles from './student-daily.module.css';
 export default function StudentGrades({ groups, history, onSaved, blocked, show, setShow, onBusyChange }: { groups: StudentGroup[]; history: StudentDailySave[]; onSaved: (date: string) => void; blocked: boolean; show: boolean; setShow: (show: boolean) => void; onBusyChange: (busy: boolean) => void }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState<ImportedGrade[]>([]);
-  const [bulkTitle, setBulkTitle] = useState('');
+  const [bulkTitle, setBulkTitle] = useState('daily test');
   const [bulkTitleDirty, setBulkTitleDirty] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState(false);
@@ -35,7 +35,7 @@ export default function StudentGrades({ groups, history, onSaved, blocked, show,
     if (!fileList.length) return;
     onBusyChange(true);
     console.info('[grade-import] file_selected', { count: fileList.length, sizes: fileList.map(f => f.size) });
-    setMessage(''); setPending([]); setBulkTitle(''); setBulkTitleDirty(false); setError(false);
+    setMessage(''); setPending([]); setBulkTitle('daily test'); setBulkTitleDirty(false); setError(false);
     try {
       const mergedRows: ImportedGrade[] = [];
       const seenKeys = new Set<string>();
@@ -59,7 +59,7 @@ export default function StudentGrades({ groups, history, onSaved, blocked, show,
           }
           seenKeys.add(r.key);
           const matches = students.filter(s => s.name.trim() === r.name.trim() && s.grade.trim() === r.grade.trim());
-          mergedRows.push({ ...r, studentId: matches.length === 1 ? matches[0].id : '' });
+          mergedRows.push({ ...r, title: 'daily test', studentId: matches.length === 1 ? matches[0].id : '' });
         }
       }
       console.info('[grade-import] file_parsed', { files: fileList.length, graded: mergedRows.length, skipped: totalSkipped, duplicateSkipped });

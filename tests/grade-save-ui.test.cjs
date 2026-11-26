@@ -20,7 +20,9 @@ test('Excel confirmation submits exams on an existing attendance record and repo
   await act(async()=>{root=create(React.createElement(Grades,props));});
   const upload=async()=>act(async()=>{root.root.findByProps({type:'file'}).props.onChange({target:{files:[{size:100,arrayBuffer:async()=>new TextEncoder().encode('<table/>').buffer}],value:'file'}});});
   await upload();
+  assert.equal(root.root.findByProps({'aria-label':'A 시험명'}).props.value,'daily test');
   const bulkInput=root.root.findByProps({'aria-label':'일괄 시험명'});
+  assert.equal(bulkInput.props.value,'daily test');
   await act(async()=>{bulkInput.props.onChange({target:{value:'10월 월말평가'}});});
   const applyBtn=root.root.findAllByType('button').find(b=>b.children.join('')==='시험명 일괄 적용');
   await act(async()=>{applyBtn.props.onClick();});

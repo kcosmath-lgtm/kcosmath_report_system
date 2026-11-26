@@ -893,6 +893,183 @@ function buildExamStyleFromPrompt(
   return { style: next, reset, summaryParts };
 }
 
+interface ReportFeedbackStudentInput {
+  id?: string;
+  name: string;
+  grade?: string;
+  group?: string;
+  attRate?: number | null;
+  todayAtt?: string;
+  hwRate?: number | null;
+  todayHw?: string | null;
+  avgScore?: number | null;
+  latestExam?: string;
+  wrongSummary?: string;
+  progressSummary?: string;
+  nextHomework?: string;
+}
+
+function buildPersonalizedStudentFeedback(
+  st: ReportFeedbackStudentInput,
+  idx: number,
+  periodKor: string
+): { studentId?: string; studentName: string; feedback: string } {
+  const sentences: string[] = [];
+  const pLabel = periodKor || "수업";
+  const gradeGroup = [st.grade, st.group].filter(Boolean).join(" · ");
+
+  // 1. 출결 + 과제 문장 (있는 요소만 자연스럽게 조합, 둘 다 빠져 있어도 자연스러운 도입부 생성)
+  let attPhrase = "";
+  if (st.todayAtt === "결석") {
+    attPhrase = `당일 부득이한 결석이 있었으나 보충 학습 안내를 통해 진도 공백이 생기지 않도록 세심히 관리하고 있습니다`;
+  } else if (st.todayAtt === "지각") {
+    attPhrase = `등원 시간이 다소 늦었으나 입실 후에는 수업에 빠르게 집중하며 핵심 개념을 성실히 따라왔습니다`;
+  } else if (st.attRate !== null && st.attRate !== undefined) {
+    attPhrase =
+      st.attRate >= 95
+        ? `출석률 ${st.attRate}%의 성실한 등원 태도`
+        : st.attRate >= 80
+          ? `출석률 ${st.attRate}%로 꾸준한 학습 참여`
+          : `출석률 ${st.attRate}%로 등원 리듬을 다잡아 가는 모습`;
+  } else if (st.todayAtt === "출석") {
+    attPhrase = `정상 등원하여 높은 수업 집중력`;
+  }
+
+  let hwPhrase = "";
+  if (st.todayHw === "X" || (st.hwRate !== null && st.hwRate !== undefined && st.hwRate < 50)) {
+    hwPhrase =
+      st.hwRate !== null && st.hwRate !== undefined
+        ? `과제 수행률(${st.hwRate}%)을 높이기 위해 수업 전 과제 완수 습관을 집중 지도하고 있습니다.`
+        : `당일 미완료된 과제는 다음 수업 전까지 끝까지 풀어올 수 있도록 독려하였습니다.`;
+  } else if (st.todayHw === "△" || (st.hwRate !== null && st.hwRate !== undefined && st.hwRate < 85)) {
+    hwPhrase =
+      st.hwRate !== null && st.hwRate !== undefined
+        ? `과제 수행률 ${st.hwRate}%를 기록하며 어려운 문항도 끝까지 스스로 해결하려는 노력을 보이고 있습니다.`
+        : `부여된 과제를 포기하지 않고 풀어오며 부족한 문항은 수업 중 함께 점검하였습니다.`;
+  } else if (st.todayHw === "O" || (st.hwRate !== null && st.hwRate !== undefined)) {
+    hwPhrase =
+      st.hwRate !== null && st.hwRate !== undefined
+        ? `과제 수행률 ${st.hwRate}%로 안정적인 자기주도 학습 습관을 보여주고 있습니다.`
+        : `부여된 과제를 성실히 완수하여 안정적인 학습 리듬을 유지하고 있습니다.`;
+  }
+
+  if (st.todayAtt === "결석" || st.todayAtt === "지각") {
+    sentences.push(`${st.name} 학생은 이번 ${pLabel} 과정 중 ${attPhrase}.`);
+    if (hwPhrase) sentences.push(hwPhrase);
+  } else if (attPhrase && hwPhrase) {
+    sentences.push(`${st.name} 학생은 이번 ${pLabel} 기간 ${attPhrase}와 함께 ${hwPhrase}`);
+  } else if (attPhrase) {
+    sentences.push(`${st.name} 학생은 이번 ${pLabel} 기간 ${attPhrase}를 바탕으로 수업에 적극 참여하고 있습니다.`);
+  } else if (hwPhrase) {
+    sentences.push(`${st.name} 학생은 이번 ${pLabel} 기간 ${hwPhrase}`);
+  } else {
+    const introVariants = [
+      `${st.name} 학생은 ${gradeGroup ? `${gradeGroup} ` : ""}수업에서 매 시간 차분한 태도로 핵심 개념 설명에 집중하며 학습 호흡을 안정적으로 이어가고 있습니다.`,
+      `${st.name} 학생은 이번 ${pLabel} 수업에서 수학적 개념의 원리를 정확히 이해하고 스스로 풀이 과정을 정리하는 힘을 길러가고 있습니다.`,
+      `${st.name} 학생은 ${gradeGroup ? `${gradeGroup} ` : ""}과정에서 배운 공식과 개념을 문제에 차근차근 적용하며 기초 체력을 탄탄히 다지고 있습니다.`,
+    ];
+    sentences.push(introVariants[idx % introVariants.length]);
+  }
+
+  // 2. 진도 + 성적 + 오답 문장 (기록된 요소만 선택적으로 조합)
+  const progText = st.progressSummary?.trim() || "";
+  const wrongText = st.wrongSummary?.trim() || "";
+  const hasScore = st.avgScore !== null && st.avgScore !== undefined;
+  const scoreLabel = st.latestExam?.trim()
+    ? `${st.latestExam.trim()} 등 평가 평균 ${st.avgScore}점`
+    : `테스트 평균 ${st.avgScore}점`;
+
+  if (progText && hasScore && wrongText) {
+    sentences.push(
+      `현재 '${progText}' 진도를 학습하며 ${scoreLabel}의 성취도를 기록하였고, ${wrongText} 과정을 통해 약점 유형까지 꼼꼼하게 보완하고 있습니다.`
+    );
+  } else if (progText && hasScore) {
+    sentences.push(
+      `현재 '${progText}' 과정을 학습하며 ${scoreLabel}을 기록하는 등 배운 개념을 실전 문항에 안정적으로 적용하고 있습니다.`
+    );
+  } else if (progText && wrongText) {
+    sentences.push(
+      `현재 '${progText}' 진도를 나아가며 ${wrongText} 클리닉을 병행하여 틀린 문항의 풀이 논리를 확실히 자기 것으로 만들고 있습니다.`
+    );
+  } else if (hasScore && wrongText) {
+    sentences.push(
+      `최근 실시한 평가에서 ${scoreLabel}을 기록하였으며, ${wrongText} 학습을 통해 실수하기 쉬운 유형을 집중 보완하고 있습니다.`
+    );
+  } else if (progText) {
+    sentences.push(
+      `현재 '${progText}' 단원의 핵심 개념과 필수 예제 풀이 과정을 꼼꼼히 익히며 단원 이해도를 높여가고 있습니다.`
+    );
+  } else if (hasScore) {
+    sentences.push(
+      `최근 평가에서 ${scoreLabel}을 기록하며 배운 단원의 핵심 유형을 실전 문제에 적용하는 연습을 꾸준히 이어가고 있습니다.`
+    );
+  } else if (wrongText) {
+    sentences.push(
+      `수업 중 ${wrongText} 과정을 성실히 이행하며 헷갈렸던 개념과 풀이 단계를 빈틈없이 다시 점검하고 있습니다.`
+    );
+  }
+
+  // 3. 다음 과제 또는 격려 마무리 문장
+  if (st.nextHomework?.trim()) {
+    sentences.push(
+      `다음 수업 과제인 '${st.nextHomework.trim()}'까지 스스로 풀어보며 오늘 배운 내용을 한번 더 복습할 수 있도록 가정에서도 따뜻한 격려 부탁드립니다.`
+    );
+  } else if (sentences.length < 2) {
+    const closingVariants = [
+      `앞으로도 단원별 핵심 유형과 서술형 풀이 과정을 빈틈없이 점검하여 실전 자신감을 더욱 높여가겠습니다.`,
+      `꾸준한 개념 복습과 오답 정리가 실력 향상으로 이어질 수 있도록 다음 수업에서도 세심하게 지도하겠습니다.`,
+      `배운 내용을 스스로 끝까지 풀어내는 습관이 잘 자리 잡을 수 있도록 학원에서도 계속해서 꼼꼼히 챙기겠습니다.`,
+    ];
+    sentences.push(closingVariants[idx % closingVariants.length]);
+  }
+
+  return {
+    studentId: st.id,
+    studentName: st.name,
+    feedback: sentences.join(" "),
+  };
+}
+
+function extractFeedbackStudentsList(
+  contextData?: Record<string, unknown>,
+  roster?: Array<{
+    group: string;
+    students: Array<{
+      id?: string;
+      name: string;
+      grade: string;
+      attendance?: string;
+      homework?: string | null;
+      wrongSummary?: string;
+      examsSummary?: string;
+      bookTitle?: string;
+      progressPct?: number;
+      latestScope?: string;
+      latestHomework?: string;
+    }>;
+  }>
+): ReportFeedbackStudentInput[] {
+  if (Array.isArray(contextData?.students) && contextData.students.length > 0) {
+    return contextData.students as ReportFeedbackStudentInput[];
+  }
+  if (Array.isArray(roster) && roster.length > 0) {
+    return roster.flatMap(g =>
+      g.students.map(s => ({
+        id: s.id,
+        name: s.name,
+        grade: s.grade,
+        group: g.group,
+        todayAtt: s.attendance || undefined,
+        todayHw: s.homework ?? undefined,
+        wrongSummary: s.wrongSummary || undefined,
+        progressSummary: [s.bookTitle, s.latestScope].filter(Boolean).join(" ").trim() || undefined,
+        nextHomework: s.latestHomework || undefined,
+      }))
+    );
+  }
+  return [];
+}
+
 function buildSmartFallbackResponse(body: {
   prompt: string;
   mode: string;
@@ -1015,39 +1192,16 @@ function buildSmartFallbackResponse(body: {
     };
   }
 
-  if (mode === "report_feedback") {
-    const studentsData = Array.isArray(body.contextData?.students)
-      ? (body.contextData?.students as Array<{
-          id?: string;
-          name: string;
-          grade?: string;
-          group?: string;
-          attRate?: number | null;
-          hwRate?: number | null;
-          avgScore?: number | null;
-          wrongSummary?: string;
-          progressSummary?: string;
-        }>)
-      : [];
+  if (mode === "report_feedback" || /총평|피드백.*(?:작성|생성|써|만들)|코멘트.*(?:작성|생성|써|만들)/.test(prompt)) {
+    const studentsData = extractFeedbackStudentsList(body.contextData, body.roster);
     const periodKor = String(body.contextData?.periodKor || "수업");
-    const feedbacks = studentsData.map(st => {
-      const attPart = st.attRate !== null && st.attRate !== undefined ? `출석률 ${st.attRate}%` : "성실한 등원";
-      const hwPart = st.hwRate !== null && st.hwRate !== undefined ? `과제 수행률 ${st.hwRate}%` : "과제 이행";
-      const scorePart = st.avgScore !== null && st.avgScore !== undefined ? `최근 테스트 평균 ${st.avgScore}점을 기록하며 ` : "";
-      const progPart = st.progressSummary ? `'${st.progressSummary}' 진도를 학습 중이며, ` : "";
-      const wrongPart = st.wrongSummary ? `${st.wrongSummary} 상태로 약점 유형을 꼼꼼히 보완하고 있습니다.` : "핵심 개념과 풀이 과정을 탄탄하게 다지고 있습니다.";
-      return {
-        studentId: st.id,
-        studentName: st.name,
-        feedback: `${st.name} 학생은 이번 ${periodKor} 기간 ${attPart}, ${hwPart}로 안정적인 학습 리듬을 유지하고 있습니다. ${progPart}${scorePart}${wrongPart}`,
-      };
-    });
+    const feedbacks = studentsData.map((st, idx) => buildPersonalizedStudentFeedback(st, idx, periodKor));
     actions.push({
       type: "generate_report_feedbacks",
       feedbacks,
     });
     return {
-      reply: `선택한 **${feedbacks.length}명**의 출결·과제·성적·진도 데이터를 분석하여 학생별 맞춤 피드백 코멘트를 작성했습니다.`,
+      reply: `선택한 **${feedbacks.length}명**의 학습 기록(기록된 요소 기준)을 분석하여 학생별 맞춤 총평 코멘트를 작성했습니다.`,
       actions,
     };
   }
@@ -1561,7 +1715,18 @@ ${
 }`
         : mode === "report_feedback"
         ? `당신은 수학 학원 올인원 워크스페이스 '유니데스크(UNIDESK)'의 리포트 총평 전문 AI(Flash 모델)입니다.
-전달된 각 학생의 실제 학습 지표(출결, 과제 수행률, 오답 클리닉 상태, 시험 성적 추이, 오늘/기간 교재 진도 범위)를 바탕으로 학부모님께 신뢰감을 주는 다정하고 구체적인 맞춤형 피드백 코멘트(2~3문장)를 학생별로 각각 다르게 작성하세요.
+전달된 각 학생의 실제 학습 지표(출결, 과제 수행률, 오답 클리닉 상태, 시험 성적 추이, 오늘/기간 교재 진도 범위, 다음 과제)를 바탕으로 학부모님께 신뢰감을 주는 다정하고 구체적인 맞춤형 피드백 코멘트(2~3문장)를 학생별로 각각 다르게 작성하세요.
+
+[중요 원칙 — 일부 요소가 빠져 있거나 비어 있을 때의 처리 규칙]
+1. 출결(attRate/todayAtt), 과제(hwRate/todayHw), 성적(avgScore), 진도(progressSummary), 오답(wrongSummary) 중 **하나 이상의 요소가 빠져 있거나(null 또는 빈 문자열) 전부 비어 있더라도 절대 오류를 내거나 누락을 지적하지 마세요**.
+2. 기록되어 있는 요소만 자연스럽게 문장에 녹여 작성하고, 빠져 있는 요소는 언급을 생략하세요. 모든 지표가 비어 있는 학생이라도 학생의 이름·학년·반과 리포트 기간(${String(ctxObj.periodKor || "수업")})에 맞춰 수업 참여 태도와 개념 학습·복습 격려를 담은 자연스러운 2~3문장 총평을 반드시 작성하세요.
+3. 전달된 모든 학생에 대해 빠짐없이 각각의 studentId와 studentName을 그대로 유지하여 반환하세요.
+
+[리포트 기간]: ${String(ctxObj.periodKor || "일일")} (${String(ctxObj.date || "")})
+[활성화된 리포트 포함 요소]: ${Array.isArray(ctxObj.enabledKinds) ? ctxObj.enabledKinds.join(", ") : "전체"}
+[대상 학생 데이터 목록 (students)]:
+${JSON.stringify(extractFeedbackStudentsList(ctxObj, body.roster as Array<{ group: string; students: Array<{ name: string; grade: string }> }> | undefined)).slice(0, 24000)}
+
 반드시 아래 JSON 스키마만 반환하세요:
 {
   "reply": "생성 완료 안내 메시지",
@@ -1569,7 +1734,7 @@ ${
     {
       "type": "generate_report_feedbacks",
       "feedbacks": [
-        { "studentId": "학생ID", "studentName": "학생이름", "feedback": "맞춤 피드백 본문" }
+        { "studentId": "전달된 학생의 id 그대로", "studentName": "전달된 학생의 name 그대로", "feedback": "맞춤 피드백 본문 (2~3문장)" }
       ]
     }
   ]
@@ -1904,6 +2069,72 @@ ${
     // Attach 1:1 sourceOrigin token metadata to any generated problems
     const allTokens = loadAllProblemTokens();
     const rawActions = Array.isArray(parsed.actions) ? (parsed.actions as AiCopilotAction[]) : [];
+
+    // Ensure report_feedback mode ALWAYS returns complete, matched feedbacks for every requested student
+    if (mode === "report_feedback" || /총평|피드백.*(?:작성|생성|써|만들)|코멘트.*(?:작성|생성|써|만들)/.test(prompt)) {
+      const requestedStudents = extractFeedbackStudentsList(
+        ctxObj,
+        body.roster as Array<{ group: string; students: Array<{ name: string; grade: string }> }> | undefined
+      );
+      const periodKor = String(ctxObj.periodKor || "수업");
+      let fbAction = rawActions.find(a => a.type === "generate_report_feedbacks") as
+        | Extract<AiCopilotAction, { type: "generate_report_feedbacks" }>
+        | undefined;
+
+      const topLevelList = Array.isArray((parsed as Record<string, unknown>).feedbacks)
+        ? ((parsed as Record<string, unknown>).feedbacks as Array<{ studentId?: string; studentName?: string; feedback?: string }>)
+        : Array.isArray((parsed as Record<string, unknown>).reportFeedbacks)
+          ? ((parsed as Record<string, unknown>).reportFeedbacks as Array<{ studentId?: string; studentName?: string; feedback?: string }>)
+          : [];
+
+      if (!fbAction) {
+        fbAction = {
+          type: "generate_report_feedbacks",
+          feedbacks: topLevelList
+            .filter(item => typeof item?.feedback === "string" && item.feedback.trim().length > 0)
+            .map(item => ({
+              studentId: typeof item.studentId === "string" ? item.studentId : undefined,
+              studentName: typeof item.studentName === "string" ? item.studentName : "",
+              feedback: String(item.feedback).trim(),
+            })),
+        };
+        rawActions.push(fbAction);
+      } else if (!Array.isArray(fbAction.feedbacks)) {
+        fbAction.feedbacks = [];
+      }
+
+      if (requestedStudents.length > 0) {
+        const existingItems = fbAction.feedbacks;
+        const usedIndices = new Set<number>();
+        fbAction.feedbacks = requestedStudents.map((st, idx) => {
+          const matchIdx = existingItems.findIndex((item, i) => {
+            if (usedIndices.has(i) || !item?.feedback?.trim()) return false;
+            if (st.id && item.studentId === st.id) return true;
+            if (st.name && item.studentName === st.name) return true;
+            if (st.name && item.studentName && (item.studentName.includes(st.name) || st.name.includes(item.studentName))) {
+              return true;
+            }
+            return false;
+          });
+          const pickedIdx =
+            matchIdx !== -1
+              ? matchIdx
+              : !usedIndices.has(idx) && existingItems[idx]?.feedback?.trim() && existingItems[idx]?.studentId !== "학생ID"
+                ? idx
+                : -1;
+          if (pickedIdx !== -1) {
+            usedIndices.add(pickedIdx);
+            return {
+              studentId: st.id,
+              studentName: st.name,
+              feedback: existingItems[pickedIdx].feedback.trim(),
+            };
+          }
+          return buildPersonalizedStudentFeedback(st, idx, periodKor);
+        });
+      }
+    }
+
     if (isExamStylePrompt(prompt) && !rawActions.some(a => a.type === "update_exam_style")) {
       const currentExamStyle = (body.contextData as Record<string, unknown> | undefined)?.currentExamStyle as
         | ExamPaperStyle

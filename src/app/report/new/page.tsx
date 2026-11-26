@@ -551,6 +551,11 @@ export default function NewReportPage(){
  }, [bulkFeedbackTargets, students, persistStudentFeedback]);
 
  const handleAiGeneratePersonalizedFeedbacks = useCallback(async (customTargetIds?: string[]) => {
+  if (students.length === 0) {
+   setSidebar(true);
+   setMessage('왼쪽 학생 목록에서 AI 맞춤 총평을 작성할 학생이나 반을 먼저 선택해 주세요.');
+   return;
+  }
   const targetIds = (
    customTargetIds && customTargetIds.length > 0
     ? customTargetIds
@@ -560,44 +565,80 @@ export default function NewReportPage(){
   ).filter(id => students.some(s => s.id === id));
   if (targetIds.length === 0 || aiFeedbackBusy) return;
 
+  // 피드백 요소가 꺼져 있었다면 총평이 바로 보이도록 자동 활성화
+  setEnabledKinds(prev => (prev.includes('feedback') ? prev : [...prev, 'feedback']));
+
   setAiFeedbackBusy(true);
-  setMessage(`Flash AI가 ${targetIds.length}명의 출결·과제·성적·진도 기록을 분석하여 학생별 맞춤 피드백을 작성하고 있습니다...`);
+  setMessage(`Flash AI가 ${targetIds.length}명의 기록된 학습 요소를 분석하여 학생별 맞춤 총평을 작성하고 있습니다...`);
 
   try {
    const targetReports = reports.filter(r => targetIds.includes(r.id));
-   const studentsContext = targetReports.map(r => {
+   const useAtt = enabledKinds.includes('attendance');
+   const useHw = enabledKinds.includes('homework');
+   const useGrades = enabledKinds.includes('grades');
+   const useWrong = enabledKinds.includes('wrong');
+   const useProg = enabledKinds.includes('progress');
+
+   const studentsContext = (targetReports.length > 0 ? targetReports : students.filter(s => targetIds.includes(s.id)).map(s => ({
+    ...s,
+    start,
+    end,
+    daily: [],
+    wrong: [],
+    books: [],
+    entries: [],
+   }))).map(r => {
     const dailyInPeriod = r.daily.filter(d => d.record_date >= r.start && d.record_date <= r.end);
     const wrongInPeriod = r.wrong.filter(w => w.record_date >= r.start && w.record_date <= r.end);
     const entriesInPeriod = r.entries.filter(e => e.record_date >= r.start && e.record_date <= r.end && (e.scope?.trim() || e.homework?.trim()));
 
     const recordedAtt = dailyInPeriod.filter(d => Boolean(d.attendance)).length;
     const attended = dailyInPeriod.filter(d => d.attendance === '출석').length;
-    const attRate = recordedAtt > 0 ? Math.round((attended / recordedAtt) * 100) : null;
+    const attRate = useAtt && recordedAtt > 0 ? Math.round((attended / recordedAtt) * 100) : null;
+    const todayDaily = [...dailyInPeriod].reverse().find(d => d.record_date === r.end) ?? dailyInPeriod[dailyInPeriod.length - 1];
+    const todayAtt = useAtt && r.start === r.end ? (todayDaily?.attendance || '') : '';
 
     const hwRecorded = wrongInPeriod.filter(w => w.homework_status === 'O' || w.homework_status === '△' || w.homework_status === 'X');
     const hwDone = hwRecorded.filter(w => w.homework_status === 'O').length;
     const hwPartial = hwRecorded.filter(w => w.homework_status === '△').length;
-    const hwRate = hwRecorded.length > 0 ? Math.round(((hwDone + hwPartial * 0.5) / hwRecorded.length) * 100) : null;
+    const hwRate = useHw && hwRecorded.length > 0 ? Math.round(((hwDone + hwPartial * 0.5) / hwRecorded.length) * 100) : null;
+    const todayWrongRec = [...wrongInPeriod].reverse().find(w => w.record_date === r.end) ?? wrongInPeriod[wrongInPeriod.length - 1];
+    const todayHw = useHw && r.start === r.end ? (todayWrongRec?.homework_status ?? null) : null;
 
-    const allExams = r.daily
-     .filter(d => d.record_date <= r.end)
-     .flatMap(d => d.exams.map(ex => (ex.max_score > 0 ? Math.round((ex.score / ex.max_score) * 100) : 0)));
-    const avgScore = allExams.length > 0 ? Math.round(allExams.reduce((a, b) => a + b, 0) / allExams.length) : null;
+    const allExams = useGrades
+     ? r.daily
+        .filter(d => d.record_date <= r.end)
+        .flatMap(d => d.exams.map(ex => ({
+         name: ex.name,
+         rate: ex.max_score > 0 ? Math.round((ex.score / ex.max_score) * 100) : 0,
+        })))
+     : [];
+    const avgScore = allExams.length > 0 ? Math.round(allExams.reduce((a, b) => a + b.rate, 0) / allExams.length) : null;
+    const latestExam = allExams.length > 0 ? allExams[allExams.length - 1].name : '';
 
     const totalWrong = wrongInPeriod.reduce((a, b) => a + b.total_wrong, 0);
     const fixedWrong = wrongInPeriod.reduce((a, b) => a + b.corrected_count, 0);
-    const wrongSummary =
-     totalWrong > 0
-      ? `오답 ${totalWrong}문항 중 ${fixedWrong}문항 해결`
-      : wrongInPeriod.some(w => w.completed)
-        ? '오답 클리닉 완료'
-        : '';
+    const wrongSummary = !useWrong
+     ? ''
+     : wrongInPeriod.some(w => w.completed) || (totalWrong > 0 && fixedWrong >= totalWrong)
+       ? '오답 클리닉 완료'
+       : totalWrong > 0
+         ? `오답 ${totalWrong}문항 중 ${fixedWrong}문항 해결`
+         : '';
 
     const latestEntry = entriesInPeriod[entriesInPeriod.length - 1];
-    const bookTitle = latestEntry ? r.books.find(b => b.id === latestEntry.book_id)?.title || '' : r.books[0]?.title || '';
-    const progressSummary = latestEntry?.scope?.trim()
-     ? `${bookTitle ? `${bookTitle} ` : ''}${latestEntry.scope.trim()}`
-     : bookTitle;
+    const activeBooks = r.books.filter(b => !b.archived && b.curriculum !== '프린트' && b.title !== '프린트 · 유인물');
+    const bookTitle = latestEntry
+     ? r.books.find(b => b.id === latestEntry.book_id)?.title || ''
+     : activeBooks[0]?.title || '';
+    const progressSummary = !useProg
+     ? ''
+     : latestEntry?.scope?.trim()
+       ? `${bookTitle ? `${bookTitle} ` : ''}${latestEntry.scope.trim()}`
+       : bookTitle;
+    const nextHomework = useProg && showNextHomework && latestEntry?.homework?.trim()
+     ? `${bookTitle ? `[${bookTitle}] ` : ''}${latestEntry.homework.trim()}`
+     : '';
 
     return {
      id: r.id,
@@ -605,39 +646,52 @@ export default function NewReportPage(){
      grade: r.grade,
      group: r.group,
      attRate,
+     todayAtt,
      hwRate,
+     todayHw,
      avgScore,
+     latestExam,
      wrongSummary,
      progressSummary,
+     nextHomework,
     };
    });
 
    const res = await sendAiCopilotMessage({
-    prompt: `${periodKorText} 학습 보고서에 들어갈 학생별 맞춤 선생님 총평 코멘트를 각 학생의 실제 데이터(출결, 과제, 성적, 진도, 오답)에 맞게 정중하고 구체적인 2~3문장으로 각각 다르게 작성해줘.`,
+    prompt: `${periodKorText} 학습 보고서에 들어갈 학생별 맞춤 선생님 총평 코멘트를 작성해줘. 출결·과제·성적·진도·오답 중 일부 항목이나 기록이 빠져 있더라도 절대 실패하지 말고, 각 학생에게 기록되어 있는 요소(기록이 없으면 학년·반·수업 태도)만 자연스럽게 활용하여 정중하고 구체적인 2~3문장으로 각각 다르게 작성해줘.`,
     mode: 'report_feedback',
     pathname: '/report/new',
     useWebSearch: false,
     contextData: {
      periodKor: periodKorText,
      date: end,
+     enabledKinds,
      students: studentsContext,
     },
    });
 
    const generatedList = res.reportFeedbacks || [];
+   const pool = targetReports.length > 0 ? targetReports : students.filter(s => targetIds.includes(s.id));
+   const appliedIds = new Set<string>();
    let appliedCount = 0;
-   for (const item of generatedList) {
+
+   for (let idx = 0; idx < generatedList.length; idx++) {
+    const item = generatedList[idx];
+    if (!item?.feedback?.trim()) continue;
     const matchedStudent =
-     targetReports.find(r => r.id === item.studentId) ||
-     targetReports.find(r => r.name === item.studentName);
-    if (matchedStudent && item.feedback?.trim()) {
+     pool.find(r => r.id === item.studentId) ||
+     pool.find(r => r.name === item.studentName) ||
+     pool.find(r => item.studentName && (item.studentName.includes(r.name) || r.name.includes(item.studentName))) ||
+     pool[idx];
+    if (matchedStudent && !appliedIds.has(matchedStudent.id)) {
      handleEditFeedback(matchedStudent.id, end, item.feedback.trim());
+     appliedIds.add(matchedStudent.id);
      appliedCount++;
     }
    }
 
    if (appliedCount > 0) {
-    setMessage(`✨ AI가 ${appliedCount}명의 실제 출결·성적·진도 데이터를 분석하여 학생별 맞춤 피드백을 자동 작성했습니다.`);
+    setMessage(`✨ AI가 ${appliedCount}명의 기록된 학습 요소를 바탕으로 학생별 맞춤 총평을 자동 작성했습니다.`);
    } else {
     setMessage('AI 피드백 응답을 받지 못했습니다. 다시 시도해 주세요.');
    }
@@ -646,7 +700,7 @@ export default function NewReportPage(){
   } finally {
    setAiFeedbackBusy(false);
   }
- }, [bulkFeedbackTargets, students, aiFeedbackBusy, reports, periodKorText, end, handleEditFeedback]);
+ }, [bulkFeedbackTargets, students, aiFeedbackBusy, reports, enabledKinds, showNextHomework, start, periodKorText, end, handleEditFeedback]);
 
  const progressSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
  const latestReportsRef = useRef<Preview[]>([]);
@@ -774,6 +828,36 @@ export default function NewReportPage(){
    return { ...r, books: nextBooks, entries: nextEntries };
   }));
  }, []);
+
+ useEffect(() => {
+  const onAiReportFeedbacks = (e: Event) => {
+   const list = (e as CustomEvent<Array<{ studentId?: string; studentName: string; feedback: string }> | undefined>).detail;
+   if (!Array.isArray(list) || list.length === 0) return;
+   setEnabledKinds(prev => (prev.includes('feedback') ? prev : [...prev, 'feedback']));
+   const pool = reports.length > 0 ? reports : students;
+   const appliedIds = new Set<string>();
+   let count = 0;
+   for (let idx = 0; idx < list.length; idx++) {
+    const item = list[idx];
+    if (!item?.feedback?.trim()) continue;
+    const matched =
+     pool.find(r => r.id === item.studentId) ||
+     pool.find(r => r.name === item.studentName) ||
+     pool.find(r => item.studentName && (item.studentName.includes(r.name) || r.name.includes(item.studentName))) ||
+     pool[idx];
+    if (matched && !appliedIds.has(matched.id)) {
+     handleEditFeedback(matched.id, end, item.feedback.trim());
+     appliedIds.add(matched.id);
+     count++;
+    }
+   }
+   if (count > 0) {
+    setMessage(`✨ AI 코파일럿이 ${count}명의 맞춤 총평 코멘트를 보고서에 반영했습니다.`);
+   }
+  };
+  window.addEventListener('cosmath-ai-report-feedbacks', onAiReportFeedbacks);
+  return () => window.removeEventListener('cosmath-ai-report-feedbacks', onAiReportFeedbacks);
+ }, [reports, students, end, handleEditFeedback]);
 
  useEffect(() => {
   const onRecordsChanged = () => {
@@ -1251,7 +1335,7 @@ export default function NewReportPage(){
 
      <button
       type="button"
-      disabled={!ready || exporting || aiFeedbackBusy}
+      disabled={loading || exporting || aiFeedbackBusy}
       onClick={() => void handleAiGeneratePersonalizedFeedbacks(students.map(s => s.id))}
       style={{
        display:'inline-flex',
@@ -1264,9 +1348,9 @@ export default function NewReportPage(){
        color:'#6d28d9',
        fontSize:12,
        fontWeight:800,
-       cursor:ready && !exporting && !aiFeedbackBusy ? 'pointer' : 'default',
+       cursor:!loading && !exporting && !aiFeedbackBusy ? 'pointer' : 'default',
       }}
-      title="학생별 출결·과제·성적·진도 데이터를 바탕으로 각자 다른 맞춤 피드백을 AI가 자동 작성합니다"
+      title="학생별 기록된 요소(출결·과제·성적·진도·오답 중 있는 항목만)를 바탕으로 맞춤 총평을 자동 작성합니다 (일부 요소가 비어 있어도 작성 가능)"
      >
       <Sparkles size={13}/> {aiFeedbackBusy ? 'AI 작성 중…' : `AI 맞춤 총평${students.length ? ` (${students.length}명)` : ''}`}
      </button>

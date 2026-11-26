@@ -835,6 +835,11 @@ export async function executeCopilotActions(
           window.dispatchEvent(new CustomEvent("cosmath-ai-geospec-updated", { detail: action.geoSpec }));
         }
         summaries.push(`AI 도형 작도('${action.geoSpec.title || "맞춤 수학 도형"}') 적용 완료`);
+      } else if (action.type === "generate_report_feedbacks" && Array.isArray(action.feedbacks)) {
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("cosmath-ai-report-feedbacks", { detail: action.feedbacks }));
+        }
+        summaries.push(`학생 ${action.feedbacks.length}명의 맞춤 리포트 총평 코멘트 작성 완료`);
       } else if (action.type === "update_exam_style" && action.style) {
         const merged = saveAiExamStyle(action.style, Boolean(action.reset));
         if (typeof window !== "undefined") {
@@ -879,58 +884,60 @@ export async function sendAiCopilotMessage(params: {
       latestHomework?: string;
     }>;
   }> = [];
-  try {
-    const today = kstToday();
-    const month = today.slice(0, 7);
-    const [groups, dailyRows, wrongRows] = await Promise.all([
-      loadStudents(),
-      loadStudentDaily(month).catch(() => []),
-      loadWrongAnswers(month).catch(() => []),
-    ]);
-    const allStudents = groups.flatMap(g => g.students);
-    const progressEntries = await Promise.all(
-      allStudents.slice(0, 60).map(s =>
-        loadProgress(s.id)
-          .then(p => [s.id, p] as const)
-          .catch(() => [s.id, null] as const)
-      )
-    );
-    const progressMap = new Map(progressEntries);
+  if (params.mode !== "report_feedback") {
+    try {
+      const today = kstToday();
+      const month = today.slice(0, 7);
+      const [groups, dailyRows, wrongRows] = await Promise.all([
+        loadStudents(),
+        loadStudentDaily(month).catch(() => []),
+        loadWrongAnswers(month).catch(() => []),
+      ]);
+      const allStudents = groups.flatMap(g => g.students);
+      const progressEntries = await Promise.all(
+        allStudents.slice(0, 60).map(s =>
+          loadProgress(s.id)
+            .then(p => [s.id, p] as const)
+            .catch(() => [s.id, null] as const)
+        )
+      );
+      const progressMap = new Map(progressEntries);
 
-    rosterSummary = groups.map(g => ({
-      group: g.group,
-      students: g.students.map(s => {
-        const todayDaily = dailyRows.find(d => d.student_id === s.id && d.record_date === today);
-        const todayWrong = wrongRows.find(w => w.student_id === s.id && w.record_date === today);
-        const prog = progressMap.get(s.id);
-        const mainBook = prog?.books?.[0];
-        const latestEntry = prog?.entries?.[prog.entries.length - 1];
-        return {
-          id: s.id,
-          name: s.name,
-          grade: s.grade,
-          attendance: todayDaily?.attendance || "",
-          homework: todayWrong?.homework_status ?? null,
-          wrongSummary: todayWrong
-            ? todayWrong.completed
-              ? "오답완료"
-              : todayWrong.total_wrong > 0
-                ? `${todayWrong.corrected_count}/${todayWrong.total_wrong}문항`
-                : ""
-            : "",
-          examsSummary:
-            todayDaily?.exams?.length
-              ? todayDaily.exams.map(e => `${e.name}:${e.score}/${e.max_score}`).join(", ")
+      rosterSummary = groups.map(g => ({
+        group: g.group,
+        students: g.students.map(s => {
+          const todayDaily = dailyRows.find(d => d.student_id === s.id && d.record_date === today);
+          const todayWrong = wrongRows.find(w => w.student_id === s.id && w.record_date === today);
+          const prog = progressMap.get(s.id);
+          const mainBook = prog?.books?.[0];
+          const latestEntry = prog?.entries?.[prog.entries.length - 1];
+          return {
+            id: s.id,
+            name: s.name,
+            grade: s.grade,
+            attendance: todayDaily?.attendance || "",
+            homework: todayWrong?.homework_status ?? null,
+            wrongSummary: todayWrong
+              ? todayWrong.completed
+                ? "오답완료"
+                : todayWrong.total_wrong > 0
+                  ? `${todayWrong.corrected_count}/${todayWrong.total_wrong}문항`
+                  : ""
               : "",
-          bookTitle: mainBook?.title || "",
-          progressPct: mainBook ? unitProgressPercent(mainBook) : undefined,
-          latestScope: latestEntry?.scope || "",
-          latestHomework: latestEntry?.homework || "",
-        };
-      }),
-    }));
-  } catch {
-    // Ignore if unavailable
+            examsSummary:
+              todayDaily?.exams?.length
+                ? todayDaily.exams.map(e => `${e.name}:${e.score}/${e.max_score}`).join(", ")
+                : "",
+            bookTitle: mainBook?.title || "",
+            progressPct: mainBook ? unitProgressPercent(mainBook) : undefined,
+            latestScope: latestEntry?.scope || "",
+            latestHomework: latestEntry?.homework || "",
+          };
+        }),
+      }));
+    } catch {
+      // Ignore if unavailable
+    }
   }
 
   let token = "";

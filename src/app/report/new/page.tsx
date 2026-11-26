@@ -201,6 +201,11 @@ export default function NewReportPage(){
  const [bulkFeedbackTargets, setBulkFeedbackTargets] = useState<string[]>([]);
  const [showBulkFeedbackBar, setShowBulkFeedbackBar] = useState(false);
  const [aiFeedbackBusy, setAiFeedbackBusy] = useState(false);
+ const [aiFeedbackModalOpen, setAiFeedbackModalOpen] = useState(false);
+ const [aiMustIncludeText, setAiMustIncludeText] = useState('');
+ const [aiStudentKeywords, setAiStudentKeywords] = useState<Record<string, string>>({});
+ const [aiToneStyle, setAiToneStyle] = useState<'counsel' | 'praise' | 'coaching' | 'concise'>('counsel');
+ const [aiVariationCount, setAiVariationCount] = useState(0);
 
  // 미리보기 확대/축소 & 전체화면 크게 보기 모달 상태
  const [zoomMode, setZoomMode] = useState<'fit' | number>('fit');
@@ -550,7 +555,26 @@ export default function NewReportPage(){
   setMessage(`선택한 ${targetIds.length}명의 학생 보고서에 피드백 코멘트를 일괄 적용했습니다.`);
  }, [bulkFeedbackTargets, students, persistStudentFeedback]);
 
- const handleAiGeneratePersonalizedFeedbacks = useCallback(async (customTargetIds?: string[]) => {
+ const openAiFeedbackModal = useCallback((customTargetIds?: string[]) => {
+  if (customTargetIds && customTargetIds.length > 0) {
+   setBulkFeedbackTargets(customTargetIds.filter(id => students.some(s => s.id === id)));
+  } else if (bulkFeedbackTargets.length === 0 && students.length > 0) {
+   setBulkFeedbackTargets(students.map(s => s.id));
+  }
+  if (students.length === 0) {
+   setSidebar(true);
+  }
+  setAiFeedbackModalOpen(true);
+ }, [students, bulkFeedbackTargets.length]);
+
+ const handleAiGeneratePersonalizedFeedbacks = useCallback(async (
+  customTargetIds?: string[],
+  customOptions?: {
+   mustInclude?: string;
+   studentKeywords?: Record<string, string>;
+   toneStyle?: 'counsel' | 'praise' | 'coaching' | 'concise';
+  }
+ ) => {
   if (students.length === 0) {
    setSidebar(true);
    setMessage('왼쪽 학생 목록에서 AI 맞춤 총평을 작성할 학생이나 반을 먼저 선택해 주세요.');
@@ -565,11 +589,21 @@ export default function NewReportPage(){
   ).filter(id => students.some(s => s.id === id));
   if (targetIds.length === 0 || aiFeedbackBusy) return;
 
+  const effectiveMustInclude = (customOptions?.mustInclude ?? aiMustIncludeText).trim();
+  const effectiveStudentKeywords = customOptions?.studentKeywords ?? aiStudentKeywords;
+  const effectiveToneStyle = customOptions?.toneStyle ?? aiToneStyle;
+  const nextSeed = aiVariationCount + 1;
+  setAiVariationCount(nextSeed);
+
   // 피드백 요소가 꺼져 있었다면 총평이 바로 보이도록 자동 활성화
   setEnabledKinds(prev => (prev.includes('feedback') ? prev : [...prev, 'feedback']));
 
   setAiFeedbackBusy(true);
-  setMessage(`Flash AI가 ${targetIds.length}명의 기록된 학습 요소를 분석하여 학생별 맞춤 총평을 작성하고 있습니다...`);
+  setMessage(
+   effectiveMustInclude
+    ? `Flash AI가 입력하신 키워드('${effectiveMustInclude.slice(0, 24)}${effectiveMustInclude.length > 24 ? '…' : ''}')와 기존 학습 요소를 조합하여 ${targetIds.length}명의 맞춤 총평을 완성하고 있습니다...`
+    : `Flash AI가 ${targetIds.length}명의 기록된 학습 요소를 분석하여 학생별 맞춤 총평을 작성하고 있습니다...`
+  );
 
   try {
    const targetReports = reports.filter(r => targetIds.includes(r.id));
@@ -639,6 +673,7 @@ export default function NewReportPage(){
     const nextHomework = useProg && showNextHomework && latestEntry?.homework?.trim()
      ? `${bookTitle ? `[${bookTitle}] ` : ''}${latestEntry.homework.trim()}`
      : '';
+    const studentSpecificKw = (effectiveStudentKeywords[r.id] || '').trim();
 
     return {
      id: r.id,
@@ -654,11 +689,14 @@ export default function NewReportPage(){
      wrongSummary,
      progressSummary,
      nextHomework,
+     mustInclude: studentSpecificKw || undefined,
     };
    });
 
    const res = await sendAiCopilotMessage({
-    prompt: `${periodKorText} 학습 보고서에 들어갈 학생별 맞춤 선생님 총평 코멘트를 작성해줘. 출결·과제·성적·진도·오답 중 일부 항목이나 기록이 빠져 있더라도 절대 실패하지 말고, 각 학생에게 기록되어 있는 요소(기록이 없으면 학년·반·수업 태도)만 자연스럽게 활용하여 정중하고 구체적인 2~3문장으로 각각 다르게 작성해줘.`,
+    prompt: `${periodKorText} 학습 보고서에 들어갈 학생별 맞춤 선생님 총평 코멘트를 작성해줘.${
+     effectiveMustInclude ? ` 반드시 포함할 핵심 단어/내용: "${effectiveMustInclude}".` : ''
+    } 출결·과제·성적·진도·오답 중 기록되어 있는 기존 요소들과 입력된 필수 단어를 자연스럽게 한 문맥으로 조합하여 정중하고 구체적인 2~4문장으로 완성해줘.`,
     mode: 'report_feedback',
     pathname: '/report/new',
     useWebSearch: false,
@@ -666,6 +704,9 @@ export default function NewReportPage(){
      periodKor: periodKorText,
      date: end,
      enabledKinds,
+     mustInclude: effectiveMustInclude,
+     toneStyle: effectiveToneStyle,
+     variationSeed: nextSeed,
      students: studentsContext,
     },
    });
@@ -691,7 +732,12 @@ export default function NewReportPage(){
    }
 
    if (appliedCount > 0) {
-    setMessage(`✨ AI가 ${appliedCount}명의 기록된 학습 요소를 바탕으로 학생별 맞춤 총평을 자동 작성했습니다.`);
+    setAiFeedbackModalOpen(false);
+    setMessage(
+     effectiveMustInclude
+      ? `✨ 입력하신 필수 키워드('${effectiveMustInclude.slice(0, 22)}${effectiveMustInclude.length > 22 ? '…' : ''}')와 기존 학습 요소를 조합하여 ${appliedCount}명의 맞춤 총평을 완성했습니다.`
+      : `✨ AI가 ${appliedCount}명의 기록된 학습 요소를 바탕으로 학생별 맞춤 총평을 자동 작성했습니다.`
+    );
    } else {
     setMessage('AI 피드백 응답을 받지 못했습니다. 다시 시도해 주세요.');
    }
@@ -700,7 +746,22 @@ export default function NewReportPage(){
   } finally {
    setAiFeedbackBusy(false);
   }
- }, [bulkFeedbackTargets, students, aiFeedbackBusy, reports, enabledKinds, showNextHomework, start, periodKorText, end, handleEditFeedback]);
+ }, [
+  bulkFeedbackTargets,
+  students,
+  aiFeedbackBusy,
+  aiMustIncludeText,
+  aiStudentKeywords,
+  aiToneStyle,
+  aiVariationCount,
+  reports,
+  enabledKinds,
+  showNextHomework,
+  start,
+  periodKorText,
+  end,
+  handleEditFeedback,
+ ]);
 
  const progressSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
  const latestReportsRef = useRef<Preview[]>([]);
@@ -1336,7 +1397,7 @@ export default function NewReportPage(){
      <button
       type="button"
       disabled={loading || exporting || aiFeedbackBusy}
-      onClick={() => void handleAiGeneratePersonalizedFeedbacks(students.map(s => s.id))}
+      onClick={() => openAiFeedbackModal(students.map(s => s.id))}
       style={{
        display:'inline-flex',
        alignItems:'center',
@@ -1350,7 +1411,7 @@ export default function NewReportPage(){
        fontWeight:800,
        cursor:!loading && !exporting && !aiFeedbackBusy ? 'pointer' : 'default',
       }}
-      title="학생별 기록된 요소(출결·과제·성적·진도·오답 중 있는 항목만)를 바탕으로 맞춤 총평을 자동 작성합니다 (일부 요소가 비어 있어도 작성 가능)"
+      title="반드시 들어가야 하는 단어·문구를 입력하고 기존 학습 요소(출결·과제·성적·진도·오답)와 조합하여 맞춤 총평을 완성합니다"
      >
       <Sparkles size={13}/> {aiFeedbackBusy ? 'AI 작성 중…' : `AI 맞춤 총평${students.length ? ` (${students.length}명)` : ''}`}
      </button>
@@ -1914,7 +1975,7 @@ export default function NewReportPage(){
       <button
        type="button"
        disabled={exporting || aiFeedbackBusy || bulkFeedbackTargets.length === 0}
-       onClick={() => void handleAiGeneratePersonalizedFeedbacks(bulkFeedbackTargets)}
+       onClick={() => openAiFeedbackModal(bulkFeedbackTargets)}
        style={{
         display:'inline-flex',
         alignItems:'center',
@@ -1974,6 +2035,475 @@ export default function NewReportPage(){
      ))
     )}
    </div>
+
+   {/* AI 맞춤 총평 작성 설정 모달 (반드시 들어가야 하는 말 입력 + 기존 요소와 조합하여 문장 완성) */}
+   {aiFeedbackModalOpen && (
+    <div
+     role="dialog"
+     aria-modal="true"
+     aria-label="AI 맞춤 총평 작성"
+     onClick={e => {
+      if (e.target === e.currentTarget && !aiFeedbackBusy) setAiFeedbackModalOpen(false);
+     }}
+     style={{
+      position:'fixed',
+      inset:0,
+      zIndex:115,
+      background:'rgba(15, 23, 42, 0.72)',
+      backdropFilter:'blur(3px)',
+      display:'flex',
+      alignItems:'center',
+      justifyContent:'center',
+      padding:20,
+     }}
+    >
+     <div
+      style={{
+       width:'100%',
+       maxWidth:680,
+       maxHeight:'90vh',
+       background:'#ffffff',
+       borderRadius:18,
+       boxShadow:'0 24px 60px rgba(15, 23, 42, 0.35)',
+       display:'flex',
+       flexDirection:'column',
+       overflow:'hidden',
+      }}
+     >
+      {/* 모달 헤더 */}
+      <div
+       style={{
+        padding:'16px 22px',
+        background:'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+        color:'#ffffff',
+        display:'flex',
+        alignItems:'center',
+        justifyContent:'space-between',
+        gap:12,
+       }}
+      >
+       <div style={{display:'flex',flexDirection:'column',gap:2}}>
+        <strong style={{fontSize:16,fontWeight:900,display:'inline-flex',alignItems:'center',gap:7}}>
+         <Sparkles size={17}/> AI 맞춤 총평 작성 ({periodKorText} 리포트)
+        </strong>
+        <span style={{fontSize:11.5,color:'#e0e7ff'}}>
+         반드시 들어가야 하는 단어나 말을 적으면 학생별 기존 요소(출결·과제·성적·진도·오답)와 조합해 문장을 완성합니다.
+        </span>
+       </div>
+       <button
+        type="button"
+        disabled={aiFeedbackBusy}
+        onClick={() => setAiFeedbackModalOpen(false)}
+        style={{
+         padding:'6px 11px',
+         borderRadius:8,
+         border:'1px solid rgba(255,255,255,0.28)',
+         background:'rgba(255,255,255,0.14)',
+         color:'#ffffff',
+         fontSize:12,
+         fontWeight:800,
+         cursor:aiFeedbackBusy ? 'default' : 'pointer',
+         display:'inline-flex',
+         alignItems:'center',
+         gap:4,
+        }}
+       >
+        <X size={14}/> 닫기
+       </button>
+      </div>
+
+      {/* 모달 본문 */}
+      <div style={{padding:'18px 22px',overflowY:'auto',display:'flex',flexDirection:'column',gap:16}}>
+       {/* 1. 반드시 들어가야 하는 말 입력 공간 */}
+       <div
+        style={{
+         padding:'14px 16px',
+         background:'#f5f3ff',
+         border:'1.5px solid #c4b5fd',
+         borderRadius:12,
+         display:'flex',
+         flexDirection:'column',
+         gap:10,
+        }}
+       >
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
+         <strong style={{fontSize:13.5,color:'#4c1d95',display:'inline-flex',alignItems:'center',gap:6}}>
+          <MessageSquareText size={15}/> 1. 총평에 반드시 들어가야 하는 말 / 핵심 단어 입력
+         </strong>
+         {aiMustIncludeText && (
+          <button
+           type="button"
+           onClick={() => setAiMustIncludeText('')}
+           style={{
+            padding:'3px 8px',
+            fontSize:11,
+            fontWeight:700,
+            borderRadius:6,
+            border:'1px solid #cbd5e1',
+            background:'#ffffff',
+            color:'#64748b',
+            cursor:'pointer',
+           }}
+          >
+           입력 초기화
+          </button>
+         )}
+        </div>
+
+        <textarea
+         rows={3}
+         autoFocus
+         aria-label="총평에 반드시 들어가야 하는 말"
+         value={aiMustIncludeText}
+         onChange={e => setAiMustIncludeText(e.target.value)}
+         placeholder="예: 계산 실수 줄이기, 풀이 과정 노트 정리, 다음 주 단원평가 대비, 최근 수업 집중력이 좋아짐 등&#10;(단어나 짧은 구절을 쉼표로 구분해 적으셔도 기존 학습 기록과 자연스럽게 어우러진 완성된 문장으로 만들어 줍니다)"
+         style={{
+          width:'100%',
+          padding:'10px 12px',
+          fontSize:13,
+          lineHeight:1.55,
+          borderRadius:10,
+          border:'1.5px solid #8b5cf6',
+          background:'#ffffff',
+          color:'#0f172a',
+          resize:'vertical',
+         }}
+        />
+
+        <div style={{display:'flex',flexDirection:'column',gap:5}}>
+         <span style={{fontSize:11.5,fontWeight:700,color:'#5b21b6'}}>
+          자주 쓰는 키워드 원클릭 추가 (클릭하면 입력란에 바로 들어갑니다)
+         </span>
+         <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+          {[
+           '계산 실수 줄이기',
+           '풀이 과정 또박또박 쓰기',
+           '수업 집중력·태도 향상',
+           '오답 노트 복습 철저',
+           '질문하는 태도 우수',
+           '다음 주 단원평가 대비',
+           '서술형 식 전개 연습',
+           '과제 기한 엄수',
+          ].map(kw => {
+           const activeKw = aiMustIncludeText.includes(kw);
+           return (
+            <button
+             key={kw}
+             type="button"
+             onClick={() => {
+              setAiMustIncludeText(prev => {
+               const tokens = prev
+                .split(',')
+                .map(t => t.trim())
+                .filter(Boolean);
+               if (tokens.includes(kw)) {
+                return tokens.filter(t => t !== kw).join(', ');
+               }
+               return [...tokens, kw].join(', ');
+              });
+             }}
+             style={{
+              padding:'4px 10px',
+              fontSize:11.5,
+              fontWeight:700,
+              borderRadius:999,
+              border:activeKw ? '1.5px solid #6d28d9' : '1px solid #ddd6fe',
+              background:activeKw ? '#6d28d9' : '#ffffff',
+              color:activeKw ? '#ffffff' : '#5b21b6',
+              cursor:'pointer',
+             }}
+            >
+             {activeKw ? '✓ ' : '+ '}{kw}
+            </button>
+           );
+          })}
+         </div>
+        </div>
+       </div>
+
+       {/* 2. 총평 문체 · 어조 스타일 선택 */}
+       <div
+        style={{
+         padding:'12px 16px',
+         background:'#f8fafc',
+         border:'1px solid #e2e8f0',
+         borderRadius:12,
+         display:'flex',
+         flexDirection:'column',
+         gap:8,
+        }}
+       >
+        <strong style={{fontSize:13,color:'#0f172a'}}>2. 문장 완성 어조 · 스타일 선택</strong>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))',gap:8}}>
+         {([
+          { key: 'counsel', label: '다정한 학부모 상담형', desc: '신뢰감 있고 정중한 기본 총평' },
+          { key: 'praise', label: '칭찬 · 동기부여 강조형', desc: '성취와 긍정적 변화 중심 격려' },
+          { key: 'coaching', label: '약점 보완 · 학습 코칭형', desc: '구체적인 학습 습관·보완 방향 제시' },
+          { key: 'concise', label: '간결한 핵심 브리핑형', desc: '핵심 지표와 전달사항 위주 요약' },
+         ] as const).map(opt => (
+          <button
+           key={opt.key}
+           type="button"
+           onClick={() => setAiToneStyle(opt.key)}
+           style={{
+            padding:'8px 10px',
+            borderRadius:10,
+            border:aiToneStyle === opt.key ? '1.5px solid #7c3aed' : '1px solid #cbd5e1',
+            background:aiToneStyle === opt.key ? '#f5f3ff' : '#ffffff',
+            color:aiToneStyle === opt.key ? '#5b21b6' : '#334155',
+            textAlign:'left',
+            cursor:'pointer',
+            display:'flex',
+            flexDirection:'column',
+            gap:2,
+           }}
+          >
+           <strong style={{fontSize:12,fontWeight:800}}>{aiToneStyle === opt.key ? '● ' : '○ '}{opt.label}</strong>
+           <small style={{fontSize:10.5,color:'#64748b'}}>{opt.desc}</small>
+          </button>
+         ))}
+        </div>
+       </div>
+
+       {/* 3. 대상 학생 및 조합될 기존 요소 확인 + 학생별 개별 추가 단어 */}
+       <div
+        style={{
+         padding:'14px 16px',
+         background:'#ffffff',
+         border:'1px solid #e2e8f0',
+         borderRadius:12,
+         display:'flex',
+         flexDirection:'column',
+         gap:10,
+        }}
+       >
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
+         <strong style={{fontSize:13,color:'#0f172a'}}>
+          3. 적용 대상 학생 및 조합될 기존 요소 ({bulkFeedbackTargets.length || students.length}명)
+         </strong>
+         {students.length > 1 && (
+          <div style={{display:'flex',gap:6}}>
+           {activeReport && (
+            <button
+             type="button"
+             onClick={() => setBulkFeedbackTargets([activeReport.id])}
+             style={{
+              padding:'4px 9px',
+              fontSize:11,
+              fontWeight:700,
+              borderRadius:7,
+              border:'1px solid #c4b5fd',
+              background:'#f5f3ff',
+              color:'#6d28d9',
+              cursor:'pointer',
+             }}
+            >
+             현재 보고 있는 학생만 ({activeReport.name})
+            </button>
+           )}
+           <button
+            type="button"
+            onClick={() =>
+             setBulkFeedbackTargets(
+              bulkFeedbackTargets.length === students.length ? [] : students.map(s => s.id)
+             )
+            }
+            style={{
+             padding:'4px 9px',
+             fontSize:11,
+             fontWeight:700,
+             borderRadius:7,
+             border:'1px solid #cbd5e1',
+             background:'#f8fafc',
+             color:'#334155',
+             cursor:'pointer',
+            }}
+           >
+            {bulkFeedbackTargets.length === students.length ? '전체 해제' : `전체 선택 (${students.length}명)`}
+           </button>
+          </div>
+         )}
+        </div>
+
+        {students.length === 0 ? (
+         <div style={{padding:'16px',borderRadius:10,background:'#fef2f2',border:'1px solid #fecaca',color:'#b91c1c',fontSize:12.5,fontWeight:700}}>
+          왼쪽 학생 목록에서 총평을 작성할 학생이나 반을 먼저 체크해 주세요.
+         </div>
+        ) : (
+         <div
+          style={{
+           maxHeight:190,
+           overflowY:'auto',
+           border:'1px solid #e2e8f0',
+           borderRadius:10,
+          }}
+         >
+          {students.map(s => {
+           const checked = bulkFeedbackTargets.length === 0 || bulkFeedbackTargets.includes(s.id);
+           const rep = reports.find(r => r.id === s.id);
+           const hasAtt = enabledKinds.includes('attendance') && Boolean(rep?.daily.some(d => d.record_date >= start && d.record_date <= end && d.attendance));
+           const hasHw = enabledKinds.includes('homework') && Boolean(rep?.wrong.some(w => w.record_date >= start && w.record_date <= end && w.homework_status));
+           const hasGrades = enabledKinds.includes('grades') && Boolean(rep?.daily.some(d => d.record_date <= end && d.exams.length > 0));
+           const hasWrong = enabledKinds.includes('wrong') && Boolean(rep?.wrong.some(w => w.record_date >= start && w.record_date <= end && (w.completed || w.total_wrong > 0)));
+           const hasProg = enabledKinds.includes('progress') && Boolean(
+            rep?.entries.some(e => e.record_date >= start && e.record_date <= end && (e.scope?.trim() || e.homework?.trim())) ||
+            rep?.books.some(b => !b.archived && b.curriculum !== '프린트' && b.title !== '프린트 · 유인물')
+           );
+           const recordedBadges = [
+            hasAtt ? '출결' : '',
+            hasHw ? '과제' : '',
+            hasProg ? '진도' : '',
+            hasGrades ? '성적' : '',
+            hasWrong ? '오답' : '',
+           ].filter(Boolean);
+
+           return (
+            <div
+             key={s.id}
+             style={{
+              display:'flex',
+              alignItems:'center',
+              justifyContent:'space-between',
+              gap:10,
+              padding:'8px 12px',
+              borderBottom:'1px solid #f1f5f9',
+              background:checked ? '#faf8ff' : '#ffffff',
+              flexWrap:'wrap',
+             }}
+            >
+             <label style={{display:'flex',alignItems:'center',gap:7,cursor:'pointer',minWidth:130}}>
+              <input
+               type="checkbox"
+               checked={checked}
+               onChange={() =>
+                setBulkFeedbackTargets(prev => {
+                 const base = prev.length === 0 ? students.map(st => st.id) : prev;
+                 return base.includes(s.id) ? base.filter(id => id !== s.id) : [...base, s.id];
+                })
+               }
+              />
+              <span style={{fontSize:13,fontWeight:800,color:'#0f172a'}}>{s.name}</span>
+              <small style={{fontSize:11,color:'#64748b'}}>{s.grade}</small>
+             </label>
+
+             <div style={{display:'flex',alignItems:'center',gap:4,flexWrap:'wrap'}}>
+              {recordedBadges.length > 0 ? (
+               recordedBadges.map(b => (
+                <span
+                 key={b}
+                 style={{
+                  fontSize:10.5,
+                  fontWeight:700,
+                  padding:'2px 7px',
+                  borderRadius:999,
+                  background:'#ede9fe',
+                  color:'#5b21b6',
+                 }}
+                >
+                 {b}
+                </span>
+               ))
+              ) : (
+               <span style={{fontSize:10.5,color:'#64748b',background:'#f1f5f9',padding:'2px 7px',borderRadius:999}}>
+                기본 수업태도 + 입력단어 조합
+               </span>
+              )}
+             </div>
+
+             <input
+              type="text"
+              value={aiStudentKeywords[s.id] || ''}
+              onChange={e => setAiStudentKeywords(prev => ({ ...prev, [s.id]: e.target.value }))}
+              placeholder={`${s.name} 학생만 추가할 단어 (선택)`}
+              style={{
+               width:185,
+               height:28,
+               padding:'0 8px',
+               borderRadius:6,
+               border:'1px solid #cbd5e1',
+               fontSize:11.5,
+              }}
+             />
+            </div>
+           );
+          })}
+         </div>
+        )}
+       </div>
+      </div>
+
+      {/* 모달 푸터 액션 */}
+      <div
+       style={{
+        padding:'14px 22px',
+        background:'#f8fafc',
+        borderTop:'1px solid #e2e8f0',
+        display:'flex',
+        alignItems:'center',
+        justifyContent:'space-between',
+        flexWrap:'wrap',
+        gap:10,
+       }}
+      >
+       <span style={{fontSize:11.5,color:'#64748b'}}>
+        💡 일부 학습 요소가 빠져 있어도 있는 요소와 입력하신 단어를 자연스럽게 조합합니다.
+       </span>
+       <div style={{display:'flex',alignItems:'center',gap:8}}>
+        <button
+         type="button"
+         disabled={aiFeedbackBusy}
+         onClick={() => setAiFeedbackModalOpen(false)}
+         style={{
+          padding:'9px 15px',
+          borderRadius:9,
+          border:'1px solid #cbd5e1',
+          background:'#ffffff',
+          color:'#475569',
+          fontSize:12.5,
+          fontWeight:700,
+          cursor:'pointer',
+         }}
+        >
+         취소
+        </button>
+        <button
+         type="button"
+         disabled={aiFeedbackBusy || students.length === 0}
+         onClick={() =>
+          void handleAiGeneratePersonalizedFeedbacks(
+           bulkFeedbackTargets.length > 0 ? bulkFeedbackTargets : students.map(s => s.id),
+           {
+            mustInclude: aiMustIncludeText,
+            studentKeywords: aiStudentKeywords,
+            toneStyle: aiToneStyle,
+           }
+          )
+         }
+         style={{
+          padding:'9px 20px',
+          borderRadius:9,
+          border:0,
+          background:students.length > 0 ? 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)' : '#94a3b8',
+          color:'#ffffff',
+          fontSize:13,
+          fontWeight:900,
+          cursor:students.length > 0 && !aiFeedbackBusy ? 'pointer' : 'default',
+          display:'inline-flex',
+          alignItems:'center',
+          gap:6,
+          boxShadow:'0 4px 12px rgba(124, 58, 237, 0.28)',
+         }}
+        >
+         <Sparkles size={14}/>
+         {aiFeedbackBusy
+          ? '기존 요소 + 입력 단어 조합 중…'
+          : `✨ 문장 완성 및 리포트 적용 (${bulkFeedbackTargets.length || students.length}명)`}
+        </button>
+       </div>
+      </div>
+     </div>
+    </div>
+   )}
 
    {/* 전체화면 크게 미리보기 모달 */}
    {largeModalOpen && activeReport && (

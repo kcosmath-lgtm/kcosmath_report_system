@@ -907,16 +907,93 @@ interface ReportFeedbackStudentInput {
   wrongSummary?: string;
   progressSummary?: string;
   nextHomework?: string;
+  mustInclude?: string;
+}
+
+function formatKeywordIntoClause(rawItem: string, idx: number): { kind: "praise" | "coaching" | "notice" | "full" | "general"; text: string; raw: string } {
+  const item = rawItem.trim().replace(/^[-•*·+]\s*/, "").trim();
+  if (!item) return { kind: "general", text: "", raw: "" };
+
+  // 이미 완성된 문장 형태인 경우
+  if (/(?:다|요|니다|세요|바랍니다|습니다|겠습니다)[.!?]?$/.test(item)) {
+    const withDot = /[.!?]$/.test(item) ? item : `${item}.`;
+    return { kind: "full", text: withDot, raw: item };
+  }
+
+  // '~기' 명사형 종결 (예: "계산 실수 줄이기", "풀이 과정 노트 정리하기", "식 끝까지 쓰기")
+  const giMatch = item.match(/^(.+?)기$/);
+  const stem = giMatch ? giMatch[1].trim() : item;
+
+  // 1) 코칭 / 보완 / 습관 키워드
+  if (/실수|보완|주의|연습|줄이|신경|필요|부족|미흡|습관|노트|풀이\s*과정|서술형|암기|시간\s*배분|속도|검산|오답\s*노트|기한\s*엄수|밀리지/.test(item)) {
+    if (giMatch) {
+      const templates = [
+        `특히 **${item}**를 핵심 목표로 삼아 풀이 단계와 검산 습관을 한층 더 꼼꼼하게 지도하고 있습니다.`,
+        `수업 중 **${item}**에 중점을 두어 배운 개념이 정확한 실전 득점으로 이어지도록 세심히 코칭하고 있습니다.`,
+        `앞으로 **${item}** 습관이 탄탄히 자리 잡을 수 있도록 매 수업 풀이 과정을 함께 점검하겠습니다.`,
+      ];
+      return { kind: "coaching", text: templates[idx % templates.length], raw: item };
+    }
+    const templates = [
+      `특히 **${item}** 부분을 중점적으로 점검하며 학습 완성도를 한 단계 더 높여가고 있습니다.`,
+      `수업 시간마다 **${item}**에 각별히 신경 쓰며 취약한 고리를 빈틈없이 보완하도록 지도하고 있습니다.`,
+      `**${item}**에 대한 세심한 코칭을 병행하여 실전 문제 해결력을 탄탄하게 다지고 있습니다.`,
+    ];
+    return { kind: "coaching", text: templates[idx % templates.length], raw: item };
+  }
+
+  // 2) 칭찬 / 태도 / 향상 키워드
+  if (/집중|태도|열심|성실|향상|좋아|우수|칭찬|질문|적극|자신감|성장|잘함|노력|꾸준|빠르|정확/.test(item)) {
+    const templates = [
+      `무엇보다 최근 **${item}** 모습이 돋보여 수업 시간마다 문제 해결에 대한 자신감이 한층 높아지고 있습니다.`,
+      `특히 **${item}** 측면에서 매우 긍정적인 변화를 보여주고 있어 앞으로의 성장이 더욱 기대됩니다.`,
+      `수업 중 **${item}** 강점이 잘 발휘되고 있어 배운 개념을 자기 것으로 빠르게 흡수하고 있습니다.`,
+    ];
+    return { kind: "praise", text: templates[idx % templates.length], raw: item };
+  }
+
+  // 3) 시험 / 일정 / 안내 키워드
+  if (/평가|시험|테스트|특강|내신|중간|기말|모의고사|보충|클리닉|다음\s*주|이번\s*주|예정|대비|안내|준비/.test(item)) {
+    const templates = [
+      `아울러 **${item}**에 맞춰 핵심 유형과 빈출 문항을 빈틈없이 점검할 예정입니다.`,
+      `다가오는 **${item}** 과정도 흔들림 없이 소화할 수 있도록 단원별 핵심 문제를 철저히 준비하고 있습니다.`,
+      `또한 **${item}** 일정을 고려하여 실전 감각과 응용력을 함께 끌어올릴 수 있도록 지도하겠습니다.`,
+    ];
+    return { kind: "notice", text: templates[idx % templates.length], raw: item };
+  }
+
+  // 4) 일반 단어 / 키워드 (기존 요소와 자연스럽게 결합)
+  const generalTemplates = [
+    `특히 **${stem}** 부분까지 세심하게 챙기며 배운 원리를 스스로 설명하고 적용할 수 있도록 지도하고 있습니다.`,
+    `이번 학습에서는 **${item}**에 주안점을 두어 개념 이해와 실전 응용이 자연스럽게 연결되도록 이끌고 있습니다.`,
+    `아울러 **${item}** 관련 학습 내용을 꼼꼼히 다지며 다음 단계 진도까지 탄탄하게 이어가겠습니다.`,
+  ];
+  return { kind: "general", text: generalTemplates[idx % generalTemplates.length], raw: item };
 }
 
 function buildPersonalizedStudentFeedback(
   st: ReportFeedbackStudentInput,
   idx: number,
-  periodKor: string
+  periodKor: string,
+  options?: {
+    mustInclude?: string;
+    toneStyle?: string;
+    variationSeed?: number;
+  }
 ): { studentId?: string; studentName: string; feedback: string } {
   const sentences: string[] = [];
   const pLabel = periodKor || "수업";
   const gradeGroup = [st.grade, st.group].filter(Boolean).join(" · ");
+  const vSeed = (idx + Number(options?.variationSeed || 0)) % 4;
+  const tone = options?.toneStyle || "counsel";
+
+  const combinedMustInclude = [options?.mustInclude?.trim(), st.mustInclude?.trim()]
+    .filter(Boolean)
+    .join(", ");
+  const keywordTokens = combinedMustInclude
+    .split(/[,/\n]+/)
+    .map(s => s.trim())
+    .filter(Boolean);
 
   // 1. 출결 + 과제 문장 (있는 요소만 자연스럽게 조합, 둘 다 빠져 있어도 자연스러운 도입부 생성)
   let attPhrase = "";
@@ -925,14 +1002,20 @@ function buildPersonalizedStudentFeedback(
   } else if (st.todayAtt === "지각") {
     attPhrase = `등원 시간이 다소 늦었으나 입실 후에는 수업에 빠르게 집중하며 핵심 개념을 성실히 따라왔습니다`;
   } else if (st.attRate !== null && st.attRate !== undefined) {
-    attPhrase =
+    const attVariants =
       st.attRate >= 95
-        ? `출석률 ${st.attRate}%의 성실한 등원 태도`
+        ? [`출석률 ${st.attRate}%의 성실한 등원 태도`, `출석률 ${st.attRate}%로 규칙적인 학습 리듬`, `출석률 ${st.attRate}%의 모범적인 출결 관리`]
         : st.attRate >= 80
-          ? `출석률 ${st.attRate}%로 꾸준한 학습 참여`
-          : `출석률 ${st.attRate}%로 등원 리듬을 다잡아 가는 모습`;
+          ? [`출석률 ${st.attRate}%로 꾸준한 학습 참여`, `출석률 ${st.attRate}%의 안정적인 등원 흐름`]
+          : [`출석률 ${st.attRate}%로 등원 리듬을 다잡아 가는 모습`];
+    attPhrase = attVariants[vSeed % attVariants.length];
   } else if (st.todayAtt === "출석") {
-    attPhrase = `정상 등원하여 높은 수업 집중력`;
+    const todayAttVariants = [
+      `정상 등원하여 높은 수업 집중력`,
+      `밝은 모습으로 등원하여 차분한 수업 참여 태도`,
+      `성실히 출석하여 안정적인 학습 몰입도`,
+    ];
+    attPhrase = todayAttVariants[vSeed % todayAttVariants.length];
   }
 
   let hwPhrase = "";
@@ -947,10 +1030,19 @@ function buildPersonalizedStudentFeedback(
         ? `과제 수행률 ${st.hwRate}%를 기록하며 어려운 문항도 끝까지 스스로 해결하려는 노력을 보이고 있습니다.`
         : `부여된 과제를 포기하지 않고 풀어오며 부족한 문항은 수업 중 함께 점검하였습니다.`;
   } else if (st.todayHw === "O" || (st.hwRate !== null && st.hwRate !== undefined)) {
-    hwPhrase =
+    const hwDoneVariants =
       st.hwRate !== null && st.hwRate !== undefined
-        ? `과제 수행률 ${st.hwRate}%로 안정적인 자기주도 학습 습관을 보여주고 있습니다.`
-        : `부여된 과제를 성실히 완수하여 안정적인 학습 리듬을 유지하고 있습니다.`;
+        ? [
+            `과제 수행률 ${st.hwRate}%로 안정적인 자기주도 학습 습관을 보여주고 있습니다.`,
+            `과제 수행률 ${st.hwRate}%를 달성하며 배운 내용을 스스로 체화하고 있습니다.`,
+            `과제 수행률 ${st.hwRate}%로 매 수업 준비를 꼼꼼하게 해오고 있습니다.`,
+          ]
+        : [
+            `부여된 과제를 성실히 완수하여 안정적인 학습 리듬을 유지하고 있습니다.`,
+            `당일 과제를 빠짐없이 완료해 와서 수업 이해도가 매우 높았습니다.`,
+          ];
+    hwDoneVariants.push(hwDoneVariants[0]);
+    hwPhrase = hwDoneVariants[vSeed % hwDoneVariants.length];
   }
 
   if (st.todayAtt === "결석" || st.todayAtt === "지각") {
@@ -967,11 +1059,12 @@ function buildPersonalizedStudentFeedback(
       `${st.name} 학생은 ${gradeGroup ? `${gradeGroup} ` : ""}수업에서 매 시간 차분한 태도로 핵심 개념 설명에 집중하며 학습 호흡을 안정적으로 이어가고 있습니다.`,
       `${st.name} 학생은 이번 ${pLabel} 수업에서 수학적 개념의 원리를 정확히 이해하고 스스로 풀이 과정을 정리하는 힘을 길러가고 있습니다.`,
       `${st.name} 학생은 ${gradeGroup ? `${gradeGroup} ` : ""}과정에서 배운 공식과 개념을 문제에 차근차근 적용하며 기초 체력을 탄탄히 다지고 있습니다.`,
+      `${st.name} 학생은 이번 ${pLabel} 학습에서 새로운 유형의 문제도 끈기 있게 탐구하며 수학적 사고력을 넓혀가고 있습니다.`,
     ];
-    sentences.push(introVariants[idx % introVariants.length]);
+    sentences.push(introVariants[vSeed % introVariants.length]);
   }
 
-  // 2. 진도 + 성적 + 오답 문장 (기록된 요소만 선택적으로 조합)
+  // 2. 진도 + 성적 + 오답 문장 (기록된 요소와 사용자 입력 단어가 자연스럽게 어우러지도록 구성)
   const progText = st.progressSummary?.trim() || "";
   const wrongText = st.wrongSummary?.trim() || "";
   const hasScore = st.avgScore !== null && st.avgScore !== undefined;
@@ -979,48 +1072,135 @@ function buildPersonalizedStudentFeedback(
     ? `${st.latestExam.trim()} 등 평가 평균 ${st.avgScore}점`
     : `테스트 평균 ${st.avgScore}점`;
 
+  // 첫 번째 키워드가 짧은 명사/구절이고 진도/성적/오답 문장과 바로 결합 가능한 경우 한 문장 안에 녹여냄
+  let consumedFirstKeyword = false;
+  const firstKw = keywordTokens[0] || "";
+  const firstKwIsShortPhrase =
+    firstKw.length > 0 &&
+    firstKw.length <= 28 &&
+    !/(?:다|요|니다|세요|바랍니다|습니다|겠습니다)[.!?]?$/.test(firstKw);
+
+  const inlineKwBlend = firstKwIsShortPhrase
+    ? /실수|보완|주의|연습|줄이|노트|풀이|서술형|암기|복습/.test(firstKw)
+      ? `, 특히 '${firstKw}'에 중점을 두어 지도하고 있습니다.`
+      : /집중|태도|향상|우수|칭찬|질문|성실|열심/.test(firstKw)
+        ? ` (${firstKw} 면에서도 좋은 모습을 보이고 있습니다.)`
+        : `, '${firstKw}' 부분까지 함께 챙기며 학습 완성도를 높이고 있습니다.`
+    : "";
+
   if (progText && hasScore && wrongText) {
-    sentences.push(
-      `현재 '${progText}' 진도를 학습하며 ${scoreLabel}의 성취도를 기록하였고, ${wrongText} 과정을 통해 약점 유형까지 꼼꼼하게 보완하고 있습니다.`
-    );
+    if (inlineKwBlend) {
+      consumedFirstKeyword = true;
+      sentences.push(
+        `현재 '${progText}' 진도를 학습하며 ${scoreLabel}의 성취도와 ${wrongText} 기록을 이어가고 있으며${inlineKwBlend}`
+      );
+    } else {
+      sentences.push(
+        `현재 '${progText}' 진도를 학습하며 ${scoreLabel}의 성취도를 기록하였고, ${wrongText} 과정을 통해 약점 유형까지 꼼꼼하게 보완하고 있습니다.`
+      );
+    }
   } else if (progText && hasScore) {
-    sentences.push(
-      `현재 '${progText}' 과정을 학습하며 ${scoreLabel}을 기록하는 등 배운 개념을 실전 문항에 안정적으로 적용하고 있습니다.`
-    );
+    if (inlineKwBlend) {
+      consumedFirstKeyword = true;
+      sentences.push(
+        `현재 '${progText}' 과정을 학습하며 ${scoreLabel}을 기록하는 등 개념을 실전에 안정적으로 적용하고 있으며${inlineKwBlend}`
+      );
+    } else {
+      sentences.push(
+        `현재 '${progText}' 과정을 학습하며 ${scoreLabel}을 기록하는 등 배운 개념을 실전 문항에 안정적으로 적용하고 있습니다.`
+      );
+    }
   } else if (progText && wrongText) {
-    sentences.push(
-      `현재 '${progText}' 진도를 나아가며 ${wrongText} 클리닉을 병행하여 틀린 문항의 풀이 논리를 확실히 자기 것으로 만들고 있습니다.`
-    );
+    if (inlineKwBlend) {
+      consumedFirstKeyword = true;
+      sentences.push(
+        `현재 '${progText}' 진도와 ${wrongText} 클리닉을 병행하여 풀이 논리를 다지고 있으며${inlineKwBlend}`
+      );
+    } else {
+      sentences.push(
+        `현재 '${progText}' 진도를 나아가며 ${wrongText} 클리닉을 병행하여 틀린 문항의 풀이 논리를 확실히 자기 것으로 만들고 있습니다.`
+      );
+    }
   } else if (hasScore && wrongText) {
-    sentences.push(
-      `최근 실시한 평가에서 ${scoreLabel}을 기록하였으며, ${wrongText} 학습을 통해 실수하기 쉬운 유형을 집중 보완하고 있습니다.`
-    );
+    if (inlineKwBlend) {
+      consumedFirstKeyword = true;
+      sentences.push(
+        `최근 평가에서 ${scoreLabel}을 기록하고 ${wrongText} 학습으로 취약 유형을 보완하고 있으며${inlineKwBlend}`
+      );
+    } else {
+      sentences.push(
+        `최근 실시한 평가에서 ${scoreLabel}을 기록하였으며, ${wrongText} 학습을 통해 실수하기 쉬운 유형을 집중 보완하고 있습니다.`
+      );
+    }
   } else if (progText) {
-    sentences.push(
-      `현재 '${progText}' 단원의 핵심 개념과 필수 예제 풀이 과정을 꼼꼼히 익히며 단원 이해도를 높여가고 있습니다.`
-    );
+    if (inlineKwBlend) {
+      consumedFirstKeyword = true;
+      sentences.push(
+        `현재 '${progText}' 단원의 핵심 개념과 필수 예제를 학습하며 단원 이해도를 높이고 있고${inlineKwBlend}`
+      );
+    } else {
+      sentences.push(
+        `현재 '${progText}' 단원의 핵심 개념과 필수 예제 풀이 과정을 꼼꼼히 익히며 단원 이해도를 높여가고 있습니다.`
+      );
+    }
   } else if (hasScore) {
-    sentences.push(
-      `최근 평가에서 ${scoreLabel}을 기록하며 배운 단원의 핵심 유형을 실전 문제에 적용하는 연습을 꾸준히 이어가고 있습니다.`
-    );
+    if (inlineKwBlend) {
+      consumedFirstKeyword = true;
+      sentences.push(
+        `최근 평가에서 ${scoreLabel}을 기록하며 핵심 유형 적용 연습을 이어가고 있고${inlineKwBlend}`
+      );
+    } else {
+      sentences.push(
+        `최근 평가에서 ${scoreLabel}을 기록하며 배운 단원의 핵심 유형을 실전 문제에 적용하는 연습을 꾸준히 이어가고 있습니다.`
+      );
+    }
   } else if (wrongText) {
-    sentences.push(
-      `수업 중 ${wrongText} 과정을 성실히 이행하며 헷갈렸던 개념과 풀이 단계를 빈틈없이 다시 점검하고 있습니다.`
-    );
+    if (inlineKwBlend) {
+      consumedFirstKeyword = true;
+      sentences.push(
+        `수업 중 ${wrongText} 과정을 성실히 이행하며 헷갈렸던 개념을 다시 점검하고 있고${inlineKwBlend}`
+      );
+    } else {
+      sentences.push(
+        `수업 중 ${wrongText} 과정을 성실히 이행하며 헷갈렸던 개념과 풀이 단계를 빈틈없이 다시 점검하고 있습니다.`
+      );
+    }
   }
 
-  // 3. 다음 과제 또는 격려 마무리 문장
+  // 3. 사용자가 입력한 필수 포함 단어/문구 중 아직 반영되지 않은 항목들을 자연스러운 문장으로 조합
+  const remainingKeywords = consumedFirstKeyword ? keywordTokens.slice(1) : keywordTokens;
+  for (let kIdx = 0; kIdx < remainingKeywords.length; kIdx++) {
+    const clause = formatKeywordIntoClause(remainingKeywords[kIdx], vSeed + kIdx);
+    if (clause.text) {
+      sentences.push(clause.text.replace(/\*\*/g, ""));
+    }
+  }
+
+  // 4. 다음 과제 또는 어조별 마무리 문장
   if (st.nextHomework?.trim()) {
     sentences.push(
       `다음 수업 과제인 '${st.nextHomework.trim()}'까지 스스로 풀어보며 오늘 배운 내용을 한번 더 복습할 수 있도록 가정에서도 따뜻한 격려 부탁드립니다.`
     );
-  } else if (sentences.length < 2) {
-    const closingVariants = [
-      `앞으로도 단원별 핵심 유형과 서술형 풀이 과정을 빈틈없이 점검하여 실전 자신감을 더욱 높여가겠습니다.`,
-      `꾸준한 개념 복습과 오답 정리가 실력 향상으로 이어질 수 있도록 다음 수업에서도 세심하게 지도하겠습니다.`,
-      `배운 내용을 스스로 끝까지 풀어내는 습관이 잘 자리 잡을 수 있도록 학원에서도 계속해서 꼼꼼히 챙기겠습니다.`,
-    ];
-    sentences.push(closingVariants[idx % closingVariants.length]);
+  } else if (sentences.length < 2 || tone === "praise" || tone === "coaching") {
+    const closingByTone =
+      tone === "praise"
+        ? [
+            `지금처럼 긍정적인 자세로 학습을 이어간다면 다음 단원에서도 더욱 큰 성취감을 느낄 수 있을 것이라 확신합니다.`,
+            `매 수업 보여주는 성실함과 노력이 탄탄한 수학 실력으로 열매 맺을 수 있도록 앞으로도 아낌없이 격려하며 지도하겠습니다.`,
+          ]
+        : tone === "coaching"
+          ? [
+              `배운 개념을 백지에 스스로 전개해 보고 오답 문항을 끝까지 다시 풀어보는 습관이 정착되도록 다음 수업에서도 밀착 지도하겠습니다.`,
+              `취약한 유형을 그냥 넘기지 않고 원리부터 정확히 짚어내어 실전 득점력을 한 단계 더 끌어올리겠습니다.`,
+            ]
+          : [
+              `앞으로도 단원별 핵심 유형과 서술형 풀이 과정을 빈틈없이 점검하여 실전 자신감을 더욱 높여가겠습니다.`,
+              `꾸준한 개념 복습과 오답 정리가 실력 향상으로 이어질 수 있도록 다음 수업에서도 세심하게 지도하겠습니다.`,
+              `배운 내용을 스스로 끝까지 풀어내는 습관이 잘 자리 잡을 수 있도록 학원에서도 계속해서 꼼꼼히 챙기겠습니다.`,
+            ];
+    if (sentences.length < 3) {
+      sentences.push(closingByTone[vSeed % closingByTone.length]);
+    }
   }
 
   return {
@@ -1195,13 +1375,22 @@ function buildSmartFallbackResponse(body: {
   if (mode === "report_feedback" || /총평|피드백.*(?:작성|생성|써|만들)|코멘트.*(?:작성|생성|써|만들)/.test(prompt)) {
     const studentsData = extractFeedbackStudentsList(body.contextData, body.roster);
     const periodKor = String(body.contextData?.periodKor || "수업");
-    const feedbacks = studentsData.map((st, idx) => buildPersonalizedStudentFeedback(st, idx, periodKor));
+    const mustInclude = typeof body.contextData?.mustInclude === "string" ? body.contextData.mustInclude.trim() : "";
+    const toneStyle = typeof body.contextData?.toneStyle === "string" ? body.contextData.toneStyle : "counsel";
+    const variationSeed = Number(body.contextData?.variationSeed || 0);
+    const feedbacks = studentsData.map((st, idx) =>
+      buildPersonalizedStudentFeedback(st, idx, periodKor, {
+        mustInclude,
+        toneStyle,
+        variationSeed,
+      })
+    );
     actions.push({
       type: "generate_report_feedbacks",
       feedbacks,
     });
     return {
-      reply: `선택한 **${feedbacks.length}명**의 학습 기록(기록된 요소 기준)을 분석하여 학생별 맞춤 총평 코멘트를 작성했습니다.`,
+      reply: `선택한 **${feedbacks.length}명**의 기존 학습 요소와 입력하신 필수 포함 키워드를 조합하여 학생별 맞춤 총평 코멘트를 완성했습니다.`,
       actions,
     };
   }
@@ -1715,14 +1904,25 @@ ${
 }`
         : mode === "report_feedback"
         ? `당신은 수학 학원 올인원 워크스페이스 '유니데스크(UNIDESK)'의 리포트 총평 전문 AI(Flash 모델)입니다.
-전달된 각 학생의 실제 학습 지표(출결, 과제 수행률, 오답 클리닉 상태, 시험 성적 추이, 오늘/기간 교재 진도 범위, 다음 과제)를 바탕으로 학부모님께 신뢰감을 주는 다정하고 구체적인 맞춤형 피드백 코멘트(2~3문장)를 학생별로 각각 다르게 작성하세요.
+전달된 각 학생의 실제 학습 지표(출결, 과제 수행률, 오답 클리닉 상태, 시험 성적 추이, 오늘/기간 교재 진도 범위, 다음 과제)와 **선생님이 직접 입력한 [반드시 들어가야 하는 말 / 핵심 단어]**를 자연스럽게 조합하여 학부모님께 신뢰감을 주는 맞춤형 피드백 코멘트(2~4문장)를 완성하세요.
 
-[중요 원칙 — 일부 요소가 빠져 있거나 비어 있을 때의 처리 규칙]
-1. 출결(attRate/todayAtt), 과제(hwRate/todayHw), 성적(avgScore), 진도(progressSummary), 오답(wrongSummary) 중 **하나 이상의 요소가 빠져 있거나(null 또는 빈 문자열) 전부 비어 있더라도 절대 오류를 내거나 누락을 지적하지 마세요**.
-2. 기록되어 있는 요소만 자연스럽게 문장에 녹여 작성하고, 빠져 있는 요소는 언급을 생략하세요. 모든 지표가 비어 있는 학생이라도 학생의 이름·학년·반과 리포트 기간(${String(ctxObj.periodKor || "수업")})에 맞춰 수업 참여 태도와 개념 학습·복습 격려를 담은 자연스러운 2~3문장 총평을 반드시 작성하세요.
-3. 전달된 모든 학생에 대해 빠짐없이 각각의 studentId와 studentName을 그대로 유지하여 반환하세요.
+[중요 원칙 — 필수 포함 단어 조합 및 누락 요소 처리 규칙]
+1. 선생님이 입력한 **[공통 필수 포함 단어·문구]**(${JSON.stringify(String(ctxObj.mustInclude || "없음"))}) 및 각 학생 데이터의 **mustInclude(학생별 필수 포함 단어)**가 있다면, 해당 단어·내용을 **단 하나도 빠뜨리지 말고 기존 학습 요소(출결·과제·성적·진도·오답)와 한 문맥으로 자연스럽게 이어지도록 문장을 완성**하세요. 선생님이 단어만 짧게 적었더라도(예: "계산 실수 줄이기", "수업 집중력 향상", "다음 주 단원평가 대비") 완성된 정중한 문장으로 매끄럽게 풀어서 작성하세요.
+2. 출결(attRate/todayAtt), 과제(hwRate/todayHw), 성적(avgScore), 진도(progressSummary), 오답(wrongSummary) 중 **하나 이상의 요소가 빠져 있거나(null 또는 빈 문자열) 전부 비어 있더라도 절대 오류를 내거나 누락을 지적하지 마세요**. 기록되어 있는 요소와 선생님이 입력한 필수 단어만 자연스럽게 조합하여 작성하세요.
+3. 요청할 때마다 매번 똑같은 판박이 문장 구조가 나오지 않도록 어휘와 문장 구성을 다채롭게 변주(변형 시드 #${Number(ctxObj.variationSeed || 0)})하여 작성하세요.
+4. 전달된 모든 학생에 대해 빠짐없이 각각의 studentId와 studentName을 그대로 유지하여 반환하세요.
 
 [리포트 기간]: ${String(ctxObj.periodKor || "일일")} (${String(ctxObj.date || "")})
+[총평 어조·스타일]: ${
+            ctxObj.toneStyle === "praise"
+              ? "칭찬·격려 및 동기부여 중심"
+              : ctxObj.toneStyle === "coaching"
+                ? "약점 보완 및 구체적 학습 코칭 중심"
+                : ctxObj.toneStyle === "concise"
+                  ? "핵심만 간결하고 명확하게 요약"
+                  : "다정하고 정중한 학부모 상담형"
+          }
+[공통 필수 포함 단어·문구 (mustInclude)]: ${String(ctxObj.mustInclude || "없음")}
 [활성화된 리포트 포함 요소]: ${Array.isArray(ctxObj.enabledKinds) ? ctxObj.enabledKinds.join(", ") : "전체"}
 [대상 학생 데이터 목록 (students)]:
 ${JSON.stringify(extractFeedbackStudentsList(ctxObj, body.roster as Array<{ group: string; students: Array<{ name: string; grade: string }> }> | undefined)).slice(0, 24000)}
@@ -1734,7 +1934,7 @@ ${JSON.stringify(extractFeedbackStudentsList(ctxObj, body.roster as Array<{ grou
     {
       "type": "generate_report_feedbacks",
       "feedbacks": [
-        { "studentId": "전달된 학생의 id 그대로", "studentName": "전달된 학생의 name 그대로", "feedback": "맞춤 피드백 본문 (2~3문장)" }
+        { "studentId": "전달된 학생의 id 그대로", "studentName": "전달된 학생의 name 그대로", "feedback": "기존 요소와 필수 포함 단어를 조합하여 완성한 맞춤 총평 본문" }
       ]
     }
   ]
@@ -2106,6 +2306,10 @@ ${
       if (requestedStudents.length > 0) {
         const existingItems = fbAction.feedbacks;
         const usedIndices = new Set<number>();
+        const globalMustInclude = typeof ctxObj.mustInclude === "string" ? ctxObj.mustInclude.trim() : "";
+        const toneStyle = typeof ctxObj.toneStyle === "string" ? ctxObj.toneStyle : "counsel";
+        const variationSeed = Number(ctxObj.variationSeed || 0);
+
         fbAction.feedbacks = requestedStudents.map((st, idx) => {
           const matchIdx = existingItems.findIndex((item, i) => {
             if (usedIndices.has(i) || !item?.feedback?.trim()) return false;
@@ -2124,13 +2328,34 @@ ${
                 : -1;
           if (pickedIdx !== -1) {
             usedIndices.add(pickedIdx);
+            let feedbackText = existingItems[pickedIdx].feedback.trim();
+            // Ensure any required words entered by the teacher are present in the final feedback
+            const combinedKw = [globalMustInclude, st.mustInclude?.trim()].filter(Boolean).join(", ");
+            const requiredTokens = combinedKw
+              .split(/[,/\n]+/)
+              .map(s => s.trim())
+              .filter(Boolean);
+            for (let kIdx = 0; kIdx < requiredTokens.length; kIdx++) {
+              const token = requiredTokens[kIdx];
+              const coreWord = token.replace(/하기|줄이기|기$/, "").trim();
+              if (coreWord && !feedbackText.includes(coreWord)) {
+                const clause = formatKeywordIntoClause(token, idx + variationSeed + kIdx);
+                if (clause.text) {
+                  feedbackText = `${feedbackText} ${clause.text.replace(/\*\*/g, "")}`.trim();
+                }
+              }
+            }
             return {
               studentId: st.id,
               studentName: st.name,
-              feedback: existingItems[pickedIdx].feedback.trim(),
+              feedback: feedbackText,
             };
           }
-          return buildPersonalizedStudentFeedback(st, idx, periodKor);
+          return buildPersonalizedStudentFeedback(st, idx, periodKor, {
+            mustInclude: globalMustInclude,
+            toneStyle,
+            variationSeed,
+          });
         });
       }
     }

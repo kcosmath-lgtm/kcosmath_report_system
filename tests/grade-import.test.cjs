@@ -10,7 +10,8 @@ test('problem bank grades preserve exam date, score, counts and stable source ID
  const result = parseGradeRows([header,sample,[...sample.slice(0,6),'미채점','15문항','','12346']]);
  assert.equal(result.rows.length,1); assert.equal(result.skipped,1);
  assert.equal(result.rows[0].date,'2026-10-07'); assert.equal(result.rows[0].score,93);
- assert.equal(result.rows[0].title,'daily test');
+ assert.equal(result.rows[0].title,'EOM테스트');
+ assert.equal(parseGradeRows([header,sample],'주간테스트').rows[0].title,'주간테스트');
  assert.equal(result.rows[0].total,15); assert.equal(result.rows[0].wrong,1);
  assert.equal(result.rows[0].key,parseGradeRows([header,sample]).rows[0].key);
 });

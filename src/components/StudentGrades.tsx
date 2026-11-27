@@ -2,14 +2,16 @@
 import { useEffect, useRef, useState } from 'react';
 import type { StudentGroup } from '../types/student';
 import type { StudentDailySave } from '../types/student-daily';
-import { loadStudentDaily, loadWrongAnswers, saveStudentDaily } from '../lib/report-storage';
-import { parseGradeRows, type ImportedGrade } from '../lib/grade-import';
+import { loadDefaultImportExamTitle, loadStudentDaily, loadWrongAnswers, saveDefaultImportExamTitle, saveStudentDaily } from '../lib/report-storage';
+import { FALLBACK_IMPORT_EXAM_TITLE, parseGradeRows, type ImportedGrade } from '../lib/grade-import';
 import styles from './student-daily.module.css';
 
 export default function StudentGrades({ groups, history, onSaved, blocked, show, setShow, onBusyChange }: { groups: StudentGroup[]; history: StudentDailySave[]; onSaved: (date: string) => void; blocked: boolean; show: boolean; setShow: (show: boolean) => void; onBusyChange: (busy: boolean) => void }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState<ImportedGrade[]>([]);
-  const [bulkTitle, setBulkTitle] = useState('daily test');
+  const [defaultExamTitle, setDefaultExamTitle] = useState(FALLBACK_IMPORT_EXAM_TITLE);
+  const [savingDefaultTitle, setSavingDefaultTitle] = useState(false);
+  const [bulkTitle, setBulkTitle] = useState(FALLBACK_IMPORT_EXAM_TITLE);
   const [bulkTitleDirty, setBulkTitleDirty] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState(false);
@@ -20,7 +22,41 @@ export default function StudentGrades({ groups, history, onSaved, blocked, show,
     input?.addEventListener('cancel', cancel);
     return () => input?.removeEventListener('cancel', cancel);
   }, [onBusyChange]);
+  useEffect(() => {
+    if (typeof loadDefaultImportExamTitle !== 'function') return;
+    let cancelled = false;
+    loadDefaultImportExamTitle().then(title => {
+      if (cancelled || !title?.trim()) return;
+      const clean = title.trim();
+      setDefaultExamTitle(clean);
+      setBulkTitle(prev => (prev === FALLBACK_IMPORT_EXAM_TITLE ? clean : prev));
+    }).catch(() => { /* keep fallback */ });
+    return () => { cancelled = true; };
+  }, []);
   const students = groups.flatMap(g => g.students.map(s => ({ ...s, group: g.group })));
+  async function saveDefaultTitle() {
+    const nextTitle = defaultExamTitle.trim();
+    if (!nextTitle || savingDefaultTitle) return;
+    setSavingDefaultTitle(true);
+    setError(false);
+    try {
+      const saved = typeof saveDefaultImportExamTitle === 'function' ? await saveDefaultImportExamTitle(nextTitle) : nextTitle;
+      setDefaultExamTitle(saved);
+      setBulkTitle(saved);
+      setPending(rows => {
+        if (!rows.length) return rows;
+        const hasEnabled = rows.some(r => r.enabled);
+        return rows.map(r => (!hasEnabled || r.enabled ? { ...r, title: saved } : r));
+      });
+      setBulkTitleDirty(false);
+      setMessage(`기본 시험명을 '${saved}'(으)로 저장했습니다.`);
+    } catch (e) {
+      setError(true);
+      setMessage(e instanceof Error ? e.message : '기본 시험명을 저장하지 못했습니다.');
+    } finally {
+      setSavingDefaultTitle(false);
+    }
+  }
   function applyBulkTitle() {
     const nextTitle = bulkTitle.trim();
     if (!nextTitle) return;
@@ -33,9 +69,10 @@ export default function StudentGrades({ groups, history, onSaved, blocked, show,
   async function read(files: FileList | File[]) {
     const fileList = Array.from(files);
     if (!fileList.length) return;
+    const activeDefaultTitle = defaultExamTitle.trim() || FALLBACK_IMPORT_EXAM_TITLE;
     onBusyChange(true);
     console.info('[grade-import] file_selected', { count: fileList.length, sizes: fileList.map(f => f.size) });
-    setMessage(''); setPending([]); setBulkTitle('daily test'); setBulkTitleDirty(false); setError(false);
+    setMessage(''); setPending([]); setBulkTitle(activeDefaultTitle); setBulkTitleDirty(false); setError(false);
     try {
       const mergedRows: ImportedGrade[] = [];
       const seenKeys = new Set<string>();
@@ -50,7 +87,7 @@ export default function StudentGrades({ groups, history, onSaved, blocked, show,
         if (/charset\s*=\s*["']?(euc-kr|ks_c_5601|cp949)/i.test(text)) text = new TextDecoder('euc-kr').decode(buffer);
         const doc = new DOMParser().parseFromString(text, 'text/html');
         const grid = Array.from(doc.querySelectorAll('tr')).map(tr => Array.from(tr.querySelectorAll('th,td')).map(td => td.textContent?.replace(/\u00a0/g,' ').trim() ?? ''));
-        const parsed = parseGradeRows(grid);
+        const parsed = parseGradeRows(grid, activeDefaultTitle);
         totalSkipped += parsed.skipped;
         for (const r of parsed.rows) {
           if (seenKeys.has(r.key)) {
@@ -59,7 +96,7 @@ export default function StudentGrades({ groups, history, onSaved, blocked, show,
           }
           seenKeys.add(r.key);
           const matches = students.filter(s => s.name.trim() === r.name.trim() && s.grade.trim() === r.grade.trim());
-          mergedRows.push({ ...r, title: 'daily test', studentId: matches.length === 1 ? matches[0].id : '' });
+          mergedRows.push({ ...r, title: activeDefaultTitle, studentId: matches.length === 1 ? matches[0].id : '' });
         }
       }
       console.info('[grade-import] file_parsed', { files: fileList.length, graded: mergedRows.length, skipped: totalSkipped, duplicateSkipped });
@@ -108,12 +145,17 @@ export default function StudentGrades({ groups, history, onSaved, blocked, show,
           return !actual || expected.daily.exams.some(exam => !actual.daily.exams.some(e => e.id === exam.id));
         })) throw new Error('서버 응답에서 저장된 성적을 확인하지 못했습니다. 새로고침 후 확인해 주세요.');
       }
-      setPending([]); setBulkTitle(''); setBulkTitleDirty(false); setMessage(`성적 ${chosen.length - duplicates}건 저장 완료 · 중복 ${duplicates}건 제외`); setShow(true); onSaved(chosen[0].date);
+      setPending([]); setBulkTitle(defaultExamTitle.trim() || FALLBACK_IMPORT_EXAM_TITLE); setBulkTitleDirty(false); setMessage(`성적 ${chosen.length - duplicates}건 저장 완료 · 중복 ${duplicates}건 제외`); setShow(true); onSaved(chosen[0].date);
     } catch(e) { setError(true); setMessage(e instanceof Error ? e.message : '성적을 저장하지 못했습니다.'); }
     finally { setBusy(false); onBusyChange(false); }
   }
   return <>
     <div className={styles.gradeActions}><label className={styles.filePicker} data-disabled={blocked || busy}>성적 엑셀 가져오기<input ref={fileInput} aria-label="성적 엑셀 가져오기" type="file" multiple disabled={blocked || busy} accept=".xls,.html,.htm" onChange={e => { const files = e.target.files ? Array.from(e.target.files) : []; e.target.value = ''; if (files.length) void read(files); else onBusyChange(false); }} /></label>
+      <div className={styles.quickBulkExam}>
+        <span className={styles.quickBulkTag}>기본 시험명</span>
+        <input type="text" className={styles.bulkExamNameInput} aria-label="기본 시험명" placeholder="예: EOM테스트" value={defaultExamTitle} disabled={busy || savingDefaultTitle} onChange={e => setDefaultExamTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void saveDefaultTitle(); } }} />
+        <button type="button" className={styles.bulkExamApplyBtn} disabled={busy || savingDefaultTitle || !defaultExamTitle.trim()} onClick={() => void saveDefaultTitle()}>{savingDefaultTitle ? '저장 중…' : '기본값 저장'}</button>
+      </div>
       <button aria-pressed={show} disabled={busy} onClick={() => setShow(!show)}>{show ? '수업 기록 보기' : '성적 보기'}</button>
     </div>
     {message && <p className={styles.message} role={error ? 'alert' : 'status'} data-error={error}>{message}</p>}
@@ -121,7 +163,7 @@ export default function StudentGrades({ groups, history, onSaved, blocked, show,
       <td><input className={styles.check} type="checkbox" aria-label={`${r.name} 성적 가져오기`} checked={r.enabled} disabled={busy} onChange={e => setPending(rows => rows.map((row,j) => i === j ? { ...row, enabled: e.target.checked } : row))} /></td><td>{r.name}<small>{r.group} · {r.grade}</small></td>
       <td><select aria-label={`${r.name} 연결 학생`} value={r.studentId} disabled={busy} onChange={e => setPending(rows => rows.map((row,j) => i === j ? { ...row, studentId: e.target.value } : row))}><option value="">학생 선택 필요</option>{students.map(s => <option key={s.id} value={s.id}>{s.name} · {s.grade} · {s.group}</option>)}</select></td>
       <td><input type="date" aria-label={`${r.name} 시험 날짜`} value={r.date} disabled={busy} onChange={e => setPending(rows => rows.map((row,j) => i === j ? { ...row, date: e.target.value } : row))} /></td><td><input type="text" className={styles.examTableInput} aria-label={`${r.name} 시험명`} value={r.title} disabled={busy} onChange={e => { const value = e.target.value; setBulkTitleDirty(false); setPending(rows => rows.map((row,j) => i === j ? { ...row, title: value } : row)); }} /></td><td>{r.score} / {r.max}</td>
-    </tr>)}</tbody></table></div><button disabled={blocked || busy} onClick={() => void importGrades()}>{busy ? '저장 중…' : '확인한 성적 저장'}</button><button disabled={busy} onClick={() => { setPending([]); setBulkTitle(''); setBulkTitleDirty(false); }}>취소</button></section>}
+    </tr>)}</tbody></table></div><button disabled={blocked || busy} onClick={() => void importGrades()}>{busy ? '저장 중…' : '확인한 성적 저장'}</button><button disabled={busy} onClick={() => { setPending([]); setBulkTitle(defaultExamTitle.trim() || FALLBACK_IMPORT_EXAM_TITLE); setBulkTitleDirty(false); }}>취소</button></section>}
     {show && <section><h3>이번 달 성적</h3><div className={styles.tableWrap}><table><thead><tr><th>날짜</th><th>학생</th><th>시험명</th><th>점수 / 만점</th><th>범위·메모</th></tr></thead><tbody>{history.flatMap(r => r.daily.exams.map(e => <tr key={`${r.daily.id}:${e.id}`}><td>{r.daily.record_date}</td><td>{students.find(s => s.id === r.daily.student_id)?.name ?? '학생'}</td><td>{e.name}</td><td>{e.score} / {e.max_score}</td><td>{e.scope} {e.memo}</td></tr>))}</tbody></table>{!history.some(r => r.daily.exams.length) && <p>이 달에 저장된 성적이 없습니다. 날짜에서 다른 달을 선택할 수 있습니다.</p>}</div></section>}
   </>;
 }

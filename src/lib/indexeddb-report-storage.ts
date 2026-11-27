@@ -382,3 +382,26 @@ export async function deleteHandoff(id: string): Promise<void> {
     await result(store.delete(id));
   });
 }
+
+const DEFAULT_EXAM_TITLE_KEY = "cosmath:default-import-exam-title:v1";
+
+export async function loadDefaultImportExamTitle(): Promise<string> {
+  try {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(DEFAULT_EXAM_TITLE_KEY)?.trim();
+      if (saved) return saved;
+    }
+  } catch { /* ignore */ }
+  return "EOM테스트";
+}
+
+export async function saveDefaultImportExamTitle(title: string): Promise<string> {
+  const clean = title.trim();
+  if (!clean || clean.length > 100) throw new Error("기본 시험명을 1~100자로 입력해 주세요.");
+  try {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(DEFAULT_EXAM_TITLE_KEY, clean);
+    }
+  } catch { /* ignore */ }
+  return clean;
+}

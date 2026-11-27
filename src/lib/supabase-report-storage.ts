@@ -195,3 +195,46 @@ export async function deleteHandoff(id: string): Promise<void> {
   if (error) throw storageError(error);
   if (!data) throw storageError({ code: "40001", message: "Handoff changed" });
 }
+
+const DEFAULT_EXAM_TITLE_KEY = "cosmath:default-import-exam-title:v1";
+
+export async function loadDefaultImportExamTitle(): Promise<string> {
+  let cached = "EOM테스트";
+  try {
+    if (typeof window !== "undefined") {
+      const local = localStorage.getItem(DEFAULT_EXAM_TITLE_KEY)?.trim();
+      if (local) cached = local;
+    }
+  } catch { /* ignore */ }
+  const { data, error } = await supabase.rpc("cosmath_get_default_import_exam_title");
+  if (!error && typeof data === "string" && data.trim()) {
+    const clean = data.trim();
+    try { if (typeof window !== "undefined") localStorage.setItem(DEFAULT_EXAM_TITLE_KEY, clean); } catch { /* ignore */ }
+    return clean;
+  }
+  const row = await supabase
+    .from("cosmath_academy_ai_settings")
+    .select("default_import_exam_title")
+    .maybeSingle();
+  if (!row.error && typeof row.data?.default_import_exam_title === "string" && row.data.default_import_exam_title.trim()) {
+    const clean = row.data.default_import_exam_title.trim();
+    try { if (typeof window !== "undefined") localStorage.setItem(DEFAULT_EXAM_TITLE_KEY, clean); } catch { /* ignore */ }
+    return clean;
+  }
+  return cached;
+}
+
+export async function saveDefaultImportExamTitle(title: string): Promise<string> {
+  const clean = title.trim();
+  if (!clean || clean.length > 100) throw new Error("기본 시험명을 1~100자로 입력해 주세요.");
+  try { if (typeof window !== "undefined") localStorage.setItem(DEFAULT_EXAM_TITLE_KEY, clean); } catch { /* ignore */ }
+  const { data, error } = await supabase.rpc("cosmath_set_default_import_exam_title", { p_title: clean });
+  if (!error && typeof data === "string" && data.trim()) {
+    return data.trim();
+  }
+  const upserted = await supabase
+    .from("cosmath_academy_ai_settings")
+    .upsert({ default_import_exam_title: clean, updated_at: new Date().toISOString() }, { onConflict: "academy_id" });
+  if (upserted.error && error) throw storageError(error);
+  return clean;
+}

@@ -8,7 +8,8 @@ test('Excel confirmation submits exams on an existing attendance record and repo
  const original=Module._load; let root, submitted, fail=false, savedDate;
  const daily={id:'daily',student_id:'a',record_date:'2026-10-07',attendance:'출석',reason:'',exams:[],version:1};
  const wrong={id:'wrong',student_id:'a',record_date:'2026-10-07',total_wrong:11,corrected_count:4,memo:'keep',version:1};
- const storage={loadStudentDaily:async()=>[daily],loadWrongAnswers:async()=>[wrong],saveStudentDaily:async items=>{submitted=items;if(fail)throw Error('Save rejected');return items;}};
+ let storedDefaultTitle='EOM테스트';
+ const storage={loadDefaultImportExamTitle:async()=>storedDefaultTitle,saveDefaultImportExamTitle:async t=>{storedDefaultTitle=t.trim();return storedDefaultTitle;},loadStudentDaily:async()=>[daily],loadWrongAnswers:async()=>[wrong],saveStudentDaily:async items=>{submitted=items;if(fail)throw Error('Save rejected');return items;}};
  Module._load=function(r,p,i){if(r.endsWith('.css'))return new Proxy({},{get:(_,k)=>String(k)});if(r==='../lib/report-storage')return storage;return original.call(this,r,p,i);};
  const previousParser=global.DOMParser;
  global.DOMParser=class{parseFromString(){return{querySelectorAll:()=>[
@@ -18,11 +19,17 @@ test('Excel confirmation submits exams on an existing attendance record and repo
   const Grades=require('../src/components/StudentGrades.tsx').default;
   const props={groups:[{id:'g',group:'Different',students:[{id:'a',name:'A',grade:'중3'}]}],history:[],onSaved:d=>{savedDate=d;},blocked:false,show:false,setShow(){},onBusyChange(){}};
   await act(async()=>{root=create(React.createElement(Grades,props));});
+  const defaultInput=root.root.findByProps({'aria-label':'기본 시험명'});
+  assert.equal(defaultInput.props.value,'EOM테스트');
+  await act(async()=>{defaultInput.props.onChange({target:{value:'주간평가'}});});
+  const saveDefaultBtn=root.root.findAllByType('button').find(b=>b.children.join('')==='기본값 저장');
+  await act(async()=>{await saveDefaultBtn.props.onClick();});
+  assert.equal(storedDefaultTitle,'주간평가');
   const upload=async()=>act(async()=>{root.root.findByProps({type:'file'}).props.onChange({target:{files:[{size:100,arrayBuffer:async()=>new TextEncoder().encode('<table/>').buffer}],value:'file'}});});
   await upload();
-  assert.equal(root.root.findByProps({'aria-label':'A 시험명'}).props.value,'daily test');
+  assert.equal(root.root.findByProps({'aria-label':'A 시험명'}).props.value,'주간평가');
   const bulkInput=root.root.findByProps({'aria-label':'일괄 시험명'});
-  assert.equal(bulkInput.props.value,'daily test');
+  assert.equal(bulkInput.props.value,'주간평가');
   await act(async()=>{bulkInput.props.onChange({target:{value:'10월 월말평가'}});});
   const applyBtn=root.root.findAllByType('button').find(b=>b.children.join('')==='시험명 일괄 적용');
   await act(async()=>{applyBtn.props.onClick();});

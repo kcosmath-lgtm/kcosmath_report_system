@@ -37,6 +37,8 @@ export async function saveWrongAnswer(record: import("../types/wrong-answer").Wr
 export async function loadHandoffs(month: string): Promise<import("../types/handoff").HandoffRecord[]> { return (await storage()).loadHandoffs(month); }
 export async function addHandoff(record: import("../types/handoff").HandoffRecord) { return (await storage()).addHandoff(record); }
 export async function deleteHandoff(id: string) { return (await storage()).deleteHandoff(id); }
+export async function loadDefaultImportExamTitle(): Promise<string> { return (await storage()).loadDefaultImportExamTitle(); }
+export async function saveDefaultImportExamTitle(title: string): Promise<string> { return (await storage()).saveDefaultImportExamTitle(title); }
 
 function rosterChanged() {
   if (typeof window === "undefined") return;

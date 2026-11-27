@@ -359,8 +359,6 @@ function AutoGrowFeedbackTextarea({
  value,
  placeholder,
  onChange,
- onBulkApply,
- bulkCount,
 }: {
  value: string;
  placeholder: string;
@@ -394,30 +392,6 @@ function AutoGrowFeedbackTextarea({
      onChange(e.target.value);
     }}
    />
-   {onBulkApply && (bulkCount ?? 0) > 1 && (
-    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }} data-export-hide="true">
-     <button
-      type="button"
-      data-export-hide="true"
-      onClick={() => onBulkApply(value)}
-      style={{
-       display: 'inline-flex',
-       alignItems: 'center',
-       gap: 5,
-       padding: '4px 10px',
-       borderRadius: 7,
-       border: '1px solid #2563eb',
-       background: '#eff6ff',
-       color: '#1d4ed8',
-       fontSize: 11,
-       fontWeight: 800,
-       cursor: 'pointer',
-      }}
-     >
-      <Check size={12} /> 이 피드백 코멘트를 선택 학생 {bulkCount}명에 일괄 적용
-     </button>
-    </div>
-   )}
   </div>
  );
 }

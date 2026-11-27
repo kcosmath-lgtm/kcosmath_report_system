@@ -26,6 +26,8 @@ import {
  ChevronLeft,
  ChevronRight,
  MessageSquareText,
+ BookOpen,
+ Save,
  AlignLeft,
  AlignCenter,
  AlignRight,
@@ -34,7 +36,7 @@ import {
 import StudentSidebar from '../../../components/layout/Sidebar';
 import LandingMenu from '../../../components/LandingMenu';
 import {useAuth} from '../../../components/AuthProvider';
-import {loadStudentDaily,loadWrongAnswerRange,loadProgress,saveWrongAnswer,saveProgress} from '../../../lib/report-storage';
+import {loadStudentDaily,loadWrongAnswerRange,loadProgress,saveWrongAnswer,saveProgress,saveProgressBatch} from '../../../lib/report-storage';
 import {sendAiCopilotMessage} from '../../../lib/ai-copilot';
 import {reportMonths} from '../../../lib/wrong-answer-report';
 import type {ReportStudent} from '../../../types/report';
@@ -196,10 +198,14 @@ export default function NewReportPage(){
   if (patch.titlePosition !== undefined) setTitlePosition(patch.titlePosition);
  }, []);
 
- // 다중 학생 일괄 피드백 코멘트 작성 상태
+ // 다중 학생 일괄 피드백 & 진도·과제 작성 상태
  const [bulkFeedbackText, setBulkFeedbackText] = useState('');
  const [bulkFeedbackTargets, setBulkFeedbackTargets] = useState<string[]>([]);
  const [showBulkFeedbackBar, setShowBulkFeedbackBar] = useState(false);
+ const [showBulkProgressBar, setShowBulkProgressBar] = useState(false);
+ const [bulkBookTarget, setBulkBookTarget] = useState<string>('__primary__');
+ const [bulkScopeText, setBulkScopeText] = useState<string>('');
+ const [bulkHomeworkText, setBulkHomeworkText] = useState<string>('');
  const [aiFeedbackBusy, setAiFeedbackBusy] = useState(false);
  const [aiFeedbackModalOpen, setAiFeedbackModalOpen] = useState(false);
  const [aiMustIncludeText, setAiMustIncludeText] = useState('');
@@ -444,9 +450,15 @@ export default function NewReportPage(){
  }, [feedbackStorageKey]);
 
  const feedbackSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+ const dirtyWrongRef = useRef<Set<string>>(new Set());
+ const dirtyProgressRef = useRef<Set<string>>(new Set());
+ const [dirtyRecordCount, setDirtyRecordCount] = useState(0);
+ const [savingRecords, setSavingRecords] = useState(false);
  const selfSavingCount = useRef(0);
  const handleEditFeedback = useCallback((studentId: string, date: string, memo: string) => {
   persistStudentFeedback(studentId, memo);
+  dirtyWrongRef.current.add(`${studentId}:${date}`);
+  setDirtyRecordCount(dirtyWrongRef.current.size + dirtyProgressRef.current.size);
   setReports(prev => {
    const next = prev.map(r => {
     if (r.id !== studentId) return r;
@@ -502,7 +514,11 @@ export default function NewReportPage(){
    .filter(id => students.some(s => s.id === id));
   if (targetIds.length === 0) return;
 
-  targetIds.forEach(id => persistStudentFeedback(id, memo));
+  targetIds.forEach(id => {
+   persistStudentFeedback(id, memo);
+   dirtyWrongRef.current.add(`${id}:${date}`);
+  });
+  setDirtyRecordCount(dirtyWrongRef.current.size + dirtyProgressRef.current.size);
 
   setReports(prev => {
    return prev.map(r => {
@@ -863,6 +879,8 @@ export default function NewReportPage(){
    }
 
    const timerKey = `${studentId}:${resolvedBook.id}:${date}`;
+   dirtyProgressRef.current.add(timerKey);
+   setDirtyRecordCount(dirtyWrongRef.current.size + dirtyProgressRef.current.size);
    if (progressSaveTimers.current[timerKey]) clearTimeout(progressSaveTimers.current[timerKey]);
    progressSaveTimers.current[timerKey] = setTimeout(async () => {
     const latestReport = latestReportsRef.current.find(item => item.id === studentId);
@@ -889,6 +907,135 @@ export default function NewReportPage(){
    return { ...r, books: nextBooks, entries: nextEntries };
   }));
  }, []);
+
+ const availableBulkBookTitles = useMemo(() => {
+  const titles = new Set<string>();
+  for (const r of reports) {
+   for (const b of r.books) {
+    if (!b.archived && b.curriculum !== '프린트' && b.title !== '프린트 · 유인물' && b.title.trim()) {
+     titles.add(b.title.trim());
+    }
+   }
+  }
+  return Array.from(titles);
+ }, [reports]);
+
+ const handleBulkEditProgress = useCallback((
+  date: string,
+  patch: { scope?: string; homework?: string; bookTitle?: string },
+  customTargetIds?: string[],
+  customBookTarget?: string
+ ) => {
+  const targetIds = (
+   customTargetIds && customTargetIds.length > 0
+    ? customTargetIds
+    : bulkFeedbackTargets.length > 0
+      ? bulkFeedbackTargets
+      : students.map(s => s.id)
+  ).filter(id => students.some(s => s.id === id));
+  if (targetIds.length === 0) return;
+
+  const effectiveBookTarget = customBookTarget ?? (patch.bookTitle ? `title:${patch.bookTitle}` : bulkBookTarget);
+
+  setEnabledKinds(prev => (prev.includes('progress') ? prev : [...prev, 'progress']));
+
+  for (const studentId of targetIds) {
+   const rep = latestReportsRef.current.find(r => r.id === studentId);
+   const activeBooks = (rep?.books ?? []).filter(b => !b.archived && b.curriculum !== '프린트' && b.title !== '프린트 · 유인물');
+   let bookIdToUse = '__print__';
+
+   if (effectiveBookTarget === '__print__' || patch.bookTitle === '프린트 · 유인물') {
+    bookIdToUse = '__print__';
+   } else if (effectiveBookTarget.startsWith('title:')) {
+    const wantedTitle = effectiveBookTarget.slice(6).trim();
+    const matched = activeBooks.find(b => b.title.trim() === wantedTitle);
+    bookIdToUse = matched?.id ?? activeBooks[0]?.id ?? '__print__';
+   } else {
+    bookIdToUse = activeBooks[0]?.id ?? '__print__';
+   }
+
+   const cleanPatch: { scope?: string; homework?: string } = {};
+   if (patch.scope !== undefined) cleanPatch.scope = patch.scope;
+   if (patch.homework !== undefined) cleanPatch.homework = patch.homework;
+   handleEditProgress(studentId, bookIdToUse, date, cleanPatch);
+  }
+
+  if (patch.scope !== undefined) setBulkScopeText(patch.scope);
+  if (patch.homework !== undefined) setBulkHomeworkText(patch.homework);
+  setMessage(`선택한 ${targetIds.length}명의 학생 보고서에 오늘 수업 진도·과제를 일괄 적용했습니다.`);
+ }, [bulkFeedbackTargets, students, bulkBookTarget, handleEditProgress]);
+
+ const handleSaveStudentRecords = useCallback(async () => {
+  if (savingRecords || loading || exporting || !students.length) return;
+  for (const t of Object.values(feedbackSaveTimers.current)) clearTimeout(t);
+  feedbackSaveTimers.current = {};
+  for (const t of Object.values(progressSaveTimers.current)) clearTimeout(t);
+  progressSaveTimers.current = {};
+
+  setSavingRecords(true);
+  selfSavingCount.current += 1;
+  try {
+   const latest = latestReportsRef.current;
+   const wrongToSave = [];
+   const progressBatch: { book: ProgressBook; entry: ProgressEntry }[] = [];
+
+   for (const rep of latest) {
+    if (!students.some(s => s.id === rep.id)) continue;
+    const endWrong = rep.wrong.find(w => w.record_date === end);
+    if (endWrong && (dirtyWrongRef.current.has(`${rep.id}:${end}`) || endWrong.memo?.trim())) {
+     wrongToSave.push(endWrong);
+    }
+    for (const book of rep.books) {
+     if (book.archived) continue;
+     const endEntry = [...rep.entries].filter(e => e.book_id === book.id && e.record_date === end).pop();
+     const key = `${rep.id}:${book.id}:${end}`;
+     if (endEntry && (dirtyProgressRef.current.has(key) || endEntry.scope?.trim() || endEntry.homework?.trim())) {
+      progressBatch.push({ book, entry: endEntry });
+     }
+    }
+   }
+
+   if (wrongToSave.length > 0) {
+    const savedWrongs = await Promise.all(wrongToSave.map(w => saveWrongAnswer(w)));
+    setReports(curr => curr.map(rep => {
+     const matched = savedWrongs.find(sw => sw.student_id === rep.id && sw.record_date === end);
+     if (!matched) return rep;
+     return {
+      ...rep,
+      wrong: rep.wrong.map(w => (w.record_date === end ? { ...w, id: matched.id, version: matched.version } : w)),
+     };
+    }));
+   }
+
+   if (progressBatch.length > 0) {
+    if (typeof saveProgressBatch === 'function') {
+     const savedBooks = await saveProgressBatch(progressBatch);
+     setReports(curr => curr.map(rep => {
+      const updatedForStudent = savedBooks.filter(sb => sb.book.student_id === rep.id);
+      if (!updatedForStudent.length) return rep;
+      return {
+       ...rep,
+       books: rep.books.map(b => updatedForStudent.find(u => u.book.id === b.id)?.book ?? b),
+      };
+     }));
+    } else {
+     for (const item of progressBatch) {
+      await saveProgress(item.book, item.entry);
+     }
+    }
+   }
+
+   dirtyWrongRef.current.clear();
+   dirtyProgressRef.current.clear();
+   setDirtyRecordCount(0);
+   setMessage('기록을 저장했습니다. 학생 관리의 수업·진도·피드백 기록에 반영되었습니다.');
+  } catch (e) {
+   setMessage(e instanceof Error ? e.message : '기록을 저장하지 못했습니다.');
+  } finally {
+   selfSavingCount.current = Math.max(0, selfSavingCount.current - 1);
+   setSavingRecords(false);
+  }
+ }, [savingRecords, loading, exporting, students, end]);
 
  useEffect(() => {
   const onAiReportFeedbacks = (e: Event) => {
@@ -1417,25 +1564,46 @@ export default function NewReportPage(){
      </button>
 
      {students.length > 1 && (
-      <button
-       type="button"
-       onClick={() => setShowBulkFeedbackBar(v => !v)}
-       style={{
-        display:'inline-flex',
-        alignItems:'center',
-        gap:6,
-        padding:'7px 12px',
-        borderRadius:8,
-        border:showBulkFeedbackBar?'1px solid #191f28':'1px solid #e5e8eb',
-        background:showBulkFeedbackBar?'#191f28':'#ffffff',
-        color:showBulkFeedbackBar?'#ffffff':'#333d4b',
-        fontSize:12,
-        fontWeight:600,
-        cursor:'pointer',
-       }}
-      >
-       <MessageSquareText size={13}/> 일괄 피드백 ({bulkFeedbackTargets.length || students.length})
-      </button>
+      <>
+       <button
+        type="button"
+        onClick={() => setShowBulkProgressBar(v => !v)}
+        style={{
+         display:'inline-flex',
+         alignItems:'center',
+         gap:6,
+         padding:'7px 12px',
+         borderRadius:8,
+         border:showBulkProgressBar?'1px solid #191f28':'1px solid #e5e8eb',
+         background:showBulkProgressBar?'#191f28':'#ffffff',
+         color:showBulkProgressBar?'#ffffff':'#333d4b',
+         fontSize:12,
+         fontWeight:600,
+         cursor:'pointer',
+        }}
+       >
+        <BookOpen size={13}/> 일괄 진도·과제 ({bulkFeedbackTargets.length || students.length})
+       </button>
+       <button
+        type="button"
+        onClick={() => setShowBulkFeedbackBar(v => !v)}
+        style={{
+         display:'inline-flex',
+         alignItems:'center',
+         gap:6,
+         padding:'7px 12px',
+         borderRadius:8,
+         border:showBulkFeedbackBar?'1px solid #191f28':'1px solid #e5e8eb',
+         background:showBulkFeedbackBar?'#191f28':'#ffffff',
+         color:showBulkFeedbackBar?'#ffffff':'#333d4b',
+         fontSize:12,
+         fontWeight:600,
+         cursor:'pointer',
+        }}
+       >
+        <MessageSquareText size={13}/> 일괄 피드백 ({bulkFeedbackTargets.length || students.length})
+       </button>
+      </>
      )}
 
      {/* 컴팩트 배율 & 크게 보기 */}
@@ -1475,6 +1643,26 @@ export default function NewReportPage(){
      </div>
 
      <button disabled={!ready||exporting} onClick={()=>window.print()} style={{padding:'7px 11px'}}>PDF</button>
+     <button
+      type="button"
+      disabled={!ready || exporting || savingRecords}
+      onClick={() => void handleSaveStudentRecords()}
+      style={{
+       display:'inline-flex',
+       alignItems:'center',
+       gap:6,
+       padding:'7px 13px',
+       borderRadius:8,
+       border:'1px solid #3182f6',
+       background:'#3182f6',
+       color:'#ffffff',
+       fontSize:12,
+       fontWeight:700,
+       cursor:ready && !exporting && !savingRecords ? 'pointer' : 'default',
+      }}
+     >
+      <Save size={14}/> {savingRecords ? '저장 중…' : `기록 저장${dirtyRecordCount > 0 ? ` (${dirtyRecordCount})` : ''}`}
+     </button>
      <button className={styles.batchDownload} disabled={!ready||exporting} onClick={()=>void exportAll()}>
       <Download size={14}/>{exporting?'생성 중…':`이미지 저장${students.length?` (${students.length})`:''}`}
      </button>
@@ -1858,6 +2046,180 @@ export default function NewReportPage(){
 
    {!valid&&<p role="alert" className={styles.message}>시작일과 종료일을 확인해 주세요. 한 번에 최대 12개 월의 기록을 조회할 수 있습니다.</p>}
    {message&&<p role="status" className={styles.message}>{message}</p>}
+
+   {/* 다중 학생 선택 시 오늘 수업 진도 및 다음 과제 일괄 작성 · 적용 바 */}
+   {students.length > 1 && showBulkProgressBar && (
+    <section
+     aria-label="선택 학생 진도·과제 일괄 작성"
+     style={{
+      margin:'10px 24px 4px',
+      padding:'14px 16px',
+      background:'#ffffff',
+      border:'1px solid #e5e8eb',
+      borderRadius:12,
+      display:'flex',
+      flexDirection:'column',
+      gap:10,
+     }}
+    >
+     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+       <strong style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12.5,color:'#191f28'}}>
+        <BookOpen size={14}/> 선택 학생 오늘 수업 진도 · 다음 과제 일괄 적용 ({bulkFeedbackTargets.length}명)
+       </strong>
+       <button
+        type="button"
+        onClick={() =>
+         setBulkFeedbackTargets(
+          bulkFeedbackTargets.length === students.length ? [] : students.map(s => s.id)
+         )
+        }
+        style={{
+         padding:'3px 9px',
+         fontSize:11,
+         fontWeight:600,
+         borderRadius:6,
+         border:'1px solid #e5e8eb',
+         background:'#f9fafb',
+         color:'#4e5968',
+         cursor:'pointer',
+        }}
+       >
+        {bulkFeedbackTargets.length === students.length ? '전체 해제' : `전체 선택 (${students.length}명)`}
+       </button>
+       <div style={{display:'flex',alignItems:'center',gap:4,flexWrap:'wrap'}}>
+        {students.map(s => {
+         const checkedTarget = bulkFeedbackTargets.includes(s.id);
+         return (
+          <button
+           key={s.id}
+           type="button"
+           aria-pressed={checkedTarget}
+           onClick={() =>
+            setBulkFeedbackTargets(prev =>
+             prev.includes(s.id) ? prev.filter(id => id !== s.id) : [...prev, s.id]
+            )
+           }
+           style={{
+            padding:'3px 10px',
+            fontSize:11,
+            fontWeight:600,
+            borderRadius:999,
+            border:checkedTarget ? '1px solid #191f28' : '1px solid #e5e8eb',
+            background:checkedTarget ? '#191f28' : '#ffffff',
+            color:checkedTarget ? '#ffffff' : '#6b7684',
+            cursor:'pointer',
+           }}
+          >
+           {checkedTarget ? '✓ ' : ''}{s.name}
+          </button>
+         );
+        })}
+       </div>
+      </div>
+     </div>
+
+     <div style={{display:'flex',alignItems:'stretch',gap:8,flexWrap:'wrap'}}>
+      <label style={{display:'flex',flexDirection:'column',gap:4,fontSize:11,fontWeight:700,color:'#4e5968',minWidth:185}}>
+       적용 대상 교재
+       <select
+        aria-label="일괄 적용 대상 교재"
+        value={bulkBookTarget}
+        onChange={e => setBulkBookTarget(e.target.value)}
+        style={{
+         height:36,
+         padding:'0 10px',
+         fontSize:12,
+         fontWeight:600,
+         borderRadius:8,
+         border:'1px solid #e5e8eb',
+         background:'#f9fafb',
+         color:'#191f28',
+        }}
+       >
+        <option value="__primary__">각 학생의 주력 교재 (1순위)</option>
+        {availableBulkBookTitles.map(title => (
+         <option key={title} value={`title:${title}`}>
+          교재명 지정: {title}
+         </option>
+        ))}
+        <option value="__print__">프린트 · 유인물 (개별·보충)</option>
+       </select>
+      </label>
+
+      <label style={{display:'flex',flexDirection:'column',gap:4,fontSize:11,fontWeight:700,color:'#4e5968',flex:1,minWidth:210}}>
+       오늘 수업 진도 범위
+       <input
+        type="text"
+        aria-label="일괄 오늘 수업 진도 범위"
+        value={bulkScopeText}
+        onChange={e => setBulkScopeText(e.target.value)}
+        placeholder="예: 이차방정식의 활용 p.72~78"
+        style={{
+         height:36,
+         padding:'0 12px',
+         fontSize:12.5,
+         borderRadius:8,
+         border:'1px solid #e5e8eb',
+         background:'#f9fafb',
+         color:'#191f28',
+        }}
+       />
+      </label>
+
+      <label style={{display:'flex',flexDirection:'column',gap:4,fontSize:11,fontWeight:700,color:'#4e5968',flex:1,minWidth:210}}>
+       부여된 다음 과제
+       <input
+        type="text"
+        aria-label="일괄 부여된 다음 과제"
+        value={bulkHomeworkText}
+        onChange={e => setBulkHomeworkText(e.target.value)}
+        placeholder="예: 유형 익히기 p.79~83 풀어오기"
+        style={{
+         height:36,
+         padding:'0 12px',
+         fontSize:12.5,
+         borderRadius:8,
+         border:'1px solid #e5e8eb',
+         background:'#f9fafb',
+         color:'#191f28',
+        }}
+       />
+      </label>
+
+      <div style={{display:'flex',alignItems:'flex-end',gap:6}}>
+       <button
+        type="button"
+        disabled={exporting || bulkFeedbackTargets.length === 0 || (!bulkScopeText.trim() && !bulkHomeworkText.trim())}
+        onClick={() => {
+         const patch: { scope?: string; homework?: string } = {};
+         if (bulkScopeText.trim()) patch.scope = bulkScopeText;
+         if (bulkHomeworkText.trim()) patch.homework = bulkHomeworkText;
+         handleBulkEditProgress(end, patch, bulkFeedbackTargets, bulkBookTarget);
+        }}
+        style={{
+         display:'inline-flex',
+         alignItems:'center',
+         justifyContent:'center',
+         gap:6,
+         height:36,
+         padding:'0 16px',
+         borderRadius:8,
+         border:0,
+         background:bulkFeedbackTargets.length > 0 && (bulkScopeText.trim() || bulkHomeworkText.trim()) ? '#3182f6' : '#d1d6db',
+         color:'#ffffff',
+         fontSize:12,
+         fontWeight:700,
+         cursor:bulkFeedbackTargets.length > 0 && (bulkScopeText.trim() || bulkHomeworkText.trim()) ? 'pointer' : 'default',
+         whiteSpace:'nowrap',
+        }}
+       >
+        <Check size={14}/> 진도·과제 일괄 적용 ({bulkFeedbackTargets.length})
+       </button>
+      </div>
+     </div>
+    </section>
+   )}
 
    {/* 다중 학생 선택 시 피드백 코멘트 일괄 작성 · 적용 바 */}
    {students.length > 1 && showBulkFeedbackBar && (
@@ -2594,7 +2956,15 @@ export default function NewReportPage(){
      >
       <div style={{ '--preview-scale': 1.15, width: pageWidth * 1.15 } as CSSProperties}>
        <div style={{ zoom: 1.15 } as CSSProperties}>
-        <ReportSheets preview={activeReport} template={template} onEditFeedback={handleEditFeedback} onEditHeader={handleEditHeader} onEditProgress={handleEditProgress}/>
+        <ReportSheets
+         preview={activeReport}
+         template={template}
+         onEditFeedback={handleEditFeedback}
+         onBulkEditFeedback={(dateStr, memoText) => handleBulkEditFeedback(dateStr, memoText)}
+         bulkTargetCount={bulkFeedbackTargets.length || students.length}
+         onEditHeader={handleEditHeader}
+         onEditProgress={handleEditProgress}
+        />
        </div>
       </div>
      </div>
